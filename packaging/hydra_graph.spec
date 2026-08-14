@@ -6,7 +6,7 @@ from PyInstaller.utils.hooks import collect_all
 datas = []
 binaries = []
 hiddenimports = []
-for package in ("fastapi", "mcp", "pydantic", "uvicorn"):
+for package in ("fastapi", "mcp", "pydantic", "rfc3987_syntax", "uvicorn"):
     package_datas, package_binaries, package_hidden = collect_all(
         package,
         filter_submodules=(

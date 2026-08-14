@@ -65,6 +65,11 @@ jobs:
           npm audit --audit-level=high
       - name: Build managed service
         run: python -m PyInstaller --noconfirm --clean packaging/hydra_graph.spec
+      - name: Smoke-test managed service
+        run: >-
+          python packaging/smoke_managed.py
+          --bundle dist/hydra-graph
+          --target ${{ matrix.target }}
       - name: Require release signing secrets
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
