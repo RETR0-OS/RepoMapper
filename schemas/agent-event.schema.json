@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hack-hydra.local/schemas/agent-event.schema.json",
+  "title": "Hack Hydra Observable Agent Event",
+  "type": "object",
+  "required": ["event_id", "session_id", "timestamp", "type", "revision_id", "entity_ids", "relationship_ids"],
+  "properties": {
+    "event_id": { "type": "string", "minLength": 1 },
+    "session_id": { "type": "string", "minLength": 1 },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "type": {
+      "enum": [
+        "session_started", "query_started", "hydradb_result_returned",
+        "path_replay_started", "path_hop_replayed", "context_selected",
+        "evidence_opened", "user_context_pinned", "workspace_entity_changed",
+        "hydradb_sync_started", "hydradb_revision_ready", "lens_drift_detected",
+        "session_completed"
+      ]
+    },
+    "revision_id": { "type": "string", "minLength": 1 },
+    "view_id": { "type": ["string", "null"] },
+    "entity_ids": { "type": "array", "items": { "type": "string" } },
+    "relationship_ids": { "type": "array", "items": { "type": "string" } },
+    "hydradb_query_metadata": { "type": ["object", "null"] }
+  },
+  "additionalProperties": false
+}
