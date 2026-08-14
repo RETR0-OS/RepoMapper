@@ -107,9 +107,10 @@ def test_health_root_fingerprint_resolves_repository_symlink(tmp_path: Path) -> 
     canonical_health = canonical.get("/health").json()
     alias_health = through_alias.get("/health").json()
 
-    assert alias_health["repository_root_fingerprint"] == canonical_health[
-        "repository_root_fingerprint"
-    ]
+    assert (
+        alias_health["repository_root_fingerprint"]
+        == canonical_health["repository_root_fingerprint"]
+    )
     assert str(repository) not in alias_health.values()
     assert str(alias) not in alias_health.values()
 
