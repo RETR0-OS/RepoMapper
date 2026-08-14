@@ -25,3 +25,4 @@ extension/out/
 dist/
 build/
 .hydra-graph/
+artifacts/
