@@ -2,6 +2,8 @@
 
 Hydra Repository Map is a VS Code observability tool for agentic coding. It turns concrete repository structure into deterministic Graph IR, stores source cards and exact BYOG relations in HydraDB, and shows the same bounded HydraDB results to programmers and coding agents.
 
+For the complete human guide, start with the [documentation index](docs/README.md).
+
 The central rule is strict: production retrieval comes from HydraDB. The analyzer prepares upload data; it is not a hidden local query fallback.
 
 ## What is included
@@ -44,10 +46,10 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
 
-Push-Location .\extension
+cd .\extension
 npm install
 npm run build
-Pop-Location
+cd ..
 ```
 
 The service reads process environment variables. [.env.example](.env.example) is a reference; it is not loaded automatically.
