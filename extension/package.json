@@ -18,7 +18,8 @@
   ],
   "activationEvents": [
     "onView:hydra.currentSymbol",
-    "onCommand:hydra.openRepositoryMap"
+    "onCommand:hydra.openRepositoryMap",
+    "onUri"
   ],
   "main": "./dist/extension.js",
   "scripts": {
@@ -91,6 +92,11 @@
       {
         "command": "hydra.setup",
         "title": "Set Up Repository Map",
+        "category": "Repository Map"
+      },
+      {
+        "command": "hydra.configureAgents",
+        "title": "Configure Agents",
         "category": "Repository Map"
       },
       {

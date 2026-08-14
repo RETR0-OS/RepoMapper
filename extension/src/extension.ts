@@ -1,4 +1,10 @@
 import * as vscode from "vscode";
+import {
+  agentRegistrations,
+  detectAgentRegistrations,
+  formatRegistration,
+  registerAgent
+} from "./agentSetup.js";
 import { RepositoryMapCodeLensProvider } from "./codeLensProvider.js";
 import { CredentialVault } from "./credentials.js";
 import { captureEditorFocus, focusedViewRequest, type FocusAction } from "./editorFocus.js";
@@ -294,7 +300,71 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       "Later"
     );
     if (next === "Preview initial index") await vscode.commands.executeCommand("hydra.indexRepository");
+    const agents = await vscode.window.showInformationMessage(
+      "Optionally connect Repository Map to installed coding agents through read-only OAuth.",
+      "Configure agents",
+      "Later"
+    );
+    if (agents === "Configure agents") await vscode.commands.executeCommand("hydra.configureAgents");
     await panel.refresh();
+  };
+  const configureAgents = async (): Promise<void> => {
+    if (!runtime || !project) {
+      void vscode.window.showWarningMessage("Open a local project folder before configuring coding agents.");
+      return;
+    }
+    try {
+      const registrations = agentRegistrations(await runtime.mcpUrl());
+      const detected = await vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification,
+        title: "Detecting installed coding agents…",
+        cancellable: false
+      }, () => detectAgentRegistrations(registrations, project.repositoryRoot));
+      if (!detected.length) {
+        void vscode.window.showInformationMessage("Codex and Claude Code were not found on this machine.");
+        return;
+      }
+      const selected = await vscode.window.showQuickPick(
+        detected.map((registration) => ({
+          label: registration.label,
+          description: "Streamable HTTP with OAuth",
+          detail: formatRegistration(registration),
+          registration,
+          picked: true
+        })),
+        {
+          title: "Configure Repository Map agents",
+          placeHolder: "Choose the installed clients to configure",
+          canPickMany: true,
+          ignoreFocusOut: true
+        }
+      );
+      if (!selected?.length) return;
+      const commands = selected.map((item) => formatRegistration(item.registration)).join("\n");
+      const confirm = await vscode.window.showInformationMessage(
+        `Register Repository Map with ${selected.map((item) => item.label).join(" and ")}?`,
+        {
+          modal: true,
+          detail: `The extension will run exactly:\n${commands}\n\nOnly the loopback MCP URL is stored. Each client must complete read-only OAuth while VS Code is open.`
+        },
+        "Run registration"
+      );
+      if (confirm !== "Run registration") return;
+      await vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification,
+        title: "Registering Repository Map with coding agents…",
+        cancellable: false
+      }, async () => {
+        for (const item of selected) await registerAgent(item.registration, project.repositoryRoot);
+      });
+      void vscode.window.showInformationMessage(
+        "Repository Map was registered. Approve the native read-only consent prompt when an agent first connects."
+      );
+    } catch (error) {
+      void vscode.window.showErrorMessage(
+        `Agent setup could not complete. ${error instanceof Error ? error.message : "Unknown agent setup error."}`
+      );
+    }
   };
   const showFocused = async (action: FocusAction): Promise<void> => {
     const editor = vscode.window.activeTextEditor;
@@ -377,6 +447,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ["hydra.setup", async () => {
       await setupProject();
     }],
+    ["hydra.configureAgents", async () => {
+      await configureAgents();
+    }],
     ["hydra.replaceApiKey", async () => {
       await replaceProfileKey(credentialVault);
       await panel.refresh();
@@ -395,6 +468,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     sidebar,
     panel,
     ...(runtime ? [runtime] : []),
+    ...(runtime ? [vscode.window.registerUriHandler(runtime)] : []),
     vscode.languages.registerCodeLensProvider({ scheme: "file" }, new RepositoryMapCodeLensProvider())
   );
   if (project && !credentialVault.hasProjectBinding(project.repositoryId)) {

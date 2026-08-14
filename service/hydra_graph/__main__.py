@@ -108,6 +108,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         from .api import create_app, create_container
         from .config import HydraDBConfig
         from .managed import ManagedCredentialProvider, ManagedIpc
+        from .mcp_oauth import ManagedOAuthProvider
         from .security import ManagedSecurity
 
         channel, start = ManagedIpc.bootstrap(sys.stdin, sys.stdout)
@@ -125,19 +126,29 @@ def main(argv: Sequence[str] | None = None) -> int:
             repository_root=start.repository_root,
             credential_provider=provider,
         )
+        port = getattr(args, "port", 8765)
+        issuer_url = f"http://127.0.0.1:{port}"
+        oauth_provider = ManagedOAuthProvider(
+            channel,
+            repository_root=start.repository_root,
+            repository_id=start.repository_id,
+            issuer_url=issuer_url,
+        )
         managed_app = create_app(
             container,
             managed_security=ManagedSecurity(start.control_key),
+            mcp_oauth_provider=oauth_provider,
+            mcp_issuer_url=issuer_url,
         )
         channel.notify(
             "service_ready",
-            port=getattr(args, "port", 8765),
+            port=port,
             repository_id=start.repository_id,
         )
         uvicorn.run(
             managed_app,
             host="127.0.0.1",
-            port=getattr(args, "port", 8765),
+            port=port,
         )
         return 0
 

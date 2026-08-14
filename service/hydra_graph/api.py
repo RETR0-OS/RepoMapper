@@ -318,13 +318,19 @@ def create_app(
     container: ServiceContainer | None = None,
     *,
     managed_security: ManagedSecurity | None = None,
+    mcp_oauth_provider: Any | None = None,
+    mcp_issuer_url: str | None = None,
 ) -> FastAPI:
     services = container or create_container()
     if services.observe_sessions is None:
         services.observe_sessions = ObserveSessions(services.events)
     from .mcp_server import create_mcp_server
 
-    mcp_server = create_mcp_server(services)
+    mcp_server = create_mcp_server(
+        services,
+        oauth_provider=mcp_oauth_provider,
+        issuer_url=mcp_issuer_url,
+    )
     mcp_app = mcp_server.streamable_http_app()
 
     @asynccontextmanager
@@ -365,7 +371,18 @@ def create_app(
                     return JSONResponse(
                         status_code=400, content={"detail": "Content-Length is invalid."}
                     )
-            if request.url.path in {"/version", "/managed/challenge"}:
+            oauth_paths = {
+                "/mcp",
+                "/authorize",
+                "/token",
+                "/register",
+                "/revoke",
+                "/.well-known/oauth-authorization-server",
+                "/.well-known/oauth-protected-resource/mcp",
+            }
+            if request.url.path in {"/version", "/managed/challenge"} or (
+                mcp_oauth_provider is not None and request.url.path in oauth_paths
+            ):
                 return await call_next(request)
             try:
                 grant = managed_security.authorize(request.headers.get("authorization"))
@@ -744,6 +761,10 @@ def create_app(
                 detail="Observe event history has a gap; restart the session.",
             ) from exc
 
+    @app.post("/api/events", include_in_schema=False)
+    def raw_event_write_is_forbidden() -> None:
+        raise HTTPException(status_code=405, detail="Raw event writes are not allowed.")
+
     @app.get("/api/events/stream")
     def event_stream() -> StreamingResponse:
         scoped_events = services.events
@@ -830,7 +851,7 @@ def create_app(
         except (OSError, ValueError) as exc:
             raise HTTPException(status_code=409, detail="Shared lens update refused.") from exc
 
-    app.mount("/mcp", mcp_app, name="mcp")
+    app.mount("/", mcp_app, name="mcp")
     return app
 
 

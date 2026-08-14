@@ -92,4 +92,18 @@ describe("CredentialVault", () => {
     expect(first.control_key).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(JSON.stringify([...state.values])).not.toContain(first.control_key);
   });
+
+  it("keeps OAuth clients and rotating grants only in secret storage", async () => {
+    const secrets = new MemorySecrets();
+    const state = new MemoryState();
+    const vault = new CredentialVault(secrets, state);
+    const key = `access/${"a".repeat(64)}`;
+    const record = JSON.stringify({ access_token: "opaque-agent-token" });
+
+    await vault.writeOAuthRecord(key, record);
+    expect(await vault.readOAuthRecord(key)).toBe(record);
+    expect(JSON.stringify([...state.values])).not.toContain("opaque-agent-token");
+    await vault.deleteOAuthRecord(key);
+    expect(await vault.readOAuthRecord(key)).toBeUndefined();
+  });
 });

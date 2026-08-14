@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { promises as fs } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
@@ -10,6 +10,8 @@ import {
   createProjectAttachment,
   credentialErrorResponse,
   credentialResponse,
+  managedErrorResponse,
+  managedResponse,
   MANAGED_SERVICE_PROTOCOL,
   parseManagedServiceLine,
   serviceStartMessage,
@@ -35,7 +37,7 @@ interface RuntimeManifest {
   targets: Record<string, { path: string; sha256: string }>;
 }
 
-export class ManagedRuntime implements vscode.Disposable {
+export class ManagedRuntime implements vscode.Disposable, vscode.UriHandler {
   private session: ManagedSession | undefined;
   private child: ChildProcessWithoutNullStreams | undefined;
   private ownerHandle: FileHandle | undefined;
@@ -43,6 +45,11 @@ export class ManagedRuntime implements vscode.Disposable {
   private starting: Promise<ManagedSession> | undefined;
   private disposed = false;
   private stdoutBuffer = "";
+  private readonly pendingConsents = new Map<string, {
+    message: Extract<ManagedServiceMessage, { type: "oauth_consent" }>;
+    resolve: (approved: boolean) => void;
+    timer: NodeJS.Timeout;
+  }>();
   private readonly output = vscode.window.createOutputChannel("Repository Map Service", { log: true });
 
   public constructor(
@@ -68,6 +75,34 @@ export class ManagedRuntime implements vscode.Disposable {
     });
   }
 
+  public async mcpUrl(): Promise<string> {
+    if (this.developerServiceUrl()) {
+      throw new Error("Automatic agent setup is unavailable in developer service mode.");
+    }
+    return `${(await this.ensureReady()).baseUrl}/mcp`;
+  }
+
+  public async handleUri(uri: vscode.Uri): Promise<void> {
+    if (uri.authority !== "hack-hydra.hydra-repository-observability" || uri.path !== "/oauth-consent") return;
+    const requestId = new URLSearchParams(uri.query).get("request");
+    if (!requestId || !/^[0-9a-f-]{36}$/i.test(requestId)) return;
+    const pending = this.pendingConsents.get(requestId);
+    if (!pending) return;
+    this.pendingConsents.delete(requestId);
+    clearTimeout(pending.timer);
+    const message = pending.message;
+    const approved = message.repository_id === this.project.repositoryId
+      && await vscode.window.showInformationMessage(
+        `${message.client_name} wants read-only Repository Map access to ${this.project.projectName}.`,
+        {
+          modal: true,
+          detail: `Requested scopes: ${message.scopes.join(", ")}. This does not reveal HydraDB credentials or allow indexing writes.`
+        },
+        "Allow read-only access"
+      ) === "Allow read-only access";
+    pending.resolve(approved);
+  }
+
   public async ensureReady(): Promise<ManagedSession> {
     if (this.disposed) throw new Error("Repository Map service runtime is closed.");
     const now = Math.floor(Date.now() / 1_000);
@@ -88,6 +123,11 @@ export class ManagedRuntime implements vscode.Disposable {
       this.child.kill();
     }
     this.child = undefined;
+    for (const pending of this.pendingConsents.values()) {
+      clearTimeout(pending.timer);
+      pending.resolve(false);
+    }
+    this.pendingConsents.clear();
     void this.releaseOwnerLock();
     this.output.dispose();
   }
@@ -198,7 +238,55 @@ export class ManagedRuntime implements vscode.Disposable {
     }
     if (message.type === "credential_request" || message.type === "credential_status") {
       await this.handleCredentialRequest(message);
+      return;
     }
+    if (message.type === "oauth_get" || message.type === "oauth_put" || message.type === "oauth_delete") {
+      try {
+        if (message.type === "oauth_get") {
+          const value = await this.vault.readOAuthRecord(message.key);
+          this.writeToService(managedResponse(message.request_id, { value: value ?? null }));
+        } else if (message.type === "oauth_put" && message.value !== undefined) {
+          await this.vault.writeOAuthRecord(message.key, message.value);
+          this.writeToService(managedResponse(message.request_id));
+        } else {
+          await this.vault.deleteOAuthRecord(message.key);
+          this.writeToService(managedResponse(message.request_id));
+        }
+      } catch {
+        this.writeToService(managedErrorResponse(message.request_id));
+      }
+      return;
+    }
+    if (message.type === "oauth_consent") {
+      const approved = await this.requestOAuthConsent(message);
+      this.writeToService(managedResponse(message.request_id, { approved }));
+    }
+  }
+
+  private async requestOAuthConsent(
+    message: Extract<ManagedServiceMessage, { type: "oauth_consent" }>
+  ): Promise<boolean> {
+    const requestId = randomUUID();
+    return await new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingConsents.delete(requestId);
+        resolve(false);
+      }, 120_000);
+      this.pendingConsents.set(requestId, { message, resolve, timer });
+      const uri = vscode.Uri.parse(
+        `${vscode.env.uriScheme}://hack-hydra.hydra-repository-observability/oauth-consent?request=${requestId}`
+      );
+      void vscode.env.openExternal(uri).then((opened) => {
+        if (opened) return;
+        clearTimeout(timer);
+        this.pendingConsents.delete(requestId);
+        resolve(false);
+      }, () => {
+        clearTimeout(timer);
+        this.pendingConsents.delete(requestId);
+        resolve(false);
+      });
+    });
   }
 
   private async handleCredentialRequest(request: CredentialRequest): Promise<void> {

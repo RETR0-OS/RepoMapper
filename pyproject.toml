@@ -9,7 +9,7 @@ description = "Deterministic repository graph service for Hack Hydra"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.140,<1",
-  "mcp>=1.29,<3",
+  "mcp>=1.29,<2",
   "pydantic>=2.10,<3",
   "pathspec>=0.12,<1",
   "uvicorn>=0.50,<1",

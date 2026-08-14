@@ -27,7 +27,24 @@ export interface CredentialRequest {
   repository_id: string;
 }
 
-export type ManagedServiceMessage = ServiceHello | ServiceReady | CredentialRequest;
+export interface OAuthStoreRequest {
+  protocol: typeof MANAGED_IPC_PROTOCOL;
+  type: "oauth_get" | "oauth_put" | "oauth_delete";
+  request_id: string;
+  key: string;
+  value?: string;
+}
+
+export interface OAuthConsentRequest {
+  protocol: typeof MANAGED_IPC_PROTOCOL;
+  type: "oauth_consent";
+  request_id: string;
+  client_name: string;
+  repository_id: string;
+  scopes: string[];
+}
+
+export type ManagedServiceMessage = ServiceHello | ServiceReady | CredentialRequest | OAuthStoreRequest | OAuthConsentRequest;
 
 export interface ProjectAttachment {
   repository_root: string;
@@ -61,6 +78,18 @@ export function parseManagedServiceLine(line: string): ManagedServiceMessage {
   if ((value.type === "credential_request" || value.type === "credential_status")
     && validRequestId(value.request_id) && typeof value.repository_id === "string") {
     return value as unknown as CredentialRequest;
+  }
+  if ((value.type === "oauth_get" || value.type === "oauth_put" || value.type === "oauth_delete")
+    && validRequestId(value.request_id) && validOAuthKey(value.key)
+    && (value.type !== "oauth_put" || (typeof value.value === "string" && value.value.length <= 24_000))) {
+    return value as unknown as OAuthStoreRequest;
+  }
+  if (value.type === "oauth_consent" && validRequestId(value.request_id)
+    && typeof value.client_name === "string" && value.client_name.length >= 1 && value.client_name.length <= 200
+    && typeof value.repository_id === "string" && Array.isArray(value.scopes)
+    && value.scopes.length >= 1 && value.scopes.length <= 8
+    && value.scopes.every((scope) => typeof scope === "string" && /^[a-z]+:[a-z-]+$/.test(scope))) {
+    return value as unknown as OAuthConsentRequest;
   }
   throw new Error("Managed service returned an unsupported message.");
 }
@@ -117,6 +146,27 @@ export function credentialErrorResponse(request: CredentialRequest): string {
   });
 }
 
+export function managedResponse(requestId: string, payload: Record<string, unknown> = {}): string {
+  if (!validRequestId(requestId)) throw new Error("Managed response request ID is invalid.");
+  return frame({
+    protocol: MANAGED_IPC_PROTOCOL,
+    type: "response",
+    request_id: requestId,
+    ok: true,
+    ...payload
+  });
+}
+
+export function managedErrorResponse(requestId: string): string {
+  if (!validRequestId(requestId)) throw new Error("Managed response request ID is invalid.");
+  return frame({
+    protocol: MANAGED_IPC_PROTOCOL,
+    type: "response",
+    request_id: requestId,
+    ok: false
+  });
+}
+
 export function createProjectAttachment(
   controlKey: string,
   scope: RepositoryScope,
@@ -153,4 +203,8 @@ function validPort(value: unknown): boolean {
 
 function validRequestId(value: unknown): boolean {
   return typeof value === "string" && /^[0-9a-f]{32}$/i.test(value);
+}
+
+function validOAuthKey(value: unknown): boolean {
+  return typeof value === "string" && /^[a-z]+\/[A-Za-z0-9_-]{16,128}$/.test(value);
 }

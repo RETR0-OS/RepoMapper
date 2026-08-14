@@ -5,6 +5,7 @@ const BINDING_INDEX_KEY = "hydra.credentials.bindings.v1";
 const INSTALLATION_KEY = "hydra.credentials.installation.v1";
 const PROFILE_PREFIX = "hydra.credentials.profile.v1.";
 const BINDING_PREFIX = "hydra.credentials.binding.v1.";
+const OAUTH_PREFIX = "hydra.oauth.v1.";
 
 export interface SecretStore {
   get(key: string): Thenable<string | undefined>;
@@ -149,6 +150,24 @@ export class CredentialVault {
     return created;
   }
 
+  public async readOAuthRecord(key: string): Promise<string | undefined> {
+    requireOAuthKey(key);
+    return this.secrets.get(`${OAUTH_PREFIX}${key}`);
+  }
+
+  public async writeOAuthRecord(key: string, value: string): Promise<void> {
+    requireOAuthKey(key);
+    if (!value || value.length > 24_000 || /[\u0000]/.test(value)) {
+      throw new Error("OAuth grant record is invalid.");
+    }
+    await this.secrets.store(`${OAUTH_PREFIX}${key}`, value);
+  }
+
+  public async deleteOAuthRecord(key: string): Promise<void> {
+    requireOAuthKey(key);
+    await this.secrets.delete(`${OAUTH_PREFIX}${key}`);
+  }
+
   private listBindings(): ProjectBindingSummary[] {
     const value = this.state.get<unknown>(BINDING_INDEX_KEY, []);
     if (!Array.isArray(value)) return [];
@@ -243,4 +262,10 @@ function requireRepositoryId(value: string): void {
 
 function validRepositoryId(value: unknown): value is string {
   return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value);
+}
+
+function requireOAuthKey(value: string): void {
+  if (!/^[a-z]+\/[A-Za-z0-9_-]{16,128}$/.test(value)) {
+    throw new Error("OAuth grant key is invalid.");
+  }
 }

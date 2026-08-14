@@ -5,6 +5,11 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
+from mcp.server.auth.settings import (
+    AuthSettings,
+    ClientRegistrationOptions,
+    RevocationOptions,
+)
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
@@ -12,11 +17,37 @@ from .query import QUERY_RESPONSE_SCHEMA, QueryRequest
 from .views import ViewDepth, ViewMode, build_product_view
 
 
-def create_mcp_server(services: Any | None = None) -> FastMCP:
+def create_mcp_server(
+    services: Any | None = None,
+    *,
+    oauth_provider: Any | None = None,
+    issuer_url: str | None = None,
+) -> FastMCP:
     if services is None:
         from .api import create_container
 
         services = create_container()
+    oauth_options: dict[str, Any] = {}
+    if oauth_provider is not None:
+        if issuer_url is None:
+            raise ValueError("OAuth issuer URL is required")
+        from .mcp_oauth import READ_ONLY_SCOPES
+
+        oauth_options = {
+            "auth_server_provider": oauth_provider,
+            "auth": AuthSettings(
+                issuer_url=issuer_url,
+                resource_server_url=f"{issuer_url.rstrip('/')}/mcp",
+                required_scopes=[READ_ONLY_SCOPES[0]],
+                client_registration_options=ClientRegistrationOptions(
+                    enabled=True,
+                    client_secret_expiry_seconds=86_400,
+                    valid_scopes=list(READ_ONLY_SCOPES),
+                    default_scopes=list(READ_ONLY_SCOPES),
+                ),
+                revocation_options=RevocationOptions(enabled=True),
+            ),
+        }
     server = FastMCP(
         "hack-hydra",
         instructions=(
@@ -24,7 +55,8 @@ def create_mcp_server(services: Any | None = None) -> FastMCP:
             "results, not hidden model reasoning. Empty unavailable results must not be replaced "
             "with local repository search."
         ),
-        streamable_http_path="/",
+        streamable_http_path="/mcp",
+        max_request_body_size=1_048_576,
         transport_security=TransportSecuritySettings(
             enable_dns_rebinding_protection=True,
             allowed_hosts=[
@@ -41,6 +73,7 @@ def create_mcp_server(services: Any | None = None) -> FastMCP:
                 "http://[::1]:*",
             ],
         ),
+        **oauth_options,
     )
 
     def remember(result: dict[str, Any], mode: ViewMode = ViewMode.TRACE) -> None:
