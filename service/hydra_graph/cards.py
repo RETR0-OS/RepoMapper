@@ -27,6 +27,7 @@ MAX_ENTITY_NAME = 256
 MAX_PREDICATE = 256
 MAX_RELATION_CONTEXT = 2_000
 MAX_CODE_EXCERPT_CHARS = 12_000
+RELATION_EVIDENCE_SCHEMA = "hack-hydra.relation-evidence.v1"
 
 
 class HydraEntity(FrozenModel):
@@ -123,8 +124,44 @@ def _relation_context(edge: GraphEdge, nodes: dict[str, GraphNode]) -> str:
     location = evidence.path
     if evidence.start_line is not None:
         location += f":{evidence.start_line}"
-    context = f"{source} {edge.predicate.value.lower()} {target} at {location}."
-    return context[:MAX_RELATION_CONTEXT]
+    summary = f"{source} {edge.predicate.value.lower()} {target} at {location}."
+    envelope = {
+        "schema": RELATION_EVIDENCE_SCHEMA,
+        "summary": summary,
+        "edge_id": edge.id,
+        "quality": edge.quality.value,
+        "extractor": edge.extractor,
+        "extractor_version": edge.extractor_version,
+        "evidence": evidence.model_dump(mode="json", exclude_none=True),
+    }
+
+    def encode(candidate_summary: str) -> str:
+        envelope["summary"] = candidate_summary
+        return json.dumps(envelope, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+
+    context = encode(summary)
+    if len(context) <= MAX_RELATION_CONTEXT:
+        return context
+
+    # Preserve the original evidence exactly. Only the human-readable duplicate
+    # summary may be shortened to meet HydraDB's hard relation-context limit.
+    suffix = "…"
+    low, high = 1, len(summary)
+    fitted: str | None = None
+    while low <= high:
+        midpoint = (low + high) // 2
+        candidate = encode(summary[:midpoint].rstrip() + suffix)
+        if len(candidate) <= MAX_RELATION_CONTEXT:
+            fitted = candidate
+            low = midpoint + 1
+        else:
+            high = midpoint - 1
+    if fitted is None:
+        raise ValueError(
+            f"relation evidence envelope for edge {edge.id} cannot fit HydraDB's "
+            f"{MAX_RELATION_CONTEXT}-character context limit"
+        )
+    return fitted
 
 
 def _source_graph(

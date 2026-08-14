@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 from hydra_graph.analyzer import analyze_repository
 from hydra_graph.cards import (
     MAX_RELATIONS_PER_ENTITY,
+    RELATION_EVIDENCE_SCHEMA,
     HydraEntity,
     HydraRelation,
     HydraSourceGraph,
@@ -65,6 +67,48 @@ def test_every_exact_relation_has_one_canonical_byog_owner() -> None:
 
     assert sorted(emitted) == sorted(expected)
     assert len(emitted) == len(set(emitted))
+
+
+def test_byog_relation_context_round_trips_original_edge_evidence() -> None:
+    graph = analyze_repository(FIXTURE, repository_id="sample", revision_id="r1")
+    cards = build_source_cards(graph, FIXTURE)
+    envelopes = {
+        payload["edge_id"]: payload
+        for card in cards
+        for relation in card.graph.relations
+        for payload in (json.loads(relation.context or "{}"),)
+    }
+
+    assert set(envelopes) == {edge.id for edge in graph.edges}
+    for edge in graph.edges:
+        envelope = envelopes[edge.id]
+        assert envelope["schema"] == RELATION_EVIDENCE_SCHEMA
+        assert envelope["summary"]
+        assert envelope["quality"] == "exact"
+        assert envelope["extractor"] == edge.extractor
+        assert envelope["extractor_version"] == edge.extractor_version
+        assert envelope["evidence"] == edge.evidence[0].model_dump(
+            mode="json", exclude_none=True
+        )
+        serialized = json.dumps(
+            envelope, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+        )
+        assert len(serialized) <= 2_000
+
+
+def test_byog_relation_context_refuses_to_truncate_exact_evidence() -> None:
+    graph = analyze_repository(FIXTURE, repository_id="sample", revision_id="r1")
+    original = graph.edges[0]
+    oversized_evidence = original.evidence[0].model_copy(
+        update={"explanation": "x" * 2_000}
+    )
+    oversized_edge = original.model_copy(update={"evidence": (oversized_evidence,)})
+    oversized_graph = graph.model_copy(
+        update={"edges": (oversized_edge, *graph.edges[1:])}
+    )
+
+    with pytest.raises(ValueError, match="cannot fit HydraDB"):
+        build_source_cards(oversized_graph, FIXTURE)
 
 
 def test_byog_shape_uses_source_ids_and_globally_unambiguous_names() -> None:
