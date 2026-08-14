@@ -85,7 +85,7 @@ jobs:
         shell: pwsh
         run: >-
           ./packaging/sign_windows.ps1
-          -Executable "dist/hydra-graph/${{ matrix.executable }}"
+          -Bundle "dist/hydra-graph"
           -CertificateBase64 '${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}'
           -CertificatePassword '${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}'
       - name: Sign and notarize macOS service
@@ -95,7 +95,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
-        run: bash packaging/sign_macos.sh "dist/hydra-graph/${{ matrix.executable }}"
+        run: bash packaging/sign_macos.sh "dist/hydra-graph"
       - name: Stage managed service
         run: >-
           python packaging/stage_service.py
