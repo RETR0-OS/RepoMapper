@@ -13,6 +13,8 @@ from .evolution import (
     ChangeKind,
     ChangeNode,
     ChangeRelation,
+    LensDrift,
+    LensDriftKind,
     LensEntity,
     LensHop,
     RevisionEvidence,
@@ -21,6 +23,7 @@ from .evolution import (
     build_change_event_cards,
     build_system_lens,
     build_system_lens_card,
+    classify_lens_drift,
 )
 from .models import (
     Evidence,
@@ -53,6 +56,8 @@ __all__ = [
     "GraphNode",
     "NodeKind",
     "LensEntity",
+    "LensDrift",
+    "LensDriftKind",
     "LensHop",
     "PythonAnalyzer",
     "ProjectionDepth",
@@ -72,6 +77,7 @@ __all__ = [
     "build_source_cards",
     "build_system_lens",
     "build_system_lens_card",
+    "classify_lens_drift",
     "compare_graphs",
     "discover_files",
 ]

@@ -14,12 +14,14 @@ from hydra_graph.evolution import (
     ChangeEventPage,
     ChangeEventSummary,
     ChangeKind,
+    LensDriftKind,
     RelationQuality,
     SystemLensRecord,
     build_change_event,
     build_change_event_cards,
     build_system_lens,
     build_system_lens_card,
+    classify_lens_drift,
 )
 from hydra_graph.models import GraphIR, RelationPredicate
 
@@ -228,3 +230,96 @@ def test_system_lens_is_shared_exact_grounded_and_has_no_duplicate_byog(tmp_path
             anchor_node_ids=sorted(node_ids),
             edge_ids=[],
         )
+
+
+def test_lens_drift_classification_has_honest_precedence(tmp_path: Path) -> None:
+    (tmp_path / "flow.py").write_text(
+        "def third():\n    return 1\n\n"
+        "def second():\n    return third()\n\n"
+        "def first():\n    return second()\n",
+        encoding="utf-8",
+    )
+    graph = analyze_repository(tmp_path, repository_id="drift", revision_id="before")
+    calls = sorted(
+        (edge for edge in graph.edges if edge.predicate is RelationPredicate.CALLS),
+        key=lambda edge: edge.id,
+    )
+    returned_nodes = [
+        node.model_copy(
+            update={"attributes": {**node.attributes, "hydradb_origin": "repository-source-card"}}
+        )
+        for node in graph.nodes
+    ]
+    returned_edges = [
+        edge.model_copy(update={"attributes": {**edge.attributes, "hydradb_origin": "byog"}})
+        for edge in calls
+    ]
+    view = {
+        "view_id": "view_before",
+        "revision_id": "before",
+        "hydradb": {"available": True, "origin": "byog"},
+        "nodes": [node.model_dump(mode="json") for node in returned_nodes],
+        "edges": [edge.model_dump(mode="json") for edge in returned_edges],
+    }
+    first_edge = returned_edges[0]
+    saved = build_system_lens(
+        repository_id="drift",
+        name="Flow",
+        purpose="Track a grounded path.",
+        view=view,
+        anchor_node_ids=[first_edge.source_id, first_edge.target_id],
+        edge_ids=[first_edge.id],
+    )
+    current_view = {
+        **view,
+        "view_id": "view_after",
+        "revision_id": "after",
+        "nodes": [
+            {**node.model_dump(mode="json"), "revision_id": "after"}
+            for node in returned_nodes
+        ],
+        "edges": [
+            {**edge.model_dump(mode="json"), "revision_id": "after"}
+            for edge in returned_edges
+        ],
+    }
+    current = build_system_lens(
+        repository_id="drift",
+        name="Flow",
+        purpose="Track a grounded path.",
+        view=current_view,
+        anchor_node_ids=[first_edge.source_id, first_edge.target_id],
+        edge_ids=[edge.id for edge in returned_edges],
+    )
+
+    assert classify_lens_drift(saved, current).classification is LensDriftKind.PATH_EXTENDED
+    assert classify_lens_drift(current, saved).classification is LensDriftKind.PATH_SHORTENED
+    assert classify_lens_drift(saved, None).classification is LensDriftKind.UNRESOLVED
+    unchanged = saved.model_copy(update={"saved_revision_id": "after"})
+    assert classify_lens_drift(saved, unchanged).classification is LensDriftKind.UNCHANGED
+
+    replacement = current.baseline_hops[0].model_copy(
+        update={"edge_id": "edge_replacement", "predicate": RelationPredicate.REFERENCES}
+    )
+    changed = saved.model_copy(update={"baseline_hops": (replacement,)})
+    assert classify_lens_drift(saved, changed).classification is LensDriftKind.RELATION_CHANGED
+
+    test_hop = saved.baseline_hops[0].model_copy(
+        update={"edge_id": "edge_tests", "predicate": RelationPredicate.TESTS}
+    )
+    test_baseline = saved.model_copy(update={"baseline_hops": (test_hop,)})
+    assert (
+        classify_lens_drift(test_baseline, changed).classification
+        is LensDriftKind.TEST_COVERAGE_RELATION_CHANGED
+    )
+
+    other_edge = returned_edges[1]
+    other = build_system_lens(
+        repository_id="drift",
+        name="Flow",
+        purpose="Track a grounded path.",
+        view=current_view,
+        anchor_node_ids=[other_edge.source_id, other_edge.target_id],
+        edge_ids=[other_edge.id],
+    )
+    assert classify_lens_drift(saved, other).classification is LensDriftKind.ANCHOR_REMOVED

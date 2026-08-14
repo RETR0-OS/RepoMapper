@@ -60,6 +60,16 @@ class LensImpactStatus(StrEnum):
     EVALUATED = "evaluated"
 
 
+class LensDriftKind(StrEnum):
+    UNCHANGED = "unchanged"
+    PATH_EXTENDED = "path_extended"
+    PATH_SHORTENED = "path_shortened"
+    ANCHOR_REMOVED = "anchor_removed"
+    RELATION_CHANGED = "relation_changed"
+    TEST_COVERAGE_RELATION_CHANGED = "test_coverage_relation_changed"
+    UNRESOLVED = "unresolved"
+
+
 class RevisionEvidence(FrozenModel):
     revision_id: str = Field(min_length=1)
     evidence: Evidence
@@ -272,6 +282,18 @@ class SystemLensRecord(FrozenModel):
         ):
             raise ValueError("system lens hop references an unknown entity")
         return self
+
+
+class LensDrift(FrozenModel):
+    lens_id: str
+    repository_id: str
+    baseline_revision_id: str
+    current_revision_id: str | None = None
+    classification: LensDriftKind
+    added_hop_ids: tuple[str, ...] = ()
+    removed_hop_ids: tuple[str, ...] = ()
+    removed_anchor_node_ids: tuple[str, ...] = ()
+    explanation: str = Field(min_length=1, max_length=2000)
 
 
 def build_change_event(
@@ -604,6 +626,71 @@ def build_system_lens_card(lens: SystemLensRecord) -> SourceCard:
         # Re-storing baseline triples would create a second canonical owner.
         # Their complete exact evidence remains in the structured Knowledge.
         graph=HydraSourceGraph(entities={}, relations=()),
+    )
+
+
+def classify_lens_drift(
+    saved: SystemLensRecord,
+    current: SystemLensRecord | None,
+) -> LensDrift:
+    """Classify one refreshed exact path with explicit, deterministic precedence."""
+
+    if current is None:
+        return LensDrift(
+            lens_id=saved.lens_id,
+            repository_id=saved.repository_id,
+            baseline_revision_id=saved.saved_revision_id,
+            classification=LensDriftKind.UNRESOLVED,
+            explanation="HydraDB did not return a complete grounded current path.",
+        )
+    if current.lens_id != saved.lens_id or current.repository_id != saved.repository_id:
+        raise ValueError("cannot compare System Lens records with different identities")
+
+    saved_hops = {hop.edge_id: hop for hop in saved.baseline_hops}
+    current_hops = {hop.edge_id: hop for hop in current.baseline_hops}
+    added = tuple(sorted(set(current_hops).difference(saved_hops)))
+    removed = tuple(sorted(set(saved_hops).difference(current_hops)))
+    current_entities = {entity.node_id for entity in current.entities}
+    removed_anchors = tuple(
+        sorted(set(saved.anchor_node_ids).difference(current_entities))
+    )
+    if removed_anchors:
+        classification = LensDriftKind.ANCHOR_REMOVED
+        explanation = "One or more saved anchor entities are absent from the current path."
+    else:
+        changed_hops = [
+            hop
+            for hop_id in (*removed, *added)
+            for hop in (
+                saved_hops.get(hop_id) or current_hops.get(hop_id),
+            )
+            if hop is not None
+        ]
+        if any(hop.predicate is RelationPredicate.TESTS for hop in changed_hops):
+            classification = LensDriftKind.TEST_COVERAGE_RELATION_CHANGED
+            explanation = "An exact TESTS relationship changed in the saved path."
+        elif not added and not removed:
+            classification = LensDriftKind.UNCHANGED
+            explanation = "The grounded relation path is unchanged."
+        elif set(saved_hops).issubset(current_hops):
+            classification = LensDriftKind.PATH_EXTENDED
+            explanation = "The current path contains every saved hop plus new exact hops."
+        elif set(current_hops).issubset(saved_hops):
+            classification = LensDriftKind.PATH_SHORTENED
+            explanation = "The current path retains only a subset of the saved exact hops."
+        else:
+            classification = LensDriftKind.RELATION_CHANGED
+            explanation = "The current path replaced one or more saved relationships."
+    return LensDrift(
+        lens_id=saved.lens_id,
+        repository_id=saved.repository_id,
+        baseline_revision_id=saved.saved_revision_id,
+        current_revision_id=current.saved_revision_id,
+        classification=classification,
+        added_hop_ids=added,
+        removed_hop_ids=removed,
+        removed_anchor_node_ids=removed_anchors,
+        explanation=explanation,
     )
 
 
