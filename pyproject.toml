@@ -15,9 +15,13 @@ dependencies = [
   "uvicorn>=0.50,<1",
 ]
 
+[project.scripts]
+hydra-graph = "hydra_graph.__main__:main"
+
 [project.optional-dependencies]
 dev = [
   "httpx>=0.28,<1",
+  "jsonschema>=4.25,<5",
   "pytest>=8.3,<9",
   "pytest-cov>=6,<7",
   "ruff>=0.12,<1",
