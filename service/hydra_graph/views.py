@@ -270,9 +270,6 @@ def _entity_node(
     span = chunk.get("span") if isinstance(chunk.get("span"), Mapping) else None
     if kind not in {"REPOSITORY", "PACKAGE", "MODULE", "FILE"} and span is None:
         return None
-    predicate = relation.get("predicate") or relation.get("raw_predicate")
-    if not predicate:
-        return None
     candidate = {
         "id": entity_id,
         "logical_id": str(chunk.get("logical_id") or entity.get("logical_id") or entity_id),
@@ -332,6 +329,9 @@ def _relation_edge(
         extractor_version = "v2"
         stable_edge_id = relation_id
     confidence = None if quality == "exact" else relation.get("confidence")
+    predicate = relation.get("predicate") or relation.get("raw_predicate")
+    if not predicate:
+        return None
     candidate = {
         "id": stable_edge_id,
         "logical_id": stable_edge_id,

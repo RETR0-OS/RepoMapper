@@ -170,25 +170,23 @@ class HydraDBClient:
             body["metadata_filters"] = dict(metadata_filters)
         return self._call("POST", "/query", json_body=body)
 
-    def status(self, ids: Sequence[str], *, collection: str | None = None) -> JsonObject:
+    def status(self, ids: Sequence[str]) -> JsonObject:
         clean_ids = _clean_ids(ids)
         return self._call(
             "GET",
             "/context/status",
             query={
                 "database": self._database(),
-                "collection": collection or self.config.collection,
                 "ids": ",".join(clean_ids),
             },
         )
 
-    def delete(self, ids: Sequence[str], *, collection: str | None = None) -> JsonObject:
+    def delete(self, ids: Sequence[str]) -> JsonObject:
         return self._call(
             "DELETE",
             "/context",
             json_body={
                 "database": self._database(),
-                "collection": collection or self.config.collection,
                 "ids": _clean_ids(ids),
                 "type": "knowledge",
             },

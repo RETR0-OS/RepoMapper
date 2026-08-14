@@ -150,9 +150,16 @@ def test_status_delete_and_relations_stay_behind_v2_adapter() -> None:
     status, delete, relations = transport.requests
     assert status["method"] == "GET"
     assert status["url"].endswith("/context/status")
-    assert status["query"]["ids"] == "source-a,source-b"
+    assert status["query"] == {
+        "database": "repo_hack_hydra",
+        "ids": "source-a,source-b",
+    }
     assert delete["method"] == "DELETE"
-    assert delete["json_body"]["ids"] == ["source-a"]
+    assert delete["json_body"] == {
+        "database": "repo_hack_hydra",
+        "ids": ["source-a"],
+        "type": "knowledge",
+    }
     assert relations["url"].endswith("/context/relations")
     assert relations["query"]["limit"] == "25"
 
