@@ -3,6 +3,17 @@ import * as vscode from "vscode";
 import { createPreviewView } from "./previewData.js";
 import { formatLens, lensPreviewMatches, lensWriteIsReady, previewThenConfirm } from "./evolution.js";
 import { parseWebviewMessage } from "./messageValidation.js";
+import {
+  applyObserveEvents,
+  BoundedPoller,
+  createObserveWaitingView,
+  latestObserveViewReference,
+  ObserveEventLog,
+  observeRecordMatches,
+  observeSessionIsActive,
+  observeSessionWasCompleted,
+  verifiedObserveView
+} from "./observe.js";
 import { RepositoryServiceClient, ServiceError } from "./serviceClient.js";
 import { validateSourceRange } from "./sourceNavigation.js";
 import { groundedViewContext, reconcileHealthWithView, type GroundedViewContext } from "./statusState.js";
@@ -17,6 +28,7 @@ import type {
 } from "./types.js";
 import { compareViewContext, preserveViewContext } from "./viewContext.js";
 import { safeDisplayStateKey } from "./webview/graphState.js";
+import { unambiguousWorkspaceRoot, visibleNodeIdsForWorkspaceChange, workspaceRelativePathForChange } from "./workspaceChanges.js";
 
 export class GraphPanel implements vscode.Disposable {
   private panel: vscode.WebviewPanel | undefined;
@@ -27,15 +39,34 @@ export class GraphPanel implements vscode.Disposable {
   private pendingRequest: { type: "view" } | { type: "query"; question: string } | undefined;
   private viewContext: ViewRequestContext = {};
   private currentView: GraphView | undefined;
+  private observeBaseView: GraphView | undefined;
+  private observeSession: { sessionId: string; revisionId: string } | undefined;
+  private observeEventLog: ObserveEventLog | undefined;
+  private readonly observePoller = new BoundedPoller();
+  private readonly unavailableObserveViews = new Map<string, number>();
+  private observeMutationChain: Promise<void> = Promise.resolve();
+  private observeGeneration = 0;
+  private observeStartPromise: Promise<void> | undefined;
+  private observePollPromise: Promise<void> | undefined;
+  private observeMultiRootWarningShown = false;
   private health: ServiceHealth = { state: "unavailable" };
   private readonly disposables: vscode.Disposable[] = [];
 
   public constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly onHealthChanged: (health: ServiceHealth) => void
-  ) {}
+  ) {
+    const watcher = vscode.workspace.createFileSystemWatcher("**/*");
+    this.disposables.push(
+      watcher,
+      watcher.onDidCreate((uri) => void this.recordWorkspaceChange(uri)),
+      watcher.onDidChange((uri) => void this.recordWorkspaceChange(uri)),
+      watcher.onDidDelete((uri) => void this.recordWorkspaceChange(uri))
+    );
+  }
 
   public async show(mode: ViewMode = this.mode, question?: string): Promise<void> {
+    if (this.mode === "observe" && mode !== "observe") await this.stopObserveFollowing();
     this.mode = mode;
     this.viewContext = this.savedContext(mode);
     this.ensurePanel();
@@ -43,6 +74,7 @@ export class GraphPanel implements vscode.Disposable {
   }
 
   public async showFocused(mode: ViewMode, question: string): Promise<void> {
+    if (this.mode === "observe") await this.stopObserveFollowing();
     this.mode = mode;
     this.viewContext = { question };
     this.ensurePanel();
@@ -52,6 +84,7 @@ export class GraphPanel implements vscode.Disposable {
   public async showCompare(beforeRevision: string, afterRevision: string): Promise<void> {
     const context = compareViewContext({ beforeRevision, afterRevision });
     if (!context) throw new Error("Compare requires two distinct, bounded revision IDs.");
+    if (this.mode === "observe") await this.stopObserveFollowing();
     this.mode = "compare";
     this.viewContext = context;
     await this.context.workspaceState.update("hydra.compare.last", context);
@@ -62,6 +95,7 @@ export class GraphPanel implements vscode.Disposable {
   public async showPreserve(lens: string): Promise<void> {
     const context = preserveViewContext(lens);
     if (!context) throw new Error("Preserve requires a concrete, bounded shared lens ID.");
+    if (this.mode === "observe") await this.stopObserveFollowing();
     this.mode = "preserve";
     this.viewContext = context;
     await this.context.workspaceState.update("hydra.preserve.lastLens", context.lens);
@@ -88,6 +122,7 @@ export class GraphPanel implements vscode.Disposable {
       this.panel.webview.html = this.html(this.panel.webview);
       this.webviewReady = false;
       this.disposables.push(this.panel.onDidDispose(() => {
+        void this.stopObserveFollowing();
         this.panel = undefined;
         this.webviewReady = false;
         this.pendingRequest = undefined;
@@ -126,6 +161,7 @@ export class GraphPanel implements vscode.Disposable {
   }
 
   public dispose(): void {
+    void this.stopObserveFollowing();
     this.panel?.dispose();
     this.disposables.forEach((disposable) => disposable.dispose());
   }
@@ -153,6 +189,7 @@ export class GraphPanel implements vscode.Disposable {
         }
         break;
       case "changeMode":
+        if (this.mode === "observe" && message.mode !== "observe") await this.stopObserveFollowing();
         this.mode = message.mode;
         this.viewContext = this.savedContext(message.mode);
         await this.loadView();
@@ -167,6 +204,12 @@ export class GraphPanel implements vscode.Disposable {
       case "openSource":
         this.selectedId = message.itemId;
         await this.openSource(message.itemId, message.source);
+        break;
+      case "selectItem":
+        await this.recordObserveInteraction("selection", message.itemId, message.itemKind);
+        break;
+      case "setObservePaused":
+        await this.setObservePaused(message.paused);
         break;
       case "primaryAction":
         this.selectedId = message.selectedId;
@@ -184,6 +227,10 @@ export class GraphPanel implements vscode.Disposable {
   }
 
   private async loadView(): Promise<void> {
+    if (this.mode === "observe") {
+      await this.startObserveFollowing();
+      return;
+    }
     this.post({ type: "loading", mode: this.mode, message: `Loading ${this.mode} view…` });
     try {
       const [health, view] = await Promise.all([this.client().health(), this.client().getView(this.mode, this.depth, this.viewContext)]);
@@ -206,6 +253,7 @@ export class GraphPanel implements vscode.Disposable {
       this.post({ type: "error", message: "Enter a repository question first.", recoverable: true });
       return;
     }
+    if (this.mode === "observe") await this.stopObserveFollowing();
     this.mode = "trace";
     this.viewContext = {};
     this.post({ type: "loading", mode: "trace", message: "Asking HydraDB for a bounded graph path…" });
@@ -318,6 +366,286 @@ export class GraphPanel implements vscode.Disposable {
     }
   }
 
+  private async startObserveFollowing(): Promise<void> {
+    if (this.observeSession) {
+      if (!this.observePoller.isActive()) {
+        const sessionId = this.observeSession.sessionId;
+        this.observePoller.start(() => this.pollObserve(sessionId));
+      } else {
+        await this.pollObserve(this.observeSession.sessionId);
+      }
+      return;
+    }
+    if (this.observeStartPromise) return this.observeStartPromise;
+    const generation = ++this.observeGeneration;
+    const start = this.beginObserveFollowing(generation);
+    this.observeStartPromise = start;
+    try {
+      await start;
+    } finally {
+      if (this.observeStartPromise === start) this.observeStartPromise = undefined;
+    }
+  }
+
+  private async beginObserveFollowing(generation: number): Promise<void> {
+    this.post({ type: "loading", mode: "observe", message: "Starting bounded observable-event follow…" });
+    let client: RepositoryServiceClient | undefined;
+    let startedSessionId: string | undefined;
+    try {
+      client = this.client();
+      const health = await client.health();
+      if (health.state !== "ready" || !health.revision) {
+        throw new Error("Observe requires one verified ready repository revision.");
+      }
+      const response = await client.startObserveSession();
+      startedSessionId = response.sessionId;
+      if (!observeSessionIsActive(response) || response.revisionId !== health.revision) {
+        throw new Error("The service did not start an exact Observe session for the verified revision.");
+      }
+      if (generation !== this.observeGeneration || this.mode !== "observe") {
+        await client.completeObserveSession(response.sessionId).catch(() => undefined);
+        return;
+      }
+      this.observeSession = { sessionId: response.sessionId, revisionId: response.revisionId };
+      this.observeEventLog = new ObserveEventLog(response.sessionId);
+      this.observeEventLog.ingest(response.event ? [response.event] : []);
+      this.observeBaseView = undefined;
+      this.currentView = undefined;
+      this.unavailableObserveViews.clear();
+      this.observeMultiRootWarningShown = false;
+      this.setHealth(health);
+      this.renderObserveView();
+      this.postObserveStatus("Following explicit repository events. No hidden reasoning is observed.");
+      this.observePoller.start(() => this.pollObserve(response.sessionId));
+    } catch (error) {
+      if (client && startedSessionId && generation === this.observeGeneration) {
+        await client.completeObserveSession(startedSessionId).catch(() => undefined);
+      }
+      if (generation !== this.observeGeneration || this.mode !== "observe") return;
+      const message = error instanceof Error ? error.message : "Observe session could not start.";
+      const health: ServiceHealth = { state: "unavailable", message };
+      this.currentView = undefined;
+      this.setHealth(health);
+      const preview = createPreviewView("observe", this.depth);
+      preview.warnings.unshift(`Live Observe unavailable: ${message}`);
+      this.post({ type: "view", view: preview, health });
+      this.post({ type: "error", message, recoverable: true });
+    }
+  }
+
+  private async pollObserve(sessionId: string): Promise<void> {
+    if (this.observePollPromise) return this.observePollPromise;
+    const poll = this.performObservePoll(sessionId);
+    this.observePollPromise = poll;
+    try {
+      await poll;
+    } finally {
+      if (this.observePollPromise === poll) this.observePollPromise = undefined;
+    }
+  }
+
+  private async performObservePoll(sessionId: string): Promise<void> {
+    const session = this.observeSession;
+    const log = this.observeEventLog;
+    if (!session || session.sessionId !== sessionId || !log) return;
+    try {
+      const visible = log.ingest(await this.client().observeEvents(sessionId));
+      if (this.observeSession?.sessionId !== sessionId) return;
+      if (log.isPaused()) {
+        this.postObserveStatus();
+        return;
+      }
+      const reference = latestObserveViewReference(log.visibleEvents());
+      const needsView = reference
+        && this.observeBaseView?.viewId !== reference.viewId
+        && (this.unavailableObserveViews.get(reference.viewId) ?? 0) < 3;
+      if (visible.length > 0 || needsView) await this.resolveObserveViewAndRender(sessionId);
+    } catch (error) {
+      if (this.observeSession?.sessionId !== sessionId) return;
+      const message = error instanceof Error ? error.message : "Observable events could not be polled.";
+      this.post({ type: "error", message: `Observe polling encountered an error and will retry. ${message}`, recoverable: true });
+    }
+  }
+
+  private async resolveObserveViewAndRender(sessionId: string): Promise<void> {
+    const session = this.observeSession;
+    const log = this.observeEventLog;
+    if (!session || session.sessionId !== sessionId || !log || log.isPaused()) return;
+    const reference = latestObserveViewReference(log.visibleEvents());
+    if (reference && this.observeBaseView?.viewId !== reference.viewId && (this.unavailableObserveViews.get(reference.viewId) ?? 0) < 3) {
+      try {
+        const candidate = await this.client().getViewById(reference.viewId);
+        if (this.observeSession?.sessionId !== sessionId || log.isPaused()) return;
+        const verified = verifiedObserveView(candidate, reference.viewId, reference.revisionId);
+        if (!verified) {
+          this.rememberUnavailableObserveView(reference.viewId);
+          this.post({ type: "error", message: `Stored Observe view ${reference.viewId} did not match its exact event reference.`, recoverable: true });
+        } else {
+          this.observeBaseView = verified;
+          this.unavailableObserveViews.delete(reference.viewId);
+          const health = reconcileHealthWithView(await this.fetchHealth(), verified);
+          if (this.observeSession?.sessionId !== sessionId || log.isPaused()) return;
+          this.setHealth(health);
+        }
+      } catch (error) {
+        if (error instanceof ServiceError && error.status === 404) this.rememberUnavailableObserveView(reference.viewId);
+        this.post({
+          type: "error",
+          message: `Stored Observe view ${reference.viewId} is unavailable. ${error instanceof Error ? error.message : "Unknown service error."}`,
+          recoverable: true
+        });
+      }
+    }
+    if (this.observeSession?.sessionId === sessionId && !log.isPaused()) this.renderObserveView();
+  }
+
+  private renderObserveView(): void {
+    const session = this.observeSession;
+    const log = this.observeEventLog;
+    if (!session || !log) return;
+    const base = this.observeBaseView ?? createObserveWaitingView(session.sessionId, session.revisionId);
+    const rendered = applyObserveEvents(base, log.visibleEvents());
+    this.currentView = this.observeBaseView ? rendered : undefined;
+    this.post({ type: "view", view: rendered, health: this.health });
+  }
+
+  private async setObservePaused(paused: boolean): Promise<void> {
+    const session = this.observeSession;
+    const log = this.observeEventLog;
+    if (this.mode !== "observe" || !session || !log) {
+      this.post({ type: "error", message: "No active Observe session is available to pause or resume.", recoverable: true });
+      return;
+    }
+    const released = log.setPaused(paused);
+    this.postObserveStatus(paused
+      ? "Visual following paused. Explicit events continue into a bounded buffer."
+      : "Visual following resumed. Buffered explicit events are now visible.");
+    if (!paused && released.length > 0) await this.resolveObserveViewAndRender(session.sessionId);
+  }
+
+  private postObserveStatus(message?: string): void {
+    const log = this.observeEventLog;
+    if (!log) return;
+    const overflow = log.bufferedOverflowCount();
+    this.post({
+      type: "observeStatus",
+      paused: log.isPaused(),
+      bufferedCount: log.bufferedCount(),
+      sessionId: this.observeSession?.sessionId,
+      message: overflow > 0 ? `${message ?? "Observe buffer updated."} ${overflow} oldest buffered event${overflow === 1 ? " was" : "s were"} omitted by the display bound.` : message
+    });
+  }
+
+  private async recordObserveInteraction(
+    kind: "selection" | "evidence-opened",
+    itemId: string,
+    itemKind: "node" | "edge"
+  ): Promise<void> {
+    const session = this.observeSession;
+    const viewId = this.observeBaseView?.viewId;
+    const visible = itemKind === "node"
+      ? this.currentView?.nodes.some((node) => node.id === itemId)
+      : this.currentView?.edges.some((edge) => edge.id === itemId);
+    if (this.mode !== "observe" || !session || !viewId || !visible) return;
+    await this.enqueueObserveMutation(async () => {
+      if (this.observeSession?.sessionId !== session.sessionId || this.observeBaseView?.viewId !== viewId) return;
+      const response = await this.client().recordObserveInteraction(kind, viewId, itemId, itemKind);
+      const type = kind === "selection" ? "context_selected" : "evidence_opened";
+      if (!observeRecordMatches(response, type, session.sessionId, viewId, itemId, itemKind) || !response.event) {
+        throw new Error(`The service did not record the exact ${kind} interaction.`);
+      }
+      await this.ingestRecordedObserveEvent(session.sessionId, response.event);
+    });
+  }
+
+  private async recordWorkspaceChange(uri: vscode.Uri): Promise<void> {
+    const session = this.observeSession;
+    const viewId = this.observeBaseView?.viewId;
+    const nodes = this.currentView?.nodes;
+    const roots = vscode.workspace.workspaceFolders?.map((folder) => folder.uri.fsPath) ?? [];
+    if (this.mode !== "observe" || uri.scheme !== "file" || !session || !viewId || !nodes) return;
+    const root = unambiguousWorkspaceRoot(roots);
+    if (!root) {
+      if (!this.observeMultiRootWarningShown) {
+        this.observeMultiRootWarningShown = true;
+        this.post({
+          type: "error",
+          message: "Workspace edit overlay is disabled because multiple workspace roots cannot be safely mapped to the service-configured repository root.",
+          recoverable: true
+        });
+      }
+      return;
+    }
+    const relativePath = workspaceRelativePathForChange(uri.fsPath, [root]);
+    const visibleIds = visibleNodeIdsForWorkspaceChange(nodes, uri.fsPath, [root]);
+    if (!relativePath || visibleIds.length === 0) return;
+    await this.enqueueObserveMutation(async () => {
+      if (this.observeSession?.sessionId !== session.sessionId || this.observeBaseView?.viewId !== viewId) return;
+      const response = await this.client().recordWorkspaceChange(viewId, relativePath);
+      const event = response.event;
+      if (
+        !observeRecordMatches(response, "workspace_entity_changed", session.sessionId, viewId)
+        || !event
+        || event.entityIds.length === 0
+        || event.relationshipIds.length > 0
+        || event.entityIds.some((id) => !visibleIds.includes(id))
+      ) {
+        throw new Error("The service did not limit the workspace change to visible path-matched entities.");
+      }
+      await this.ingestRecordedObserveEvent(session.sessionId, event);
+    });
+  }
+
+  private async ingestRecordedObserveEvent(sessionId: string, event: unknown): Promise<void> {
+    const log = this.observeEventLog;
+    if (this.observeSession?.sessionId !== sessionId || !log) return;
+    const visible = log.ingest([event]);
+    if (log.isPaused()) {
+      this.postObserveStatus();
+    } else if (visible.length > 0) {
+      await this.resolveObserveViewAndRender(sessionId);
+    }
+  }
+
+  private async enqueueObserveMutation(task: () => Promise<void>): Promise<void> {
+    const run = this.observeMutationChain.then(task, task);
+    this.observeMutationChain = run.catch((error) => {
+      this.post({ type: "error", message: error instanceof Error ? error.message : "Observe interaction could not be recorded.", recoverable: true });
+    });
+    await run.catch(() => undefined);
+  }
+
+  private async stopObserveFollowing(): Promise<void> {
+    this.observeGeneration += 1;
+    this.observePoller.stop();
+    const session = this.observeSession;
+    this.observeSession = undefined;
+    this.observeEventLog = undefined;
+    this.observeBaseView = undefined;
+    this.unavailableObserveViews.clear();
+    this.observeMultiRootWarningShown = false;
+    if (!session) return;
+    await this.observeMutationChain.catch(() => undefined);
+    try {
+      const response = await this.client().completeObserveSession(session.sessionId);
+      if (!observeSessionWasCompleted(response, session.sessionId)) {
+        throw new Error("The service did not confirm exact Observe session completion.");
+      }
+    } catch (error) {
+      if (this.panel && this.mode === "observe") {
+        this.post({ type: "error", message: error instanceof Error ? error.message : "Observe session completion failed.", recoverable: true });
+      }
+    }
+  }
+
+  private rememberUnavailableObserveView(viewId: string): void {
+    this.unavailableObserveViews.set(viewId, (this.unavailableObserveViews.get(viewId) ?? 0) + 1);
+    if (this.unavailableObserveViews.size > 50) {
+      const oldest = this.unavailableObserveViews.keys().next().value as string | undefined;
+      if (oldest) this.unavailableObserveViews.delete(oldest);
+    }
+  }
+
   private async updateHealth(): Promise<ServiceHealth> {
     const health = await this.fetchHealth();
     this.setHealth(health);
@@ -376,6 +704,10 @@ export class GraphPanel implements vscode.Disposable {
         editor.selection = new vscode.Selection(range.start, range.end);
         editor.revealRange(range, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
       }
+      const itemKind = this.currentView?.nodes.some((node) => node.id === itemId) ? "node"
+        : this.currentView?.edges.some((edge) => edge.id === itemId) ? "edge"
+          : undefined;
+      if (itemKind) await this.recordObserveInteraction("evidence-opened", itemId, itemKind);
       this.post({ type: "sourceOpened", itemId });
     } catch {
       void vscode.window.showWarningMessage(`Source evidence is not available at ${source.path}.`);

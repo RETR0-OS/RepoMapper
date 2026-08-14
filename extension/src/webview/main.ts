@@ -61,6 +61,7 @@ let selectedKind: "node" | "edge" = "node";
 let relationKinds = new Set(view.edges.map((edge) => edge.predicate));
 let showInferred = false;
 let observePaused = false;
+let observeBufferedCount = 0;
 let reviewIndex = -1;
 let toastTimer: number | undefined;
 let dragState:
@@ -198,6 +199,11 @@ window.addEventListener("message", (event: MessageEvent<HostToWebviewMessage>) =
   } else if (message.type === "sourceOpened") {
     markOpened(message.itemId);
     showToast("Opened exact source evidence in the editor.");
+  } else if (message.type === "observeStatus") {
+    observePaused = message.paused;
+    observeBufferedCount = message.bufferedCount;
+    renderHeader();
+    if (message.message) showToast(message.message);
   } else if (message.type === "actionResult") {
     showToast(message.message);
     if (message.view) {
@@ -248,12 +254,18 @@ function applyView(nextView: GraphView, nextHealth: ServiceHealth): void {
   health = nextHealth;
   positions = computeLayout(view.nodes, view.mode);
   transform = { ...DEFAULT_TRANSFORM };
-  selectedId = view.nodes[0]?.id;
-  selectedKind = "node";
+  const latestEvent = view.mode === "observe" ? view.timeline[view.timeline.length - 1] : undefined;
+  const followedNode = latestEvent?.nodeIds?.find((id) => view.nodes.some((node) => node.id === id));
+  const followedEdge = latestEvent?.edgeIds?.find((id) => view.edges.some((edge) => edge.id === id));
+  selectedId = followedNode ?? followedEdge ?? view.nodes[0]?.id;
+  selectedKind = followedNode || !followedEdge ? "node" : "edge";
   relationKinds = new Set(view.edges.map((edge) => edge.predicate));
   showInferred = false;
   reviewIndex = -1;
-  observePaused = false;
+  if (nextView.mode !== "observe") {
+    observePaused = false;
+    observeBufferedCount = 0;
+  }
   renderAll();
   persistDisplayState();
 }
@@ -315,7 +327,9 @@ function renderHeader(): void {
   elements.eyebrow.textContent = view.preview ? `${mode.label} · interaction preview` : `${mode.label} · bounded repository view`;
   elements.viewTitle.textContent = mode.hint;
   elements.viewSummary.textContent = view.summary ?? `${view.nodes.length} concrete entities and ${view.edges.length} relations are visible.`;
-  elements.primaryAction.textContent = view.mode === "observe" && observePaused ? "Resume follow" : PRIMARY_LABELS[view.mode];
+  elements.primaryAction.textContent = view.mode === "observe" && observePaused
+    ? `Resume follow${observeBufferedCount ? ` (${observeBufferedCount})` : ""}`
+    : PRIMARY_LABELS[view.mode];
 }
 
 function renderDepth(): void {
@@ -372,7 +386,7 @@ function renderEdge(edge: GraphEdge): SVGGElement {
   const source = positions[edge.sourceId];
   const target = positions[edge.targetId];
   const group = svg("g");
-  group.classList.add("graph-edge", `quality-${edge.quality}`);
+  group.classList.add("graph-edge", `quality-${edge.quality}`, `state-${edge.state ?? "default"}`);
   group.dataset.edgeId = edge.id;
   group.setAttribute("role", "button");
   group.setAttribute("tabindex", "0");
@@ -461,8 +475,8 @@ function renderTimeline(): void {
     button.addEventListener("click", () => {
       const node = view.nodes.find((candidate) => event.nodeIds?.includes(candidate.id));
       const edge = view.edges.find((candidate) => event.edgeIds?.includes(candidate.id));
-      if (node) selectNode(node, false);
-      else if (edge) selectEdge(edge, false);
+      if (node) selectNode(node, false, true);
+      else if (edge) selectEdge(edge, false, true);
       focusSelection();
     });
     return item;
@@ -566,17 +580,23 @@ function evidenceList(edge: GraphEdge): HTMLElement {
   return wrapper;
 }
 
-function selectNode(node: GraphNode, openSource: boolean): void {
+function selectNode(node: GraphNode, openSource: boolean, reportSelection = openSource): void {
   selectedId = node.id; selectedKind = "node";
   renderGraph(); renderInspector();
+  if (reportSelection) {
+    vscode.postMessage({ type: "selectItem", itemId: node.id, itemKind: "node" });
+  }
   if (openSource && node.source) {
     vscode.postMessage({ type: "openSource", itemId: node.id, source: node.source });
   }
 }
 
-function selectEdge(edge: GraphEdge, openSource: boolean): void {
+function selectEdge(edge: GraphEdge, openSource: boolean, reportSelection = openSource): void {
   selectedId = edge.id; selectedKind = "edge";
   renderGraph(); renderInspector();
+  if (reportSelection) {
+    vscode.postMessage({ type: "selectItem", itemId: edge.id, itemKind: "edge" });
+  }
   const evidence = edge.evidence[0];
   if (openSource && evidence) {
     vscode.postMessage({ type: "openSource", itemId: edge.id, source: evidence });
@@ -597,9 +617,7 @@ function runPrimaryAction(): void {
     return;
   }
   if (view.mode === "observe") {
-    observePaused = !observePaused;
-    renderHeader();
-    showToast(observePaused ? "Visual following paused. Observable events will remain buffered." : "Following new observable agent events.");
+    vscode.postMessage({ type: "setObservePaused", paused: !observePaused });
     return;
   }
   if (view.mode === "compare") {
@@ -711,7 +729,7 @@ function onGraphKeydown(event: KeyboardEvent): void {
     event.preventDefault();
     const id = nextSelection(view.nodes.map((node) => node.id), selectedKind === "node" ? selectedId : undefined, direction);
     const node = view.nodes.find((candidate) => candidate.id === id);
-    if (node) { selectNode(node, false); focusSelection(); }
+    if (node) { selectNode(node, false, true); focusSelection(); }
   } else if (event.key === "Enter" && selectedKind === "node") {
     const node = view.nodes.find((candidate) => candidate.id === selectedId);
     if (node?.source) vscode.postMessage({ type: "openSource", itemId: node.id, source: node.source });
@@ -792,6 +810,11 @@ function createBrowserApi(): VsCodeApi {
       } else if (message.type === "openSource") {
         window.dispatchEvent(new MessageEvent("message", { data: {
           type: "actionResult", action: "openSource", message: `VS Code would open ${message.source.path}:${message.source.startLine}. Standalone preview made no filesystem change.`
+        } satisfies HostToWebviewMessage }));
+      } else if (message.type === "setObservePaused") {
+        window.dispatchEvent(new MessageEvent("message", { data: {
+          type: "observeStatus", paused: message.paused, bufferedCount: 0,
+          message: message.paused ? "Visual following paused. Observable events will remain buffered." : "Following observable preview events."
         } satisfies HostToWebviewMessage }));
       } else if (message.type === "query" || message.type === "primaryAction") {
         window.dispatchEvent(new MessageEvent("message", { data: {

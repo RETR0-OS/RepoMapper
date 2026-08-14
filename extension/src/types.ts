@@ -122,6 +122,7 @@ export type HostToWebviewMessage =
   | { type: "loading"; mode: ViewMode; message: string }
   | { type: "error"; message: string; recoverable: boolean }
   | { type: "sourceOpened"; itemId: string }
+  | { type: "observeStatus"; paused: boolean; bufferedCount: number; sessionId?: string; message?: string }
   | { type: "actionResult"; action: string; message: string; view?: GraphView };
 
 export type WebviewToHostMessage =
@@ -130,6 +131,8 @@ export type WebviewToHostMessage =
   | { type: "changeDepth"; depth: GraphDepth }
   | { type: "query"; question: string }
   | { type: "openSource"; itemId: string; source: SourceRange }
+  | { type: "selectItem"; itemId: string; itemKind: "node" | "edge" }
+  | { type: "setObservePaused"; paused: boolean }
   | { type: "primaryAction"; mode: ViewMode; selectedId?: string }
   | { type: "retry" }
   | { type: "persistDisplayState"; key: string; value: unknown };

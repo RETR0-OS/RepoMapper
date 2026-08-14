@@ -47,6 +47,18 @@ export function parseWebviewMessage(value: unknown): WebviewToHostMessage | unde
     const source = parseSource(value.source);
     return source ? { type: "openSource", itemId: value.itemId, source } : undefined;
   }
+  if (
+    value.type === "selectItem"
+    && typeof value.itemId === "string"
+    && value.itemId.length > 0
+    && value.itemId.length <= 1000
+    && (value.itemKind === "node" || value.itemKind === "edge")
+  ) {
+    return { type: "selectItem", itemId: value.itemId, itemKind: value.itemKind };
+  }
+  if (value.type === "setObservePaused" && typeof value.paused === "boolean") {
+    return { type: "setObservePaused", paused: value.paused };
+  }
   if (value.type === "primaryAction" && typeof value.mode === "string" && modes.has(value.mode as ViewMode)) {
     return {
       type: "primaryAction",

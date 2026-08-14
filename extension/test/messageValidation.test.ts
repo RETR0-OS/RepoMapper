@@ -28,4 +28,21 @@ describe("webview message validation", () => {
   it("rejects an oversized display state instead of trusting the webview", () => {
     expect(parseWebviewMessage({ type: "persistDisplayState", key: "view:file", value: "x".repeat(50_001) })).toBeUndefined();
   });
+
+  it("accepts bounded Observe interaction messages", () => {
+    expect(parseWebviewMessage({ type: "selectItem", itemId: "node-1", itemKind: "node" })).toEqual({
+      type: "selectItem", itemId: "node-1", itemKind: "node"
+    });
+    expect(parseWebviewMessage({ type: "setObservePaused", paused: true })).toEqual({
+      type: "setObservePaused", paused: true
+    });
+  });
+
+  it.each([
+    { type: "selectItem", itemId: "", itemKind: "node" },
+    { type: "selectItem", itemId: "node-1", itemKind: "relation" },
+    { type: "setObservePaused", paused: "yes" }
+  ])("rejects invalid Observe interaction %j", (message) => {
+    expect(parseWebviewMessage(message)).toBeUndefined();
+  });
 });

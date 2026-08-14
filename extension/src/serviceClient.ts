@@ -10,6 +10,14 @@ import {
   type LensResponse,
   type PublishResponse
 } from "./evolution.js";
+import {
+  normalizeObserveComplete,
+  normalizeObserveRecorded,
+  normalizeObserveSession,
+  type ObserveCompleteResponse,
+  type ObserveRecordedResponse,
+  type ObserveSessionResponse
+} from "./observe.js";
 import { normalizeGraphView, normalizeHealth } from "./viewAdapter.js";
 
 export class ServiceError extends Error {
@@ -145,6 +153,52 @@ export class RepositoryServiceClient {
       body: JSON.stringify({ view_id: viewId, confirm })
     });
     return normalizeLens(response);
+  }
+
+  public async startObserveSession(): Promise<ObserveSessionResponse> {
+    return normalizeObserveSession(await this.request<unknown>("/api/observe/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({})
+    }));
+  }
+
+  public async completeObserveSession(sessionId: string): Promise<ObserveCompleteResponse> {
+    return normalizeObserveComplete(await this.request<unknown>(`/api/observe/sessions/${encodeURIComponent(sessionId)}/complete`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({})
+    }));
+  }
+
+  public async observeEvents(sessionId: string): Promise<unknown> {
+    const query = new URLSearchParams({ session_id: sessionId });
+    return this.request<unknown>(`/api/events?${query.toString()}`, { method: "GET" });
+  }
+
+  public async getViewById(viewId: string): Promise<GraphView> {
+    return normalizeGraphView(await this.request<unknown>(`/api/views/by-id/${encodeURIComponent(viewId)}`, { method: "GET" }), "observe");
+  }
+
+  public async recordObserveInteraction(
+    kind: "selection" | "evidence-opened",
+    viewId: string,
+    itemId: string,
+    itemKind: "node" | "edge"
+  ): Promise<ObserveRecordedResponse> {
+    return normalizeObserveRecorded(await this.request<unknown>(`/api/views/${encodeURIComponent(viewId)}/${kind}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ item_id: itemId, item_kind: itemKind })
+    }));
+  }
+
+  public async recordWorkspaceChange(viewId: string, path: string): Promise<ObserveRecordedResponse> {
+    return normalizeObserveRecorded(await this.request<unknown>(`/api/views/${encodeURIComponent(viewId)}/workspace-change`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path })
+    }));
   }
 
   private async request<T>(path: string, init: RequestInit): Promise<T> {
