@@ -8,6 +8,7 @@ import {
   BoundedPoller,
   createObserveWaitingView,
   latestObserveViewReference,
+  ObserveEventIntegrityError,
   ObserveEventLog,
   observeRecordMatches,
   observeSessionIsActive,
@@ -468,9 +469,11 @@ export class GraphPanel implements vscode.Disposable {
       if (visible.length > 0 || needsView) await this.resolveObserveViewAndRender(sessionId);
     } catch (error) {
       if (this.observeSession?.sessionId !== sessionId) return;
-      if (error instanceof ServiceError && error.status === 409) {
+      if (error instanceof ObserveEventIntegrityError || error instanceof ServiceError && error.status === 409) {
         await this.stopObserveFollowing();
-        const message = "Observe event history has a gap. Following stopped; restart Observe to begin a new exact session.";
+        const message = error instanceof ObserveEventIntegrityError
+          ? "Observe received an event for a different repository revision. Following stopped; restart Observe to begin a new exact session."
+          : "Observe event history has a gap. Following stopped; restart Observe to begin a new exact session.";
         this.post({ type: "observeStatus", active: false, paused: false, bufferedCount: 0, message });
         this.post({ type: "error", message, recoverable: true });
         return;

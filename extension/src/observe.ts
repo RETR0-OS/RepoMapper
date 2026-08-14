@@ -49,6 +49,13 @@ export interface ObserveRecordedResponse {
   event?: AgentEvent;
 }
 
+export class ObserveEventIntegrityError extends Error {
+  public constructor() {
+    super("Observe returned an event for a different repository revision; restart the session.");
+    this.name = "ObserveEventIntegrityError";
+  }
+}
+
 type UnknownRecord = Record<string, unknown>;
 
 function record(value: unknown): UnknownRecord | undefined {
@@ -209,10 +216,15 @@ export class ObserveEventLog {
 
   private ingest(values: unknown, advanceCursor: boolean): AgentEvent[] {
     if (!Array.isArray(values)) return [];
+    const events = values.slice(-this.historyLimit)
+      .map(normalizeAgentEvent)
+      .filter((event): event is AgentEvent => event !== undefined);
+    if (advanceCursor && events.some((event) => event.sessionId === this.sessionId && event.revisionId !== this.revisionId)) {
+      throw new ObserveEventIntegrityError();
+    }
     const accepted: SequencedEvent[] = [];
-    for (const value of values.slice(-this.historyLimit)) {
-      const event = normalizeAgentEvent(value);
-      if (!event || event.sessionId !== this.sessionId || event.revisionId !== this.revisionId) continue;
+    for (const event of events) {
+      if (event.sessionId !== this.sessionId || event.revisionId !== this.revisionId) continue;
       // The polling cursor follows server-list order, including already-rendered
       // direct events. A POST response may be rendered immediately, but it must
       // never skip older events that have not arrived through the poll stream.

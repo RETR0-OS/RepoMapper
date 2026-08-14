@@ -5,6 +5,7 @@ import {
   eventToTimeline,
   latestObserveViewReference,
   normalizeAgentEvent,
+  ObserveEventIntegrityError,
   ObserveEventLog,
   verifiedObserveView
 } from "../src/observe.js";
@@ -140,18 +141,19 @@ describe("Observe event transport", () => {
     expect(changed.timeline.map((item) => item.id)).toEqual(["event-edited", "event-opened", "event-selected", "event-returned"]);
   });
 
-  it("rejects wrong-revision events before cursor, timeline, or graph state", () => {
+  it("fails explicitly on a same-session wrong-revision poll before changing cursor or timeline", () => {
     const log = new ObserveEventLog("session-1", "rev-1");
-    log.ingestPolledBatch([rawEvent("event-wrong-revision", "2026-08-14T10:00:00.000Z", {
+    log.ingestPolledBatch([rawEvent("event-start", "2026-08-14T09:59:59.000Z")]);
+    expect(() => log.ingestPolledBatch([rawEvent("event-wrong-revision", "2026-08-14T10:00:00.000Z", {
       type: "workspace_entity_changed", revision_id: "rev-other", relationship_ids: []
-    })]);
+    })])).toThrow(ObserveEventIntegrityError);
 
     const changed = applyObserveEvents(baseView, log.visibleEvents());
 
-    expect(changed.nodes[0]?.state).toBeUndefined();
-    expect(changed.timeline).toEqual([]);
-    expect(log.visibleEvents()).toEqual([]);
-    expect(log.lastAcceptedCursor()).toBeUndefined();
+    expect(changed.nodes[0]?.state).toBe("returned");
+    expect(changed.timeline.map((event) => event.id)).toEqual(["event-start"]);
+    expect(log.visibleEvents().map((event) => event.eventId)).toEqual(["event-start"]);
+    expect(log.lastAcceptedCursor()).toBe("event-start");
   });
 
   it("rejects malformed, oversized, and unknown events", () => {
