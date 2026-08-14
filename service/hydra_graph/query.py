@@ -12,7 +12,7 @@ from typing import Any
 from .events import EventBus
 from .hydradb import HydraDBClient, HydraDBError, response_data
 
-QUERY_RESPONSE_SCHEMA = "hack-hydra.query-response.v1"
+QUERY_RESPONSE_SCHEMA = "hack-hydra.query-response.v2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,7 +73,6 @@ class QueryService:
         if request.entity_kind:
             metadata_filters["entity_kind"] = request.entity_kind
         query_metadata = {
-            "database": self.client.config.database,
             "collections": [self.client.config.collection],
             "query_by": request.query_by,
             "mode": request.mode,
@@ -120,7 +119,6 @@ class QueryService:
             session_id=session_id,
             view_id=view_id,
             revision=request.revision,
-            database=self.client.config.database,
             collections=[self.client.config.collection],
             query_by=request.query_by,
             mode=request.mode,
@@ -242,7 +240,6 @@ def normalize_query_response(
     session_id: str,
     view_id: str,
     revision: str,
-    database: str,
     collections: Sequence[str],
     query_by: str,
     mode: str,
@@ -279,7 +276,6 @@ def normalize_query_response(
             session_id=session_id,
             view_id=view_id,
             revision=expected_revision or revision,
-            database=database,
             collections=collections,
             query_by=query_by,
             mode=mode,
@@ -297,7 +293,6 @@ def normalize_query_response(
             session_id=session_id,
             view_id=view_id,
             revision=target_revision or revision,
-            database=database,
             collections=collections,
             query_by=query_by,
             mode=mode,
@@ -365,7 +360,6 @@ def normalize_query_response(
         "status": "ready",
         "hydradb": {
             "available": True,
-            "database": database,
             "collections": list(collections),
             "query_by": query_by,
             "mode": mode,
@@ -405,7 +399,6 @@ def _revision_conflict_response(
     session_id: str,
     view_id: str,
     revision: str,
-    database: str,
     collections: Sequence[str],
     query_by: str,
     mode: str,
@@ -424,7 +417,6 @@ def _revision_conflict_response(
         "status": "degraded",
         "hydradb": {
             "available": True,
-            "database": database,
             "collections": list(collections),
             "query_by": query_by,
             "mode": mode,

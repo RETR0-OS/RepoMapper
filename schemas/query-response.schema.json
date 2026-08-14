@@ -20,7 +20,7 @@
     "budget"
   ],
   "properties": {
-    "response_schema": { "const": "hack-hydra.query-response.v1" },
+    "response_schema": { "const": "hack-hydra.query-response.v2" },
     "session_id": { "type": "string", "minLength": 1, "maxLength": 256 },
     "view_id": { "type": "string", "minLength": 1, "maxLength": 256 },
     "status": { "enum": ["ready", "degraded", "unavailable"] },
@@ -112,7 +112,6 @@
       "type": "object",
       "required": [
         "available",
-        "database",
         "collections",
         "query_by",
         "mode",
@@ -120,7 +119,6 @@
       ],
       "properties": {
         "available": { "type": "boolean" },
-        "database": { "type": ["string", "null"] },
         "collections": {
           "type": "array",
           "minItems": 1,

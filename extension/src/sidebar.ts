@@ -54,7 +54,7 @@ class SummaryProvider implements vscode.TreeDataProvider<SummaryItem> {
       if (health.state === "ready") {
         return [
           new SummaryItem("Current revision ready", health.revision ?? "Revision unavailable", "pass", open("repository")),
-          new SummaryItem(health.database ?? "HydraDB", health.collection ?? "Default collection", "database", open("repository")),
+          new SummaryItem("HydraDB configured", health.collection ?? "Default collection", "database", open("repository")),
           indexItem
         ];
       }

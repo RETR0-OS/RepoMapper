@@ -493,7 +493,6 @@ def _view_hydradb(query: Mapping[str, Any]) -> dict[str, Any]:
     source = _mapping(query.get("hydradb"))
     return {
         "available": bool(source.get("available", query.get("status") == "ready")),
-        "database": source.get("database"),
         "collections": list(source.get("collections", [])),
         "query_by": source.get("query_by"),
         "mode": source.get("mode"),

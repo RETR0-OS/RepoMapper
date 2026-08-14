@@ -109,7 +109,6 @@ def test_raw_hydradb_fixture_maps_to_stable_golden_product_response() -> None:
         session_id="session-golden",
         view_id="view-golden",
         revision="current",
-        database="repo_hack_hydra",
         collections=["current"],
         query_by="hybrid",
         mode="thinking",

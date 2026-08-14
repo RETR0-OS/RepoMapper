@@ -22,7 +22,7 @@ from .discovery import discover_files
 from .events import EventBus
 from .hydradb import HydraDBClient, HydraDBError, response_data
 from .models import GraphEdge, GraphNode
-from .query import QueryRequest, QueryService, normalize_query_response
+from .query import QUERY_RESPONSE_SCHEMA, QueryRequest, QueryService, normalize_query_response
 from .views import ViewDepth, ViewMode, ViewStore, build_product_view
 
 
@@ -97,8 +97,7 @@ class EvolutionService:
             "status": state.status.value,
             "operation": state.operation,
             "detail": state.detail,
-            "hydradb_available": self.client.config.configured,
-            "database": self.client.config.database or None,
+            "hydradb_available": self.client.configured,
             "collection": self.client.config.evolution_collection,
         }
 
@@ -436,7 +435,6 @@ class EvolutionService:
             **dict(metadata_filters),
         }
         metadata = {
-            "database": self.client.config.database,
             "collections": [self.client.config.evolution_collection],
             "query_by": "hybrid",
             "mode": "thinking",
@@ -475,7 +473,6 @@ class EvolutionService:
             session_id=session,
             view_id=view_id,
             revision=revision,
-            database=self.client.config.database,
             collections=[self.client.config.evolution_collection],
             query_by="hybrid",
             mode="thinking",
@@ -486,7 +483,7 @@ class EvolutionService:
             expected_revision=revision if revision != "current" else None,
             expected_entity_kind=entity_kind,
         )
-        result["response_schema"] = "hack-hydra.query-response.v1"
+        result["response_schema"] = QUERY_RESPONSE_SCHEMA
         result.setdefault("records", [])
         result["hydradb"]["cross_collection_traversal"] = False
         result["hydradb"]["memory_used"] = False
@@ -581,7 +578,7 @@ class EvolutionService:
         }
         if not confirm:
             return {**base, "status": "preview"}
-        if not self.client.config.configured:
+        if not self.client.configured:
             return {
                 **base,
                 "status": "unavailable",
@@ -680,8 +677,7 @@ class EvolutionService:
 
     def _hydradb_status(self, write_attempted: bool) -> dict[str, Any]:
         return {
-            "available": self.client.config.configured,
-            "database": self.client.config.database or None,
+            "available": self.client.configured,
             "collections": [self.client.config.evolution_collection],
             "write_attempted": write_attempted,
             "cross_collection_traversal": False,
@@ -714,13 +710,12 @@ def _empty_query(
     max_relations: int,
 ) -> dict[str, Any]:
     return {
-        "response_schema": "hack-hydra.query-response.v1",
+        "response_schema": QUERY_RESPONSE_SCHEMA,
         "session_id": session_id,
         "view_id": view_id,
         "status": status,
         "hydradb": {
             "available": False,
-            "database": client.config.database or None,
             "collections": [client.config.evolution_collection],
             "query_by": "hybrid",
             "mode": "thinking",
@@ -972,8 +967,7 @@ def _invalid_operation(
         "source_count": 0,
         "writes_performed": False,
         "hydradb": {
-            "available": client.config.configured,
-            "database": client.config.database or None,
+            "available": client.configured,
             "collections": [client.config.evolution_collection],
             "write_attempted": False,
             "cross_collection_traversal": False,

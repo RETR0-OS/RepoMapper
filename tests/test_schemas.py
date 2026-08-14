@@ -167,6 +167,7 @@ def test_query_schema_rejects_raw_or_misrepresented_product_results() -> None:
             "high",
         ),
         "incomplete budget": (("budget", "max_context_chars"), None),
+        "database disclosure": (("hydradb", "database"), "secret-database"),
     }
     for label, (path, value) in mutations.items():
         candidate = deepcopy(valid)

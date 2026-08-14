@@ -62,7 +62,6 @@ export interface TimelineEvent {
 
 export interface HydraMetadata {
   available: boolean;
-  database?: string;
   collection?: string;
   queryBy?: "hybrid" | "text";
   mode?: "fast" | "thinking";
@@ -96,7 +95,6 @@ export interface GraphView {
 export interface ServiceHealth {
   state: ServiceState;
   revision?: string;
-  database?: string;
   collection?: string;
   message?: string;
 }

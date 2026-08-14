@@ -28,7 +28,6 @@ describe("view status truthfulness", () => {
     const configuredHealth: ServiceHealth = {
       state: "ready",
       revision: "rev-1",
-      database: "repo-db",
       message: "HydraDB repository retrieval is configured."
     };
     const view = serviceView(false);

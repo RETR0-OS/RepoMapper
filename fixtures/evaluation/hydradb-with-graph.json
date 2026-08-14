@@ -1,5 +1,5 @@
 {
-  "response_schema": "hack-hydra.query-response.v1",
+  "response_schema": "hack-hydra.query-response.v2",
   "status": "ready",
   "chunks": [
     {

@@ -238,7 +238,6 @@ def _query_from_graph(graph: GraphIR, root: Path) -> dict[str, Any]:
         "status": "ready",
         "hydradb": {
             "available": True,
-            "database": "repo_evolution",
             "collections": ["current"],
             "query_by": "hybrid",
             "mode": "thinking",

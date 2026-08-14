@@ -32,10 +32,10 @@ from .events import (
     ObserveSessions,
 )
 from .evolution_service import EvolutionService
-from .hydradb import HydraDBClient
+from .hydradb import CredentialProvider, HydraDBClient
 from .ids import normalize_relative_path, normalize_repository_id
 from .models import GraphNode
-from .query import QueryService
+from .query import QUERY_RESPONSE_SCHEMA, QueryService
 from .sync import SyncService
 from .views import ViewDepth, ViewMode, ViewRequest, ViewService, build_product_view
 
@@ -115,6 +115,7 @@ class ServiceContainer:
     repository_root: Path
     evolution: EvolutionService | None = None
     observe_sessions: ObserveSessions | None = None
+    credential_provider: CredentialProvider | None = None
 
 
 class RepositoryScopes:
@@ -143,8 +144,13 @@ class RepositoryScopes:
             if existing is not None:
                 return existing
             events = EventBus()
+            client = HydraDBClient(
+                self.default.config,
+                repository_id=normalized_id,
+                credential_provider=self.default.credential_provider,
+            )
             sync = SyncService(
-                self.default.client,
+                client,
                 repository_id=normalized_id,
                 events=events,
                 manifest_path=_contained_manifest_path(root),
@@ -154,8 +160,9 @@ class RepositoryScopes:
                 resolved_repository_id=normalized_id,
                 root=root,
                 events=events,
-                client=self.default.client,
+                client=client,
                 sync=sync,
+                credential_provider=client.credential_provider,
             )
             self._scopes[key] = scoped
             return scoped
@@ -181,6 +188,7 @@ def create_container(
     *,
     repository_id: str | None = None,
     repository_root: str | Path | None = None,
+    credential_provider: CredentialProvider | None = None,
 ) -> ServiceContainer:
     resolved_config = config or HydraDBConfig.from_env()
     resolved_repository_id = (
@@ -193,7 +201,11 @@ def create_container(
     manifest_path = _contained_manifest_path(root)
 
     events = EventBus()
-    client = HydraDBClient(resolved_config)
+    client = HydraDBClient(
+        resolved_config,
+        repository_id=resolved_repository_id,
+        credential_provider=credential_provider,
+    )
     sync = SyncService(
         client,
         repository_id=resolved_repository_id,
@@ -207,6 +219,7 @@ def create_container(
         events=events,
         client=client,
         sync=sync,
+        credential_provider=client.credential_provider,
     )
 
 
@@ -238,6 +251,7 @@ def _build_container(
     events: EventBus,
     client: HydraDBClient,
     sync: SyncService,
+    credential_provider: CredentialProvider,
 ) -> ServiceContainer:
     queries = QueryService(
         client,
@@ -275,6 +289,7 @@ def _build_container(
         repository_root=root,
         evolution=evolution,
         observe_sessions=ObserveSessions(events),
+        credential_provider=credential_provider,
     )
 
 
@@ -337,9 +352,9 @@ def create_app(container: ServiceContainer | None = None) -> FastAPI:
     @app.get("/health")
     def health() -> dict[str, Any]:
         sync_status = services.sync.status
-        if not services.config.configured:
+        if not services.client.configured:
             state = "unavailable"
-            message = "Set HYDRA_DB_API_KEY and HYDRA_DB_DATABASE to enable graph retrieval."
+            message = "Configure HydraDB credentials for this project in Repository Map setup."
         elif sync_status["status"] in {"indexing", "failed", "unavailable"}:
             state = sync_status["status"]
             message = {
@@ -369,7 +384,7 @@ def create_app(container: ServiceContainer | None = None) -> FastAPI:
             "verification_status": (
                 "verified" if sync_status["ready_revision"] is not None else "configured_unverified"
             ),
-            "database": services.config.database or None,
+            "credentials_configured": services.client.configured,
             "collection": services.config.collection,
             "repository_id": services.sync.repository_id,
             "repository_root_fingerprint": repository_root_fingerprint(services.repository_root),
@@ -749,7 +764,7 @@ def _stored_hydradb_view(services: ServiceContainer, view_id: str) -> dict[str, 
     query_hydradb = query.get("hydradb")
     view_hydradb = view.get("hydradb")
     if (
-        query.get("response_schema") != "hack-hydra.query-response.v1"
+        query.get("response_schema") != QUERY_RESPONSE_SCHEMA
         or query.get("status") != "ready"
         or query.get("view_id") != view_id
         or view.get("view_id") != view_id
@@ -986,8 +1001,7 @@ def _empty_evolution_view(
         "chunks": [],
         "warnings": [warning],
         "hydradb": {
-            "available": services.config.configured,
-            "database": services.config.database or None,
+            "available": services.client.configured,
             "collections": [services.config.evolution_collection],
             "graph_context": True,
             "path_ids": [],

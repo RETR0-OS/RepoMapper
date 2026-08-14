@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections.abc import Sequence
 
 
@@ -13,6 +14,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     serve = subparsers.add_parser("serve", help="Run the local FastAPI service")
     serve.add_argument("--port", default=8765, type=int)
     serve.add_argument("--reload", action="store_true")
+    serve.add_argument(
+        "--managed",
+        action="store_true",
+        help="Use the private VS Code IPC credential broker instead of environment credentials",
+    )
     mcp = subparsers.add_parser(
         "mcp",
         help=(
@@ -95,6 +101,41 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(json.dumps(result, indent=2))
         return 0 if result["status"] in {"captured", "preview", "ready"} else 1
     import uvicorn
+
+    if getattr(args, "managed", False):
+        if getattr(args, "reload", False):
+            parser.error("--managed cannot be combined with --reload")
+        from .api import create_app, create_container
+        from .config import HydraDBConfig
+        from .managed import ManagedCredentialProvider, ManagedIpc
+
+        channel, start = ManagedIpc.bootstrap(sys.stdin, sys.stdout)
+        config = HydraDBConfig(
+            api_key=None,
+            database="",
+            collection=start.collection,
+            evolution_collection=start.evolution_collection,
+            api_url=start.api_url,
+        )
+        provider = ManagedCredentialProvider(channel)
+        container = create_container(
+            config,
+            repository_id=start.repository_id,
+            repository_root=start.repository_root,
+            credential_provider=provider,
+        )
+        managed_app = create_app(container)
+        channel.notify(
+            "service_ready",
+            port=getattr(args, "port", 8765),
+            repository_id=start.repository_id,
+        )
+        uvicorn.run(
+            managed_app,
+            host="127.0.0.1",
+            port=getattr(args, "port", 8765),
+        )
+        return 0
 
     uvicorn.run(
         "hydra_graph.api:app",

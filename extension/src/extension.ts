@@ -65,7 +65,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     sidebar.setHealth(health);
     if (health.state === "ready") {
       hydraStatus.text = `$(database) HydraDB · ${health.revision ?? "ready"}`;
-      hydraStatus.tooltip = `${health.database ?? "HydraDB"} · ${health.collection ?? "current collection"}`;
+      hydraStatus.tooltip = `HydraDB · ${health.collection ?? "current collection"}`;
       hydraStatus.backgroundColor = undefined;
     } else if (health.state === "indexing") {
       hydraStatus.text = "$(sync~spin) HydraDB · indexing";

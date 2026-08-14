@@ -8,7 +8,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
-from .query import QueryRequest
+from .query import QUERY_RESPONSE_SCHEMA, QueryRequest
 from .views import ViewDepth, ViewMode, build_product_view
 
 
@@ -295,13 +295,12 @@ def tool_names(server: FastMCP) -> Sequence[str]:
 def _missing_evolution_result(services: Any, *, revision: str) -> dict[str, Any]:
     config = services.queries.client.config
     return {
-        "response_schema": "hack-hydra.query-response.v1",
+        "response_schema": QUERY_RESPONSE_SCHEMA,
         "session_id": "unavailable_evolution",
         "view_id": "unavailable_evolution",
         "status": "unavailable",
         "hydradb": {
             "available": False,
-            "database": config.database or None,
             "collections": [config.evolution_collection],
             "query_by": "hybrid",
             "mode": "thinking",

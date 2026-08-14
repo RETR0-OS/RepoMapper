@@ -31,10 +31,9 @@
     },
     "hydradb": {
       "type": "object",
-      "required": ["available", "database", "collections", "graph_context"],
+      "required": ["available", "collections", "graph_context"],
       "properties": {
         "available": { "type": "boolean" },
-        "database": { "type": ["string", "null"] },
         "collections": { "type": "array", "items": { "type": "string" } },
         "query_by": { "type": ["string", "null"] },
         "mode": { "type": ["string", "null"] },

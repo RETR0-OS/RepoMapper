@@ -53,7 +53,6 @@ def observe_app(
         manifest=SyncManifest(
             repository_id="hack-hydra",
             revision_id=ready_revision,
-            database=config.database,
             collection=config.collection,
         ),
         events=events,
@@ -368,7 +367,6 @@ def test_api_query_rejects_invalid_observe_session_before_hydradb(tmp_path: Path
         app.state.services.sync.manifest = SyncManifest(
             repository_id="hack-hydra",
             revision_id="rev-new",
-            database="repo_hack_hydra",
             collection="current",
         )
         changed_current = client.post(

@@ -197,7 +197,8 @@ def test_missing_evolution_result_matches_query_envelope_contract() -> None:
         {"before": "rev-old", "after": "rev-new"},
     )
 
-    assert result["response_schema"] == "hack-hydra.query-response.v1"
+    assert result["response_schema"] == "hack-hydra.query-response.v2"
+    assert "database" not in result["hydradb"]
     assert result["chunk_id_to_group_ids"] == {}
     assert result["budget"]["max_context_chars"] > 0
     assert transport.calls == []

@@ -143,7 +143,6 @@ class LiveHydraTransport:
             session_id=f"evaluation-{request_digest}",
             view_id=f"evaluation-{request_digest}",
             revision=self.target.revision_id,
-            database=self.config.database,
             collections=(self.collection,),
             query_by=actual_body.query_by,
             mode=actual_body.mode,
@@ -349,7 +348,7 @@ def _normalize_hydra_observation(
     result: HydraQueryResult,
 ) -> RetrievalObservation:
     payload = result.payload
-    if payload.get("response_schema") != "hack-hydra.query-response.v1":
+    if payload.get("response_schema") != "hack-hydra.query-response.v2":
         return RetrievalObservation(
             run_id=run_id,
             question_id=question_id,
@@ -566,7 +565,6 @@ def _live_result_is_grounded(
     hydradb = _record(normalized.get("hydradb"))
     if (
         normalized.get("revision") != target.revision_id
-        or hydradb.get("database") != target.database
         or hydradb.get("collections") != [target.collection]
     ):
         return False

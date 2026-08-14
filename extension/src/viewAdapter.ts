@@ -125,7 +125,6 @@ function normalizeHydra(value: unknown): HydraMetadata | undefined {
   const collections = stringArray(hydra.collections);
   return {
     available: hydra.available === true,
-    database: textValue(hydra.database) || undefined,
     collection: textValue(hydra.collection) || collections[0],
     queryBy: textValue(hydra.query_by ?? hydra.queryBy) as HydraMetadata["queryBy"] || undefined,
     mode: textValue(hydra.mode) as HydraMetadata["mode"] || undefined,
@@ -177,7 +176,6 @@ export function normalizeHealth(value: unknown): ServiceHealth {
   return {
     state,
     revision,
-    database: textValue(health.database) || undefined,
     collection: textValue(health.collection) || stringArray(health.collections)[0],
     message: textValue(health.message) || undefined
   };

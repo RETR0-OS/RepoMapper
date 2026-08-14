@@ -77,7 +77,11 @@ def test_health_reports_explicit_configured_and_unavailable_states() -> None:
     assert "has not verified" in ready_health["message"]
     unavailable_health = unavailable.get("/health").json()
     assert unavailable_health["state"] == "unavailable"
-    assert "HYDRA_DB_API_KEY" in unavailable_health["message"]
+    assert "Repository Map setup" in unavailable_health["message"]
+    assert "database" not in ready_health
+    assert "database" not in unavailable_health
+    assert ready_health["credentials_configured"] is True
+    assert unavailable_health["credentials_configured"] is False
 
 
 def test_health_exposes_repository_identity_without_raw_root(tmp_path: Path) -> None:
@@ -226,7 +230,8 @@ def test_unavailable_query_never_returns_fixture_data() -> None:
     assert view["hydradb"]["available"] is False
     assert view["nodes"] == []
     assert view["edges"] == []
-    assert "HYDRA_DB_API_KEY" in view["warnings"][0]
+    assert "credentials are not configured" in view["warnings"][0]
+    assert "HYDRA_DB_API_KEY" not in view["warnings"][0]
     assert transport.calls == []
 
 

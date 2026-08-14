@@ -34,7 +34,7 @@ class SyncManifest:
     repository_id: str
     revision_id: str | None = None
     sources: Mapping[str, str] = field(default_factory=dict)
-    database: str | None = None
+    database_fingerprint: str | None = None
     collection: str | None = None
 
 
@@ -84,13 +84,20 @@ class SyncService:
         self.client = client
         self.repository_id = repository_id
         self.manifest_path = Path(manifest_path).resolve() if manifest_path else None
+        self._legacy_database_field = False
         self.manifest = manifest or self._load_manifest()
         if self.manifest.repository_id != repository_id:
             raise ValueError("Sync manifest belongs to another repository")
-        if self.manifest.database not in {None, self.client.config.database}:
+        database_fingerprint = self.client.database_fingerprint()
+        if (
+            database_fingerprint is not None
+            and self.manifest.database_fingerprint not in {None, database_fingerprint}
+        ):
             raise ValueError("Sync manifest belongs to another HydraDB database")
         if self.manifest.collection not in {None, self.client.config.collection}:
             raise ValueError("Sync manifest belongs to another HydraDB collection")
+        if self._legacy_database_field:
+            self._persist_manifest(self.manifest)
         self.events = events or EventBus()
         self.batch_size = batch_size
         self._sleep = sleep
@@ -107,8 +114,7 @@ class SyncService:
                 "status": self._status.value,
                 "ready_revision": self.manifest.revision_id,
                 "source_count": len(self.manifest.sources),
-                "hydradb_available": self.client.config.configured,
-                "database": self.client.config.database or None,
+                "hydradb_available": self.client.configured,
                 "collection": self.client.config.collection,
                 "current_state_indeterminate": self._current_state_indeterminate,
             }
@@ -170,7 +176,6 @@ class SyncService:
             revision_id=revision_id,
             entity_ids=tuple(card.node_id for card in cards if card.source_id in changed)[:100],
             hydradb_query_metadata={
-                "database": self.client.config.database,
                 "collection": self.client.config.collection,
                 "added": len(added),
                 "replaced": len(replaced),
@@ -268,7 +273,7 @@ class SyncService:
             repository_id=self.repository_id,
             revision_id=revision_id,
             sources=new_hashes,
-            database=self.client.config.database,
+            database_fingerprint=self.client.database_fingerprint(),
             collection=self.client.config.collection,
         )
         try:
@@ -296,7 +301,6 @@ class SyncService:
             session_id=session_id,
             revision_id=revision_id,
             hydradb_query_metadata={
-                "database": self.client.config.database,
                 "collection": self.client.config.collection,
                 "source_count": len(cards),
             },
@@ -336,9 +340,14 @@ class SyncService:
                     str(payload["revision_id"]) if payload.get("revision_id") is not None else None
                 ),
                 sources={str(key): str(value) for key, value in payload["sources"].items()},
-                database=(str(payload["database"]) if payload.get("database") else None),
+                database_fingerprint=(
+                    str(payload["database_fingerprint"])
+                    if payload.get("database_fingerprint")
+                    else None
+                ),
                 collection=(str(payload["collection"]) if payload.get("collection") else None),
             )
+            self._legacy_database_field = "database" in payload
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
             raise ValueError(f"Invalid sync manifest: {self.manifest_path}") from exc
         return manifest
@@ -354,7 +363,7 @@ class SyncService:
             "repository_id": manifest.repository_id,
             "revision_id": manifest.revision_id,
             "sources": dict(manifest.sources),
-            "database": manifest.database,
+            "database_fingerprint": manifest.database_fingerprint,
             "collection": manifest.collection,
         }
         try:

@@ -143,7 +143,6 @@
     "collections": [
       "current"
     ],
-    "database": "repo_hack_hydra",
     "graph_context": true,
     "mode": "thinking",
     "origin": "byog",
@@ -236,7 +235,7 @@
       "summary": ""
     }
   ],
-  "response_schema": "hack-hydra.query-response.v1",
+  "response_schema": "hack-hydra.query-response.v2",
   "revision": "rev-abc",
   "session_id": "session-golden",
   "sources": [

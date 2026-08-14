@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import random
 import time
 import uuid
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import AbstractContextManager, contextmanager
+from dataclasses import dataclass
 from typing import Any, Protocol
 from urllib import error, parse, request
 
@@ -34,6 +38,48 @@ class HydraDBAPIError(HydraDBError):
 
 class HydraDBContractError(HydraDBError, ValueError):
     """A request violates the public HydraDB v2 contract."""
+
+
+@dataclass(frozen=True, slots=True)
+class HydraCredentials:
+    """One short-lived credential lease for one HydraDB operation."""
+
+    api_key: str
+    database: str
+
+
+class CredentialProvider(Protocol):
+    def configured(self, repository_id: str) -> bool: ...
+
+    def acquire(self, repository_id: str) -> AbstractContextManager[HydraCredentials]: ...
+
+
+class StaticCredentialProvider:
+    """Developer/test provider for the legacy environment-configured runtime."""
+
+    def __init__(self, config: HydraDBConfig) -> None:
+        self._config = config
+
+    def configured(self, repository_id: str) -> bool:
+        del repository_id
+        return self._config.configured
+
+    @contextmanager
+    def acquire(self, repository_id: str) -> Iterator[HydraCredentials]:
+        del repository_id
+        if not self._config.configured:
+            raise HydraDBUnavailable(
+                "HydraDB is unavailable because credentials are not configured for this project"
+            )
+        assert self._config.api_key is not None
+        credentials = HydraCredentials(
+            api_key=self._config.api_key,
+            database=self._config.database,
+        )
+        try:
+            yield credentials
+        finally:
+            del credentials
 
 
 class Transport(Protocol):
@@ -105,10 +151,14 @@ class HydraDBClient:
         self,
         config: HydraDBConfig,
         *,
+        repository_id: str = "default",
+        credential_provider: CredentialProvider | None = None,
         transport: Transport | None = None,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self.config = config
+        self.repository_id = repository_id
+        self._credential_provider = credential_provider or StaticCredentialProvider(config)
         self._transport = transport or UrllibTransport()
         self._sleep = sleep
 
@@ -122,15 +172,18 @@ class HydraDBClient:
     ) -> JsonObject:
         sources = [dict(item) for item in app_knowledge]
         _validate_ingest(sources, graph_payload)
-        form = {
-            "type": "knowledge",
-            "database": self._database(),
-            "collection": collection or self.config.collection,
-            "upsert": "true" if upsert else "false",
-            "app_knowledge": json.dumps(sources, separators=(",", ":")),
-            "graph_payload": json.dumps(graph_payload, separators=(",", ":")),
-        }
-        return self._call("POST", "/context/ingest", form=form)
+        with self._credentials() as credentials:
+            form = {
+                "type": "knowledge",
+                "database": credentials.database,
+                "collection": collection or self.config.collection,
+                "upsert": "true" if upsert else "false",
+                "app_knowledge": json.dumps(sources, separators=(",", ":")),
+                "graph_payload": json.dumps(graph_payload, separators=(",", ":")),
+            }
+            return self._call(
+                "POST", "/context/ingest", credentials=credentials, form=form
+            )
 
     def ingest_evolution(
         self,
@@ -168,23 +221,24 @@ class HydraDBClient:
             raise HydraDBContractError("max_results must be between 1 and 50")
         if collection is not None and collections is not None:
             raise HydraDBContractError("Use collection or collections, not both")
-        body: JsonObject = {
-            "database": self._database(),
-            "query": query,
-            "type": query_type,
-            "query_by": query_by,
-            "mode": mode,
-            "graph_context": graph_context,
-            "query_forceful_relations": query_forceful_relations,
-            "max_results": max_results,
-        }
-        if collections is not None:
-            body["collections"] = collections
-        else:
-            body["collection"] = collection or self.config.collection
-        if metadata_filters:
-            body["metadata_filters"] = dict(metadata_filters)
-        return self._call("POST", "/query", json_body=body)
+        with self._credentials() as credentials:
+            body: JsonObject = {
+                "database": credentials.database,
+                "query": query,
+                "type": query_type,
+                "query_by": query_by,
+                "mode": mode,
+                "graph_context": graph_context,
+                "query_forceful_relations": query_forceful_relations,
+                "max_results": max_results,
+            }
+            if collections is not None:
+                body["collections"] = collections
+            else:
+                body["collection"] = collection or self.config.collection
+            if metadata_filters:
+                body["metadata_filters"] = dict(metadata_filters)
+            return self._call("POST", "/query", credentials=credentials, json_body=body)
 
     def query_evolution(
         self,
@@ -214,25 +268,26 @@ class HydraDBClient:
 
     def status(self, ids: Sequence[str]) -> JsonObject:
         clean_ids = _clean_ids(ids)
-        return self._call(
-            "GET",
-            "/context/status",
-            query={
-                "database": self._database(),
-                "ids": ",".join(clean_ids),
-            },
-        )
+        with self._credentials() as credentials:
+            return self._call(
+                "GET",
+                "/context/status",
+                credentials=credentials,
+                query={"database": credentials.database, "ids": ",".join(clean_ids)},
+            )
 
     def delete(self, ids: Sequence[str]) -> JsonObject:
-        return self._call(
-            "DELETE",
-            "/context",
-            json_body={
-                "database": self._database(),
-                "ids": _clean_ids(ids),
-                "type": "knowledge",
-            },
-        )
+        with self._credentials() as credentials:
+            return self._call(
+                "DELETE",
+                "/context",
+                credentials=credentials,
+                json_body={
+                    "database": credentials.database,
+                    "ids": _clean_ids(ids),
+                    "type": "knowledge",
+                },
+            )
 
     def relations(
         self,
@@ -246,38 +301,54 @@ class HydraDBClient:
             raise HydraDBContractError("source_id must not be blank")
         if not 1 <= limit <= 500:
             raise HydraDBContractError("limit must be between 1 and 500")
-        params = {
-            "database": self._database(),
-            "collection": collection or self.config.collection,
-            "id": source_id,
-            "limit": str(limit),
-        }
-        if cursor is not None:
-            params["cursor"] = cursor
-        return self._call("GET", "/context/relations", query=params)
-
-    def _database(self) -> str:
-        if not self.config.configured:
-            raise HydraDBUnavailable(
-                "HydraDB is unavailable: HYDRA_DB_API_KEY and HYDRA_DB_DATABASE are required"
+        with self._credentials() as credentials:
+            params = {
+                "database": credentials.database,
+                "collection": collection or self.config.collection,
+                "id": source_id,
+                "limit": str(limit),
+            }
+            if cursor is not None:
+                params["cursor"] = cursor
+            return self._call(
+                "GET", "/context/relations", credentials=credentials, query=params
             )
-        return self.config.database
+
+    @property
+    def configured(self) -> bool:
+        return self._credential_provider.configured(self.repository_id)
+
+    @property
+    def credential_provider(self) -> CredentialProvider:
+        return self._credential_provider
+
+    def database_fingerprint(self) -> str | None:
+        try:
+            with self._credentials() as credentials:
+                return hmac.new(
+                    credentials.api_key.encode("utf-8"),
+                    credentials.database.encode("utf-8"),
+                    hashlib.sha256,
+                ).hexdigest()
+        except HydraDBUnavailable:
+            return None
+
+    def _credentials(self) -> AbstractContextManager[HydraCredentials]:
+        return self._credential_provider.acquire(self.repository_id)
 
     def _call(
         self,
         method: str,
         path: str,
         *,
+        credentials: HydraCredentials,
         query: Mapping[str, str] | None = None,
         json_body: Mapping[str, Any] | None = None,
         form: Mapping[str, str] | None = None,
         extra_headers: Mapping[str, str] | None = None,
     ) -> JsonObject:
-        # Fail before invoking an injected transport; this prevents test fixtures
-        # or any local data source from becoming an accidental fallback.
-        self._database()
         headers = {
-            "Authorization": f"Bearer {self.config.api_key}",
+            "Authorization": f"Bearer {credentials.api_key}",
             "API-Version": "2",
             "Accept": "application/json",
         }

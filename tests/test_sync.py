@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from threading import Event, Thread
 from typing import Any
 
@@ -462,3 +463,31 @@ def test_verified_snapshot_requires_exact_ready_card_hashes() -> None:
     assert service.verifies_snapshot([original], revision_id="rev-new") is True
     assert service.verifies_snapshot([changed], revision_id="rev-new") is False
     assert service.verifies_snapshot([original], revision_id="fabricated") is False
+
+
+def test_legacy_manifest_database_is_removed_without_plaintext_backup(tmp_path: Any) -> None:
+    manifest_path = tmp_path / ".hydra-graph" / "manifest.json"
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "repository_id": "hack-hydra",
+                "revision_id": "rev-old",
+                "sources": {},
+                "database": "plaintext-database-must-go",
+                "collection": "current",
+            }
+        ),
+        encoding="utf-8",
+    )
+    service, _ = sync_service(LifecycleTransport())
+    SyncService(
+        service.client,
+        repository_id="hack-hydra",
+        manifest_path=manifest_path,
+    )
+
+    persisted = manifest_path.read_text(encoding="utf-8")
+    assert "plaintext-database-must-go" not in persisted
+    assert '"database"' not in persisted
+    assert '"database_fingerprint"' in persisted
