@@ -1,6 +1,7 @@
 import * as crypto from "node:crypto";
 import * as vscode from "vscode";
 import { createPreviewView } from "./previewData.js";
+import { parseWebviewMessage } from "./messageValidation.js";
 import { RepositoryServiceClient, ServiceError } from "./serviceClient.js";
 import { validateSourceRange } from "./sourceNavigation.js";
 import type {
@@ -40,7 +41,14 @@ export class GraphPanel implements vscode.Disposable {
       );
       this.panel.webview.html = this.html(this.panel.webview);
       this.disposables.push(this.panel.onDidDispose(() => { this.panel = undefined; }));
-      this.disposables.push(this.panel.webview.onDidReceiveMessage((message: WebviewToHostMessage) => this.handleMessage(message)));
+      this.disposables.push(this.panel.webview.onDidReceiveMessage((rawMessage: unknown) => {
+        const message = parseWebviewMessage(rawMessage);
+        if (!message) {
+          this.post({ type: "error", message: "The webview sent an invalid request.", recoverable: true });
+          return;
+        }
+        void this.handleMessage(message);
+      }));
     } else {
       this.panel.reveal(vscode.ViewColumn.Active, true);
     }

@@ -98,8 +98,25 @@ const timeline: TimelineEvent[] = [
 
 export function createPreviewView(mode: ViewMode, depth: GraphDepth = "file"): GraphView {
   const ids = new Set(modeNodes[mode]);
-  const visibleNodes = nodes.filter((node) => ids.has(node.id));
-  const visibleEdges = edges.filter((edge) => ids.has(edge.sourceId) && ids.has(edge.targetId));
+  const visibleNodes = nodes.filter((node) => ids.has(node.id)).map((node) => ({ ...node, source: node.source ? { ...node.source } : undefined }));
+  const visibleEdges = edges.filter((edge) => ids.has(edge.sourceId) && ids.has(edge.targetId)).map((edge) => ({
+    ...edge,
+    evidence: edge.evidence.map((item) => ({ ...item })),
+    contributingEdgeIds: edge.contributingEdgeIds ? [...edge.contributingEdgeIds] : undefined
+  }));
+  if (mode === "trace") {
+    visibleNodes.forEach((node) => { node.state = "returned"; });
+    visibleEdges.forEach((edge) => { edge.state = "returned"; });
+  } else if (mode === "compare") {
+    visibleNodes.forEach((node) => { node.state = "unchanged"; });
+    const changedUi = visibleNodes.find((node) => node.id === "preview:webview");
+    const addedTest = visibleNodes.find((node) => node.id === "preview:tests");
+    if (changedUi) changedUi.state = "modified";
+    if (addedTest) addedTest.state = "added";
+    visibleEdges.forEach((edge) => { edge.state = edge.id === "preview:e6" ? "added" : "unchanged"; });
+  } else if (mode === "preserve") {
+    visibleNodes.forEach((node) => { node.state = node.id === "preview:navigate" ? "modified" : "unchanged"; });
+  }
   const summaries: Record<ViewMode, string> = {
     repository: "Orient to concrete repository entities, then move to a focused local graph.",
     explore: "A bounded neighborhood around the extension host.",
@@ -115,7 +132,11 @@ export function createPreviewView(mode: ViewMode, depth: GraphDepth = "file"): G
     depth,
     nodes: visibleNodes,
     edges: visibleEdges,
-    timeline: mode === "repository" || mode === "explore" ? [] : timeline,
+    timeline: mode === "repository" || mode === "explore" ? [] : timeline.map((event) => ({
+      ...event,
+      nodeIds: event.nodeIds ? [...event.nodeIds] : undefined,
+      edgeIds: event.edgeIds ? [...event.edgeIds] : undefined
+    })),
     warnings: ["Interactive preview only. The local repository service is unavailable; no HydraDB result is being shown."],
     budget: {
       requestedNodes: 30,

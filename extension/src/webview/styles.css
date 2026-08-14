@@ -62,6 +62,7 @@ button { color: inherit; }
 .button-primary { color:var(--vscode-button-foreground,#fff); background:var(--vscode-button-background,#2569b3); border-color:transparent; }.button-primary:hover { background:var(--vscode-button-hoverBackground,#2f7ccc); }
 .button-quiet { color:var(--muted); background:transparent; }.button-source { width:100%; margin-top:10px; background:var(--accent-soft); border-color:color-mix(in srgb,var(--accent) 45%,var(--border)); }
 .segmented { display:flex; border:1px solid var(--border); border-radius:8px; padding:2px; background:var(--panel); }
+.segmented[hidden] { display:none; }
 .segmented button { border:0; border-radius:5px; background:transparent; color:var(--muted); padding:5px 9px; cursor:pointer; }.segmented button.is-active { background:var(--panel-raised); color:var(--text); box-shadow:0 1px 3px #0004; }
 .graph-card { border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; background:var(--panel); box-shadow:0 12px 30px #0002; }
 .graph-toolbar { min-height:46px; padding:7px 10px; border-bottom:1px solid var(--border); overflow-x:auto; }

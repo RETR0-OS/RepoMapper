@@ -601,7 +601,7 @@ function runPrimaryAction(): void {
     return;
   }
   if (view.mode === "compare") {
-    const changed = view.nodes.filter((node) => node.state && node.state !== "unchanged");
+    const changed = view.nodes.filter((node) => node.state === "added" || node.state === "removed" || node.state === "modified");
     if (changed.length === 0) {
       showToast("No verified structural changes were returned.");
       return;
