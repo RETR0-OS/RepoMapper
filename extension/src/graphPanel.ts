@@ -30,6 +30,7 @@ import type {
 import { compareViewContext, preserveViewContext } from "./viewContext.js";
 import { safeDisplayStateKey } from "./webview/graphState.js";
 import { matchingWorkspaceRoot, visibleNodeIdsForWorkspaceChange, workspaceRelativePathForChange } from "./workspaceChanges.js";
+import type { RepositoryScope } from "./workspaceScope.js";
 
 export class GraphPanel implements vscode.Disposable {
   private panel: vscode.WebviewPanel | undefined;
@@ -55,7 +56,8 @@ export class GraphPanel implements vscode.Disposable {
 
   public constructor(
     private readonly context: vscode.ExtensionContext,
-    private readonly onHealthChanged: (health: ServiceHealth) => void
+    private readonly onHealthChanged: (health: ServiceHealth) => void,
+    private readonly repositoryScope: RepositoryScope | undefined
   ) {
     const watcher = vscode.workspace.createFileSystemWatcher("**/*");
     this.disposables.push(
@@ -168,9 +170,13 @@ export class GraphPanel implements vscode.Disposable {
   }
 
   private client(forWrite = false): RepositoryServiceClient {
+    if (!this.repositoryScope) {
+      throw new ServiceError("Open a local workspace folder to use Repository Map.");
+    }
     const configuration = vscode.workspace.getConfiguration("hydra");
     return new RepositoryServiceClient({
       baseUrl: configuration.get<string>("serviceUrl", "http://127.0.0.1:8765"),
+      repositoryScope: this.repositoryScope,
       timeoutMs: forWrite
         ? configuration.get<number>("indexTimeoutMs", 120000)
         : configuration.get<number>("requestTimeoutMs", 5000)
@@ -586,7 +592,7 @@ export class GraphPanel implements vscode.Disposable {
         this.observeMultiRootWarningShown = true;
         this.post({
           type: "error",
-          message: "Workspace edit overlay is disabled because multiple workspace roots cannot be safely mapped to the service-configured repository root.",
+          message: "Workspace edit overlay is disabled because multiple workspace roots cannot be safely mapped to the selected repository root.",
           recoverable: true
         });
       }

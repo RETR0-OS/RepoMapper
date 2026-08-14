@@ -30,8 +30,10 @@ import { RepositoryServiceClient } from "./serviceClient.js";
 import { RepositorySidebar } from "./sidebar.js";
 import type { ServiceHealth, ViewMode } from "./types.js";
 import { pendingCompareContext, preserveViewContext } from "./viewContext.js";
+import { createRepositoryScope, type RepositoryScope } from "./workspaceScope.js";
 
 export function activate(context: vscode.ExtensionContext): void {
+  const repositoryScope = activeRepositoryScope();
   const repositoryStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 90);
   repositoryStatus.name = "Repository Map";
   repositoryStatus.text = "$(type-hierarchy) Repository Map";
@@ -68,11 +70,15 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   };
 
-  const panel = new GraphPanel(context, updateHealth);
+  const panel = new GraphPanel(context, updateHealth, repositoryScope);
   const configuredClient = (): RepositoryServiceClient => {
+    if (!repositoryScope) {
+      throw new Error("Open a local workspace folder to use Repository Map.");
+    }
     const configuration = vscode.workspace.getConfiguration("hydra");
     return new RepositoryServiceClient({
       baseUrl: configuration.get<string>("serviceUrl", "http://127.0.0.1:8765"),
+      repositoryScope,
       timeoutMs: configuration.get<number>("indexTimeoutMs", 120000)
     });
   };
@@ -305,7 +311,7 @@ export function activate(context: vscode.ExtensionContext): void {
       const progressClient: IndexingClient = {
         previewIndex: async (revision) => await vscode.window.withProgress({
           location: vscode.ProgressLocation.Notification,
-          title: `Analyzing configured repository root for ${revision}…`,
+          title: `Analyzing selected workspace for ${revision}…`,
           cancellable: false
         }, () => configuredClient().previewIndex(revision)),
         indexRepository: async (revision) => await vscode.window.withProgress({
@@ -317,7 +323,7 @@ export function activate(context: vscode.ExtensionContext): void {
       try {
         const outcome = await runSafeIndexing(progressClient, revisionId, async (preview) => {
           const action = await vscode.window.showInformationMessage(
-            `Upload revision ${revisionId} from the configured repository root?`,
+            `Upload revision ${revisionId} from the selected workspace?`,
             { modal: true, detail: formatIndexPreview(preview) },
             "Upload to HydraDB"
           );
@@ -384,4 +390,11 @@ export function deactivate(): void {}
 
 function isMode(value: unknown): value is ViewMode {
   return typeof value === "string" && ["repository", "explore", "trace", "observe", "compare", "preserve"].includes(value);
+}
+
+function activeRepositoryScope(): RepositoryScope | undefined {
+  const folders = vscode.workspace.workspaceFolders?.filter((folder) => folder.uri.scheme === "file") ?? [];
+  const folder = folders[0];
+  if (!folder) return undefined;
+  return createRepositoryScope(folder.uri.fsPath, folder.name);
 }

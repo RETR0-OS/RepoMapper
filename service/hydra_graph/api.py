@@ -8,12 +8,15 @@ import os
 import uuid
 from collections.abc import AsyncIterator, Iterator, Mapping
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
+from threading import RLock
 from typing import Any, Literal
+from urllib.parse import unquote
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from .analyzer import analyze_repository
@@ -30,7 +33,7 @@ from .events import (
 )
 from .evolution_service import EvolutionService
 from .hydradb import HydraDBClient
-from .ids import normalize_relative_path
+from .ids import normalize_relative_path, normalize_repository_id
 from .models import GraphNode
 from .query import QueryService
 from .sync import SyncService
@@ -112,6 +115,65 @@ class ServiceContainer:
     repository_root: Path
     evolution: EvolutionService | None = None
     observe_sessions: ObserveSessions | None = None
+
+
+class RepositoryScopes:
+    """Keep independent repository state for each extension workspace."""
+
+    def __init__(self, default: ServiceContainer) -> None:
+        self.default = default
+        self._lock = RLock()
+        self._scopes: dict[tuple[str, str], ServiceContainer] = {
+            self._key(default.repository_root, default.sync.repository_id): default
+        }
+
+    def get(self, repository_root: str, repository_id: str) -> ServiceContainer:
+        try:
+            root = Path(unquote(repository_root)).resolve()
+            normalized_id = normalize_repository_id(repository_id)
+        except (OSError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail="Repository scope is invalid.") from exc
+        if not root.is_dir():
+            raise HTTPException(
+                status_code=422, detail="Repository root must be an existing directory."
+            )
+        key = self._key(root, normalized_id)
+        with self._lock:
+            existing = self._scopes.get(key)
+            if existing is not None:
+                return existing
+            events = EventBus()
+            sync = SyncService(
+                self.default.client,
+                repository_id=normalized_id,
+                events=events,
+                manifest_path=_contained_manifest_path(root),
+            )
+            scoped = _build_container(
+                resolved_config=self.default.config,
+                resolved_repository_id=normalized_id,
+                root=root,
+                events=events,
+                client=self.default.client,
+                sync=sync,
+            )
+            self._scopes[key] = scoped
+            return scoped
+
+    @staticmethod
+    def _key(root: Path, repository_id: str) -> tuple[str, str]:
+        canonical = str(root.resolve()).replace("\\", "/")
+        if os.name == "nt":
+            canonical = canonical.casefold()
+        return canonical.rstrip("/") or "/", repository_id
+
+
+class ScopedServiceProxy:
+    def __init__(self, current: ContextVar[ServiceContainer]) -> None:
+        object.__setattr__(self, "_current", current)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._current.get(), name)
 
 
 def create_container(
@@ -241,6 +303,36 @@ def create_app(container: ServiceContainer | None = None) -> FastAPI:
     )
     app.state.services = services
     app.state.mcp_server = mcp_server
+    repository_scopes = RepositoryScopes(services)
+    current_services: ContextVar[ServiceContainer] = ContextVar(
+        "hydra_repository_services", default=services
+    )
+    app.state.repository_scopes = repository_scopes
+
+    @app.middleware("http")
+    async def select_repository_scope(request: Request, call_next: Any) -> Any:
+        repository_root = request.headers.get("X-Hydra-Repository-Root")
+        repository_id = request.headers.get("X-Hydra-Repository-Id")
+        if repository_root is None and repository_id is None:
+            return await call_next(request)
+        if repository_root is None or repository_id is None:
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "detail": "Repository root and repository ID headers must be provided together."
+                },
+            )
+        try:
+            scoped = repository_scopes.get(repository_root, repository_id)
+        except HTTPException as exc:
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+        token = current_services.set(scoped)
+        try:
+            return await call_next(request)
+        finally:
+            current_services.reset(token)
+
+    services = ScopedServiceProxy(current_services)  # type: ignore[assignment]
 
     @app.get("/health")
     def health() -> dict[str, Any]:
@@ -538,8 +630,10 @@ def create_app(container: ServiceContainer | None = None) -> FastAPI:
 
     @app.get("/api/events/stream")
     def event_stream() -> StreamingResponse:
+        scoped_events = services.events
+
         def generate() -> Iterator[str]:
-            for event in services.events.stream():
+            for event in scoped_events.stream():
                 if event is None:
                     yield ": heartbeat\n\n"
                 else:

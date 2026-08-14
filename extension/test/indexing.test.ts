@@ -74,6 +74,10 @@ describe("safe repository indexing", () => {
     const client = new RepositoryServiceClient({
       baseUrl: "http://127.0.0.1:8765/",
       timeoutMs: 1000,
+      repositoryScope: {
+        repositoryRoot: "C:\\Workspaces\\Hydra Repo",
+        repositoryId: "hydra-repo-a1b2c3d4e5f6"
+      },
       fetchImpl: fetchMock as typeof fetch
     });
 
@@ -86,7 +90,10 @@ describe("safe repository indexing", () => {
     for (const call of fetchMock.mock.calls) {
       const init = call[1];
       expect(init?.method).toBe("POST");
-      expect(init?.headers).toEqual({ "content-type": "application/json" });
+      const headers = new Headers(init?.headers);
+      expect(headers.get("content-type")).toBe("application/json");
+      expect(headers.get("x-hydra-repository-root")).toBe("C%3A%5CWorkspaces%5CHydra%20Repo");
+      expect(headers.get("x-hydra-repository-id")).toBe("hydra-repo-a1b2c3d4e5f6");
       expect(JSON.parse(String(init?.body))).toEqual({ revision_id: "rev-42" });
       expect(JSON.parse(String(init?.body))).not.toHaveProperty("repository_root");
     }
@@ -147,7 +154,7 @@ describe("safe repository indexing", () => {
   it("formats the server-owned root and file, source, and relation scope for confirmation", () => {
     const detail = formatIndexPreview(preview);
 
-    expect(detail).toContain("Configured root: C:\\configured\\repository");
+    expect(detail).toContain("Workspace root: C:\\configured\\repository");
     expect(detail).toContain("Discovered files: 12");
     expect(detail).toContain("Generated source cards: 18");
     expect(detail).toContain("Graph relations: 47");

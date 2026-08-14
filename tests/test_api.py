@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import pytest
 from fastapi.testclient import TestClient
@@ -113,6 +114,71 @@ def test_health_root_fingerprint_resolves_repository_symlink(tmp_path: Path) -> 
     )
     assert str(repository) not in alias_health.values()
     assert str(alias) not in alias_health.values()
+
+
+def test_extension_scope_headers_select_the_workspace_without_environment_configuration(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "Customer Portal"
+    repository.mkdir()
+    (repository / "app.py").write_text("value = 1\n", encoding="utf-8")
+    client, transport = api()
+    headers = {
+        "X-Hydra-Repository-Root": quote(str(repository.resolve()), safe=""),
+        "X-Hydra-Repository-Id": "Customer-Portal-a1b2c3d4e5f6",
+    }
+
+    health = client.get("/health", headers=headers).json()
+    preview = client.post(
+        "/api/index/preview", json={"revision_id": "rev-workspace"}, headers=headers
+    ).json()
+
+    assert health["repository_id"] == "Customer-Portal-a1b2c3d4e5f6"
+    assert health["repository_root_fingerprint"] == repository_root_fingerprint(repository)
+    assert preview["repository_root"] == str(repository.resolve())
+    assert preview["repository_id"] == "Customer-Portal-a1b2c3d4e5f6"
+    assert {item["path"] for item in preview["sources"]} == {".", "app.py"}
+    assert transport.calls == []
+
+
+def test_extension_repository_scopes_are_isolated(tmp_path: Path) -> None:
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    client, _ = api()
+    first_headers = {
+        "X-Hydra-Repository-Root": quote(str(first.resolve()), safe=""),
+        "X-Hydra-Repository-Id": "first-a1b2c3d4e5f6",
+    }
+    second_headers = {
+        "X-Hydra-Repository-Root": quote(str(second.resolve()), safe=""),
+        "X-Hydra-Repository-Id": "second-a1b2c3d4e5f6",
+    }
+
+    first_health = client.get("/health", headers=first_headers).json()
+    second_health = client.get("/health", headers=second_headers).json()
+
+    assert first_health["repository_id"] == "first-a1b2c3d4e5f6"
+    assert second_health["repository_id"] == "second-a1b2c3d4e5f6"
+    assert (
+        first_health["repository_root_fingerprint"]
+        != second_health["repository_root_fingerprint"]
+    )
+
+
+def test_extension_repository_scope_requires_both_headers(tmp_path: Path) -> None:
+    client, _ = api()
+
+    response = client.get(
+        "/health",
+        headers={"X-Hydra-Repository-Root": quote(str(tmp_path.resolve()), safe="")},
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {
+        "detail": "Repository root and repository ID headers must be provided together."
+    }
 
 
 def test_extension_query_route_returns_hydradb_backed_trace_view() -> None:

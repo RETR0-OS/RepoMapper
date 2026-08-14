@@ -19,6 +19,7 @@ import {
   type ObserveSessionResponse
 } from "./observe.js";
 import { normalizeGraphView, normalizeHealth } from "./viewAdapter.js";
+import type { RepositoryScope } from "./workspaceScope.js";
 
 export class ServiceError extends Error {
   public constructor(
@@ -34,6 +35,7 @@ export class ServiceError extends Error {
 export interface ServiceClientOptions {
   baseUrl: string;
   timeoutMs: number;
+  repositoryScope?: RepositoryScope;
   fetchImpl?: typeof fetch;
 }
 
@@ -206,7 +208,19 @@ export class RepositoryServiceClient {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.options.timeoutMs);
     try {
-      const response = await this.fetchImpl(`${this.baseUrl}${path}`, { ...init, signal: controller.signal });
+      const headers = new Headers(init.headers);
+      if (this.options.repositoryScope) {
+        headers.set(
+          "X-Hydra-Repository-Root",
+          encodeURIComponent(this.options.repositoryScope.repositoryRoot)
+        );
+        headers.set("X-Hydra-Repository-Id", this.options.repositoryScope.repositoryId);
+      }
+      const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
+        ...init,
+        headers,
+        signal: controller.signal
+      });
       if (!response.ok) {
         throw new ServiceError(`Repository service returned ${response.status}.`, response.status);
       }

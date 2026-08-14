@@ -143,7 +143,7 @@ export async function runSafeIndexing(
     throw new Error("The indexing preview did not match the requested revision. Indexing was stopped.");
   }
   if (!preview.repositoryRoot) {
-    throw new Error("The indexing preview did not report the configured repository root. Indexing was stopped.");
+    throw new Error("The indexing preview did not report the selected workspace root. Indexing was stopped.");
   }
   if (!await confirm(preview)) {
     return { status: "cancelled", preview };
@@ -162,7 +162,7 @@ export function formatIndexPreview(preview: IndexPreview, visibleSourceLimit = 1
     sourceLines.push(`• …and ${preview.sources.length - visible.length} more source cards`);
   }
   return [
-    `Configured root: ${preview.repositoryRoot || "Not reported"}`,
+    `Workspace root: ${preview.repositoryRoot || "Not reported"}`,
     `Repository: ${preview.repositoryId || "Not reported"}`,
     `Revision: ${preview.revisionId}`,
     `Discovered files: ${preview.discoveredFileCount}`,
