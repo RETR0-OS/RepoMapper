@@ -41,4 +41,25 @@ describe("managed service client", () => {
     expect(new Headers(fetchMock.mock.calls[1]?.[1]?.headers).get("authorization")).toBe("Bearer token-two");
     expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).has("x-hydra-repository-root")).toBe(false);
   });
+
+  it("invalidates a stale managed session after network or authentication failure", async () => {
+    const invalidator = vi.fn();
+    const unauthorized = new RepositoryServiceClient({
+      baseUrl: "http://127.0.0.1:8765",
+      timeoutMs: 1_000,
+      sessionInvalidator: invalidator,
+      fetchImpl: vi.fn(async () => ({ ok: false, status: 401 } as Response)) as typeof fetch
+    });
+    await expect(unauthorized.health()).rejects.toThrow(/401/);
+    expect(invalidator).toHaveBeenCalledTimes(1);
+
+    const unavailable = new RepositoryServiceClient({
+      baseUrl: "http://127.0.0.1:8765",
+      timeoutMs: 1_000,
+      sessionInvalidator: invalidator,
+      fetchImpl: vi.fn(async () => { throw new Error("owner closed"); }) as typeof fetch
+    });
+    await expect(unavailable.health()).rejects.toThrow(/unavailable/i);
+    expect(invalidator).toHaveBeenCalledTimes(2);
+  });
 });

@@ -3,8 +3,8 @@ import * as path from "node:path";
 import type { AcquiredCredentials } from "./credentials.js";
 import type { RepositoryScope } from "./workspaceScope.js";
 
-export const MANAGED_IPC_PROTOCOL = "hack-hydra.managed-ipc.v1";
-export const MANAGED_SERVICE_PROTOCOL = "hack-hydra.managed-service.v1";
+export const MANAGED_IPC_PROTOCOL = "hack-hydra.managed-ipc.v2";
+export const MANAGED_SERVICE_PROTOCOL = "hack-hydra.managed-service.v2";
 export const MAX_IPC_LINE = 32_768;
 
 export interface ServiceHello {

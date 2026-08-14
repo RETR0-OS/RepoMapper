@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from threading import RLock
 
-MANAGED_SERVICE_PROTOCOL = "hack-hydra.managed-service.v1"
+MANAGED_SERVICE_PROTOCOL = "hack-hydra.managed-service.v2"
 MAX_CLOCK_SKEW_SECONDS = 30
 PROJECT_TOKEN_TTL_SECONDS = 300
 MAX_REQUEST_BYTES = 1_048_576

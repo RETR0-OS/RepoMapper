@@ -39,6 +39,7 @@ export interface ServiceClientOptions {
   timeoutMs: number;
   repositoryScope?: RepositoryScope;
   fetchImpl?: typeof fetch;
+  sessionInvalidator?: () => void;
 }
 
 export function requireLoopbackServiceUrl(value: string): string {
@@ -241,6 +242,7 @@ export class RepositoryServiceClient {
         signal: controller.signal
       });
       if (!response.ok) {
+        if (response.status === 401) this.options.sessionInvalidator?.();
         throw new ServiceError(`Repository service returned ${response.status}.`, response.status);
       }
       return (await response.json()) as T;
@@ -248,6 +250,7 @@ export class RepositoryServiceClient {
       if (error instanceof ServiceError) {
         throw error;
       }
+      this.options.sessionInvalidator?.();
       const message = error instanceof Error && error.name === "AbortError"
         ? `Repository service timed out after ${this.options.timeoutMs} ms.`
         : "Repository service is unavailable.";

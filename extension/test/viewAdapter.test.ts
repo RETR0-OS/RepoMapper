@@ -20,7 +20,20 @@ describe("product view normalization", () => {
     expect(result.nodes[0]?.source).toMatchObject({ startLine: 5, startColumn: 0, endColumn: 9 });
     expect(result.nodes[0]?.reason).toBe("Focused result");
     expect(result.hydradb).toMatchObject({ available: false, graphContext: false });
+    expect(result.hydradb).not.toHaveProperty("database");
     expect(result.budget).toMatchObject({ returnedNodes: 1, truncated: true });
+  });
+
+  it("accepts one legacy view release, rejects unknown schemas, and drops database fields", () => {
+    const legacy = {
+      view_schema: "hack-hydra.product-view.v1",
+      view_id: "legacy", revision_id: "rev-1", mode: "trace",
+      nodes: [], edges: [], warnings: [],
+      hydradb: { available: true, database: "must-discard", collections: ["current"], graph_context: true },
+      budget: {}
+    };
+    expect(normalizeGraphView(legacy, "trace").hydradb).not.toHaveProperty("database");
+    expect(() => normalizeGraphView({ ...legacy, view_schema: "unknown.v9" }, "trace")).toThrow(/schema/i);
   });
 
   it("does not treat a configured but generic current marker as a verified revision", () => {

@@ -16,7 +16,7 @@ from .config import DEFAULT_API_URL
 from .hydradb import CredentialProvider, HydraCredentials, HydraDBUnavailable
 from .ids import normalize_repository_id
 
-MANAGED_PROTOCOL = "hack-hydra.managed-ipc.v1"
+MANAGED_PROTOCOL = "hack-hydra.managed-ipc.v2"
 MAX_IPC_LINE = 32_768
 
 

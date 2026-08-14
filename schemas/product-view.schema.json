@@ -3,8 +3,9 @@
   "$id": "https://hack-hydra.local/schemas/product-view.schema.json",
   "title": "Hack Hydra Product View",
   "type": "object",
-  "required": ["view_id", "revision_id", "mode", "nodes", "edges", "aggregates", "hydradb", "warnings", "budget"],
+  "required": ["view_schema", "view_id", "revision_id", "mode", "nodes", "edges", "aggregates", "hydradb", "warnings", "budget"],
   "properties": {
+    "view_schema": { "const": "hack-hydra.product-view.v2" },
     "view_id": { "type": "string", "minLength": 1 },
     "revision_id": { "type": "string", "minLength": 1 },
     "mode": { "enum": ["repository", "explore", "trace", "observe", "compare", "preserve"] },

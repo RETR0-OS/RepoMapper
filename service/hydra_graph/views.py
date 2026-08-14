@@ -16,6 +16,8 @@ from .ids import edge_logical_id
 from .models import Evidence, GraphEdge, GraphNode
 from .query import QueryRequest, QueryService
 
+PRODUCT_VIEW_SCHEMA = "hack-hydra.product-view.v2"
+
 
 class ViewMode(StrEnum):
     REPOSITORY = "repository"
@@ -126,6 +128,7 @@ def build_product_view(
     warnings = list(query.get("warnings", []))
     if query.get("status") != "ready":
         return {
+            "view_schema": PRODUCT_VIEW_SCHEMA,
             "view_id": str(query["view_id"]),
             "revision_id": str(query.get("revision", "current")),
             "mode": mode.value,
@@ -168,6 +171,7 @@ def build_product_view(
     if was_truncated:
         warnings.append("View node or edge budget truncated the HydraDB-backed graph slice.")
     return {
+        "view_schema": PRODUCT_VIEW_SCHEMA,
         "view_id": str(query["view_id"]),
         "revision_id": str(query.get("revision", "current")),
         "mode": mode.value,

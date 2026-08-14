@@ -53,6 +53,7 @@ def test_all_modes_are_hydradb_backed_and_follow_view_contract(mode: ViewMode) -
     assert view["mode"] == mode.value
     assert set(view) == {
         "view_id",
+        "view_schema",
         "revision_id",
         "mode",
         "depth",
@@ -63,6 +64,7 @@ def test_all_modes_are_hydradb_backed_and_follow_view_contract(mode: ViewMode) -
         "warnings",
         "budget",
     }
+    assert view["view_schema"] == "hack-hydra.product-view.v2"
     assert view["hydradb"]["available"] is True
     if mode in {ViewMode.COMPARE, ViewMode.PRESERVE}:
         assert view["hydradb"]["status"] == "degraded"

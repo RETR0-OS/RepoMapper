@@ -71,6 +71,9 @@ export class ManagedRuntime implements vscode.Disposable, vscode.UriHandler {
       baseUrl: `http://127.0.0.1:${this.preferredPort()}`,
       baseUrlProvider: async () => (await this.ensureReady()).baseUrl,
       authorizationProvider: async () => `Bearer ${(await this.ensureReady()).accessToken}`,
+      sessionInvalidator: () => {
+        this.session = undefined;
+      },
       timeoutMs
     });
   }

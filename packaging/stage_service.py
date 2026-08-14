@@ -8,7 +8,7 @@ import json
 import shutil
 from pathlib import Path
 
-PROTOCOL = "hack-hydra.managed-service.v1"
+PROTOCOL = "hack-hydra.managed-service.v2"
 
 
 def main() -> int:
