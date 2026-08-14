@@ -161,3 +161,25 @@ Status: accepted.
 Package- and file-level views may combine many exact lower-level relations into one labeled edge. An aggregate must retain its predicate, exact relation count, contributing edge IDs, evidence IDs, and revision. Selecting it opens the contributing facts.
 
 Aggregation is presentation compression. It must not create a new semantic or inferred architectural claim.
+
+## D-024 — Local service boundary
+
+Status: accepted for the MVP.
+
+Run the Python HTTP service on loopback and the repository MCP server over stdio. The TypeScript VS Code extension talks only to the loopback service. HydraDB credentials stay in the Python process and are never sent to the webview.
+
+The deterministic analyzer may build upload payloads and bounded diff artifacts, but product retrieval remains HydraDB-only. When credentials, indexing, or a query are unavailable, the service returns an explicit empty degraded result. The interactive UI fixture is labeled as a preview and is never returned as repository truth.
+
+## D-025 — Exact relation evidence envelope
+
+Status: accepted.
+
+Serialize every deterministic BYOG relation context as the bounded, versioned `hack-hydra.relation-evidence.v1` JSON envelope. It carries the readable summary, stable edge ID, extractor identity, and original exact evidence record. A returned relation is exact only when its BYOG origin and evidence envelope both validate. Missing, malformed, or automatically extracted relation context must be downgraded or omitted without inventing a source range.
+
+## D-026 — Confirmed manual indexing
+
+Status: accepted for the MVP.
+
+Index only the service-configured repository root. Require an explicit revision ID, show the discovered files and complete source-card upload scope, and require confirmation before contacting HydraDB. A manual `Index now` flow is the MVP editing loop; automatic file watching remains future work.
+
+Stable source replacement in the `current` collection is not transactional. If an upsert or deletion fails after HydraDB accepts part of a candidate, report the current collection as indeterminate. The prior revision is only the last verified marker, not a promise that every prior source is still queryable. Immutable revision collections remain provisional until live collection semantics are proven.

@@ -1,6 +1,6 @@
 # Research Sources
 
-Verified 2026-08-13. Prefer these official HydraDB documents over secondary summaries.
+Verified 2026-08-14. Prefer these official HydraDB documents over secondary summaries.
 
 ## HydraDB
 
@@ -116,6 +116,14 @@ Key facts:
 https://docs.hydradb.com/api-reference
 
 Use for current endpoint and SDK shapes. Keep all direct calls behind the HydraDB adapter because documentation and SDK surfaces include both current and legacy naming.
+
+Implementation verification on 2026-08-14:
+
+- The official API v2 documentation lists `POST /context/ingest`, `GET /context/status`, `POST /query`, `DELETE /context`, and `GET /context/relations`.
+- API v2 requests use `Authorization: Bearer ...` and `API-Version: 2`.
+- BYOG ingestion sends `graph_payload` as a JSON string in the multipart request, keyed by the exact source IDs in the same request.
+- Current query documentation supports explicit `database`, `collection`/`collections`, `query_by`, `mode`, `graph_context`, `max_results`, and `metadata_filters` fields.
+- A live credentialed capability run was not possible in this workspace on 2026-08-14 because `HYDRA_DB_API_KEY` and `HYDRA_DB_DATABASE` were not set. Adapter behavior and response shaping are fixture-tested; live replacement, deletion, collection, Memory, and relation-inspection semantics remain unverified.
 
 ## VS Code
 
