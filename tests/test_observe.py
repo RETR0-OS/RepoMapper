@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -7,7 +8,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from hydra_graph.api import ServiceContainer, create_app
+from hydra_graph.api import ServiceContainer, create_app, repository_root_fingerprint
 from hydra_graph.config import HydraDBConfig
 from hydra_graph.events import EventBus, ObserveSessions
 from hydra_graph.hydradb import HydraDBClient
@@ -35,6 +36,7 @@ def observe_app(
     max_active: int = 32,
     api_key: str | None = "test",
     view_limit: int = 50,
+    event_history_limit: int = 500,
 ) -> tuple[Any, Transport]:
     config = HydraDBConfig(
         api_key=api_key,
@@ -43,7 +45,7 @@ def observe_app(
         max_retries=0,
     )
     transport = Transport()
-    events = EventBus()
+    events = EventBus(history_limit=event_history_limit)
     hydra = HydraDBClient(config, transport=transport)
     sync = SyncService(
         hydra,
@@ -202,6 +204,53 @@ def test_mounted_mcp_query_uses_active_observe_session_and_shared_view_store(
     assert len(transport.calls) == 1
 
 
+def test_observe_session_returns_opaque_canonical_root_fingerprint(
+    tmp_path: Path,
+) -> None:
+    app, _ = observe_app(tmp_path)
+
+    with TestClient(app, base_url="http://127.0.0.1:8765") as client:
+        result = client.post("/api/observe/sessions", json={}).json()
+
+    fingerprint = result["repository_root_fingerprint"]
+    assert fingerprint == repository_root_fingerprint(tmp_path)
+    assert len(fingerprint) == 64
+    assert "repository_root" not in result
+
+
+def test_repository_root_fingerprint_resolves_symlinks_and_windows_case(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    direct = repository_root_fingerprint(repository)
+    assert direct == repository_root_fingerprint(repository / ".")
+    assert direct == repository_root_fingerprint(f"{repository}{os.sep}")
+    if os.name == "nt":
+        assert direct == repository_root_fingerprint(Path(str(repository).swapcase()))
+    link = tmp_path / "repository-link"
+    try:
+        os.symlink(repository, link, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+    assert direct == repository_root_fingerprint(link)
+
+
+def test_repository_root_fingerprint_uses_mirrorable_windows_lowercase(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "Straße"
+    repository.mkdir()
+    canonical = str(repository.resolve()).replace("\\", "/")
+    if os.name == "nt":
+        canonical = canonical.lower()
+    canonical = canonical.rstrip("/") or "/"
+
+    assert repository_root_fingerprint(repository) == hashlib.sha256(
+        canonical.encode("utf-8")
+    ).hexdigest()
+
+
 def test_observe_interactions_are_derived_from_stored_view_and_event_bus(
     tmp_path: Path,
 ) -> None:
@@ -285,6 +334,117 @@ def test_observe_rejects_unverified_unknown_inactive_and_unshown_inputs(
             f"/api/views/{view_id}/selection",
             json={"item_id": "node-authorize", "item_kind": "node"},
         ).status_code == 409
+
+
+def test_api_query_rejects_invalid_observe_session_before_hydradb(tmp_path: Path) -> None:
+    app, transport = observe_app(tmp_path)
+
+    with TestClient(app, base_url="http://127.0.0.1:8765") as client:
+        unknown = client.post(
+            "/api/query",
+            json={"question": "authorization", "session_id": "unknown"},
+        )
+        session_id = client.post("/api/observe/sessions", json={}).json()["session_id"]
+        mismatched = client.post(
+            "/api/query",
+            json={
+                "question": "authorization",
+                "session_id": session_id,
+                "revision": "rev-other",
+            },
+        )
+        app.state.services.sync.manifest = SyncManifest(
+            repository_id="hack-hydra",
+            revision_id="rev-new",
+            database="repo_hack_hydra",
+            collection="current",
+        )
+        changed_current = client.post(
+            "/api/query",
+            json={"question": "authorization", "session_id": session_id},
+        )
+        client.post(f"/api/observe/sessions/{session_id}/complete", json={})
+        inactive = client.post(
+            "/api/query",
+            json={"question": "authorization", "session_id": session_id},
+        )
+
+    assert unknown.status_code == 404
+    assert mismatched.status_code == 409
+    assert changed_current.status_code == 409
+    assert inactive.status_code == 409
+    assert transport.calls == []
+
+
+def test_event_cursor_returns_only_later_session_events(tmp_path: Path) -> None:
+    app, _ = observe_app(tmp_path)
+
+    with TestClient(app, base_url="http://127.0.0.1:8765") as client:
+        started = client.post("/api/observe/sessions", json={}).json()
+        session_id = started["session_id"]
+        client.post(
+            "/api/query",
+            json={"question": "authorization", "session_id": session_id},
+        )
+        initial = client.get("/api/events", params={"session_id": session_id}).json()
+        later = client.get(
+            "/api/events",
+            params={
+                "session_id": session_id,
+                "after_event_id": initial[0]["event_id"],
+            },
+        ).json()
+        empty = client.get(
+            "/api/events",
+            params={
+                "session_id": session_id,
+                "after_event_id": initial[-1]["event_id"],
+            },
+        ).json()
+
+    assert later == initial[1:]
+    assert empty == []
+
+
+def test_event_cursor_rejects_wrong_session_and_evicted_history(tmp_path: Path) -> None:
+    app, _ = observe_app(tmp_path, event_history_limit=10)
+
+    with TestClient(app, base_url="http://127.0.0.1:8765") as client:
+        first = client.post("/api/observe/sessions", json={}).json()
+        second = client.post("/api/observe/sessions", json={}).json()
+        wrong_session = client.get(
+            "/api/events",
+            params={
+                "session_id": first["session_id"],
+                "after_event_id": second["event"]["event_id"],
+            },
+        )
+
+    overflow_app, _ = observe_app(tmp_path, event_history_limit=3)
+    with TestClient(
+        overflow_app, base_url="http://127.0.0.1:8765"
+    ) as overflow_client:
+        first = overflow_client.post("/api/observe/sessions", json={}).json()
+        overflow_client.post(
+            "/api/observe/sessions", json={}
+        )
+        overflow_client.post(
+            "/api/query",
+            json={"question": "authorization", "session_id": first["session_id"]},
+        )
+        evicted = overflow_client.get(
+            "/api/events",
+            params={
+                "session_id": first["session_id"],
+                "after_event_id": first["event"]["event_id"],
+            },
+        )
+
+    assert evicted.status_code == 409
+    assert wrong_session.status_code == 409
+    assert evicted.json() == {
+        "detail": "Observe event history has a gap; restart the session."
+    }
 
 
 def test_observe_active_session_bound_rejects_without_evicting(tmp_path: Path) -> None:

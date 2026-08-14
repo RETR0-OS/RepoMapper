@@ -74,6 +74,10 @@ class ObserveSessionAmbiguous(RuntimeError):
     """Raised when an omitted tool session cannot be correlated safely."""
 
 
+class EventHistoryGap(LookupError):
+    """Raised when a polling cursor is no longer retained for its session."""
+
+
 class ObserveSessions:
     """Bounded registry for server-issued Observe sessions."""
 
@@ -236,14 +240,30 @@ class EventBus:
                     subscriber.put_nowait(event)
         return event
 
-    def recent(self, *, session_id: str | None = None) -> list[dict[str, Any]]:
+    def recent(
+        self,
+        *,
+        session_id: str | None = None,
+        after_event_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        if after_event_id is not None:
+            if session_id is None:
+                raise ValueError("after_event_id requires session_id")
+            _validate_identifier("after_event_id", after_event_id)
         with self._lock:
             events = tuple(self._history)
-        return [
-            event.as_dict()
-            for event in events
-            if session_id is None or event.session_id == session_id
+        selected = [
+            event for event in events if session_id is None or event.session_id == session_id
         ]
+        if after_event_id is not None:
+            cursor = next(
+                (index for index, event in enumerate(selected) if event.event_id == after_event_id),
+                None,
+            )
+            if cursor is None:
+                raise EventHistoryGap(after_event_id)
+            selected = selected[cursor + 1 :]
+        return [event.as_dict() for event in selected]
 
     def stream(self, *, timeout: float = 15.0) -> Iterator[AgentEvent | None]:
         """Yield live events; ``None`` is a heartbeat after an idle timeout."""

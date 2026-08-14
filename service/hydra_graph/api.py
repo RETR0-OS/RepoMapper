@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import uuid
@@ -21,6 +22,7 @@ from .config import HydraDBConfig
 from .discovery import DiscoveryReport, discover_files
 from .events import (
     EventBus,
+    EventHistoryGap,
     ObserveSessionInactive,
     ObserveSessionLimit,
     ObserveSessionNotFound,
@@ -156,6 +158,16 @@ def _contained_manifest_path(root: Path, candidate: Path | None = None) -> Path:
     return manifest_path
 
 
+def repository_root_fingerprint(root: str | Path) -> str:
+    """Return a stable opaque identity for the configured canonical repository root."""
+
+    canonical = str(Path(root).resolve()).replace("\\", "/")
+    if os.name == "nt":
+        canonical = canonical.lower()
+    canonical = canonical.rstrip("/") or "/"
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def _build_container(
     *,
     resolved_config: HydraDBConfig,
@@ -275,6 +287,8 @@ def create_app(container: ServiceContainer | None = None) -> FastAPI:
 
     @app.post("/api/query")
     def query_repository(body: QueryBody) -> dict[str, Any]:
+        if body.session_id is not None:
+            _require_query_session(services, body)
         query_result = services.queries.repository_query(
             _query_request_from_api(body)
         )
@@ -313,6 +327,9 @@ def create_app(container: ServiceContainer | None = None) -> FastAPI:
             "status": "active",
             "session_id": session.session_id,
             "revision_id": session.revision_id,
+            "repository_root_fingerprint": repository_root_fingerprint(
+                services.repository_root
+            ),
             "event": event.as_dict(),
         }
 
@@ -518,12 +535,24 @@ def create_app(container: ServiceContainer | None = None) -> FastAPI:
         }
 
     @app.get("/api/events")
-    def events(session_id: str = Query(min_length=1, max_length=256)) -> list[dict[str, Any]]:
+    def events(
+        session_id: str = Query(min_length=1, max_length=256),
+        after_event_id: str | None = Query(default=None, min_length=1, max_length=256),
+    ) -> list[dict[str, Any]]:
         try:
             services.observe_sessions.require(session_id)
         except ObserveSessionNotFound as exc:
             raise HTTPException(status_code=404, detail="Observe session was not found.") from exc
-        return services.events.recent(session_id=session_id)
+        try:
+            return services.events.recent(
+                session_id=session_id,
+                after_event_id=after_event_id,
+            )
+        except EventHistoryGap as exc:
+            raise HTTPException(
+                status_code=409,
+                detail="Observe event history has a gap; restart the session.",
+            ) from exc
 
     @app.get("/api/events/stream")
     def event_stream() -> StreamingResponse:
@@ -603,6 +632,32 @@ def _require_evolution(services: ServiceContainer) -> EvolutionService:
     if services.evolution is None:
         raise HTTPException(status_code=503, detail="Evolution service is not configured.")
     return services.evolution
+
+
+def _require_query_session(services: ServiceContainer, body: QueryBody) -> None:
+    assert body.session_id is not None
+    try:
+        session = services.observe_sessions.require(body.session_id, active=True)
+    except ObserveSessionNotFound as exc:
+        raise HTTPException(status_code=404, detail="Observe session was not found.") from exc
+    except ObserveSessionInactive as exc:
+        raise HTTPException(status_code=409, detail="Observe session is complete.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Observe session ID is invalid.") from exc
+    if body.revision == "current":
+        sync_status = services.sync.status
+        compatible = bool(
+            sync_status.get("status") == "ready"
+            and not sync_status.get("current_state_indeterminate")
+            and sync_status.get("ready_revision") == session.revision_id
+        )
+    else:
+        compatible = body.revision == session.revision_id
+    if not compatible:
+        raise HTTPException(
+            status_code=409,
+            detail="Query revision does not match the active Observe session.",
+        )
 
 
 def _stored_hydradb_view(
