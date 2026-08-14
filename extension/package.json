@@ -1,0 +1,174 @@
+{
+  "name": "hydra-repository-observability",
+  "displayName": "Repository Map",
+  "description": "HydraDB-backed repository observability for agentic coding.",
+  "version": "0.1.0",
+  "publisher": "hack-hydra",
+  "license": "UNLICENSED",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:hydra.currentSymbol",
+    "onCommand:hydra.openRepositoryMap"
+  ],
+  "main": "./dist/extension.js",
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "preview": "npm run build && node preview-server.mjs",
+    "check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "hydra.openRepositoryMap",
+        "title": "Open Repository Map",
+        "category": "Repository Map"
+      },
+      {
+        "command": "hydra.showInRepositoryMap",
+        "title": "Show in Repository Map",
+        "category": "Repository Map"
+      },
+      {
+        "command": "hydra.showCallersAndCallees",
+        "title": "Show Callers and Callees",
+        "category": "Repository Map"
+      },
+      {
+        "command": "hydra.traceFlowFromHere",
+        "title": "Trace Flow from Here",
+        "category": "Repository Map"
+      },
+      {
+        "command": "hydra.findTests",
+        "title": "Find Tests for This Symbol",
+        "category": "Repository Map"
+      },
+      {
+        "command": "hydra.askAboutCode",
+        "title": "Ask HydraDB About This Code",
+        "category": "Repository Map"
+      },
+      {
+        "command": "hydra.compareGraph",
+        "title": "Compare Graph Before and After Change",
+        "category": "Repository Map"
+      },
+      {
+        "command": "hydra.saveSystemLens",
+        "title": "Save as System Lens",
+        "category": "Repository Map"
+      },
+      {
+        "command": "hydra.followAgent",
+        "title": "Follow Agent",
+        "category": "Repository Map"
+      },
+      {
+        "command": "hydra.refresh",
+        "title": "Refresh Repository Map",
+        "category": "Repository Map",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "hydra.configureService",
+        "title": "Configure Service URL",
+        "category": "Repository Map"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "hydra.showInRepositoryMap",
+          "group": "navigation@90"
+        },
+        {
+          "command": "hydra.traceFlowFromHere",
+          "group": "navigation@91"
+        },
+        {
+          "command": "hydra.askAboutCode",
+          "group": "navigation@92"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "hydra.refresh",
+          "when": "view =~ /hydra\\./",
+          "group": "navigation"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "hydra.repositoryMap",
+          "title": "Repository Map",
+          "icon": "media/repository-map.svg"
+        }
+      ]
+    },
+    "views": {
+      "hydra.repositoryMap": [
+        {
+          "id": "hydra.currentSymbol",
+          "name": "Current Symbol"
+        },
+        {
+          "id": "hydra.entrypoints",
+          "name": "Entrypoints"
+        },
+        {
+          "id": "hydra.savedLenses",
+          "name": "Saved System Lenses"
+        },
+        {
+          "id": "hydra.recentChanges",
+          "name": "Recent Graph Changes"
+        },
+        {
+          "id": "hydra.agentActivity",
+          "name": "Agent Activity"
+        },
+        {
+          "id": "hydra.indexStatus",
+          "name": "HydraDB Index Status"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Repository Map",
+      "properties": {
+        "hydra.serviceUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:8765",
+          "description": "Local repository query service URL. Credentials remain in the service and are never sent to the webview."
+        },
+        "hydra.requestTimeoutMs": {
+          "type": "number",
+          "default": 5000,
+          "minimum": 500,
+          "maximum": 30000,
+          "description": "Timeout for local service requests."
+        }
+      }
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/vscode": "^1.96.0",
+    "@vitest/coverage-v8": "^3.0.4",
+    "esbuild": "^0.24.2",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.7.2",
+    "vitest": "^3.0.4"
+  }
+}

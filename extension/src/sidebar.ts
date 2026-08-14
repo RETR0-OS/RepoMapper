@@ -1,0 +1,113 @@
+import * as path from "node:path";
+import * as vscode from "vscode";
+import type { ServiceHealth } from "./types.js";
+
+type Section = "current" | "entrypoints" | "lenses" | "changes" | "activity" | "status";
+
+class SummaryItem extends vscode.TreeItem {
+  public constructor(
+    label: string,
+    description: string,
+    icon: string,
+    command?: vscode.Command
+  ) {
+    super(label, vscode.TreeItemCollapsibleState.None);
+    this.description = description;
+    this.iconPath = new vscode.ThemeIcon(icon);
+    this.command = command;
+    this.tooltip = `${label} — ${description}`;
+    this.contextValue = "hydraSummaryItem";
+  }
+}
+
+class SummaryProvider implements vscode.TreeDataProvider<SummaryItem> {
+  private readonly changed = new vscode.EventEmitter<SummaryItem | undefined>();
+  public readonly onDidChangeTreeData = this.changed.event;
+
+  public constructor(
+    private readonly section: Section,
+    private readonly state: SidebarState
+  ) {}
+
+  public refresh(): void {
+    this.changed.fire(undefined);
+  }
+
+  public getTreeItem(element: SummaryItem): vscode.TreeItem {
+    return element;
+  }
+
+  public getChildren(): SummaryItem[] {
+    const open = (mode: string): vscode.Command => ({ command: "hydra.openRepositoryMap", title: "Open map", arguments: [mode] });
+    const health = this.state.health;
+    if (this.section === "current") {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor || editor.document.uri.scheme !== "file") {
+        return [new SummaryItem("No active source file", "Open a file to focus it", "file", open("repository"))];
+      }
+      return [new SummaryItem(path.basename(editor.document.fileName), "Active editor", "symbol-file", open("explore"))];
+    }
+    if (this.section === "status") {
+      if (health.state === "ready") {
+        return [
+          new SummaryItem("Current revision ready", health.revision ?? "Revision unavailable", "pass", open("repository")),
+          new SummaryItem(health.database ?? "HydraDB", health.collection ?? "Default collection", "database", open("repository"))
+        ];
+      }
+      if (health.state === "indexing") {
+        return [new SummaryItem("Indexing", health.message ?? "Last verified revision remains active", "sync~spin", open("repository"))];
+      }
+      return [new SummaryItem("HydraDB unavailable", "Open preview or configure service", "warning", {
+        command: "hydra.configureService", title: "Configure service"
+      })];
+    }
+    const copy: Record<Exclude<Section, "current" | "status">, [string, string, string, string]> = {
+      entrypoints: ["Open repository map", health.state === "ready" ? "Load verified entrypoints" : "Requires repository service", "symbol-event", "repository"],
+      lenses: ["No loaded lenses", health.state === "ready" ? "Open Preserve to review" : "Requires HydraDB Memory", "bookmark", "preserve"],
+      changes: ["Review graph changes", health.state === "ready" ? "Compare verified revisions" : "Requires repository service", "diff", "compare"],
+      activity: ["Observe agent activity", health.state === "ready" ? "Follow explicit tool events" : "Requires repository service", "pulse", "observe"]
+    };
+    const [label, detail, icon, mode] = copy[this.section];
+    return [new SummaryItem(label, detail, icon, open(mode))];
+  }
+}
+
+class SidebarState {
+  public health: ServiceHealth = { state: "unavailable", message: "Repository service has not been contacted." };
+}
+
+export class RepositorySidebar implements vscode.Disposable {
+  private readonly state = new SidebarState();
+  private readonly providers: SummaryProvider[];
+  private readonly disposables: vscode.Disposable[] = [];
+
+  public constructor() {
+    const registrations: Array<[string, Section]> = [
+      ["hydra.currentSymbol", "current"],
+      ["hydra.entrypoints", "entrypoints"],
+      ["hydra.savedLenses", "lenses"],
+      ["hydra.recentChanges", "changes"],
+      ["hydra.agentActivity", "activity"],
+      ["hydra.indexStatus", "status"]
+    ];
+    this.providers = registrations.map(([viewId, section]) => {
+      const provider = new SummaryProvider(section, this.state);
+      this.disposables.push(vscode.window.registerTreeDataProvider(viewId, provider));
+      return provider;
+    });
+    this.disposables.push(vscode.window.onDidChangeActiveTextEditor(() => this.refresh()));
+  }
+
+  public setHealth(health: ServiceHealth): void {
+    this.state.health = health;
+    this.refresh();
+  }
+
+  public refresh(): void {
+    this.providers.forEach((provider) => provider.refresh());
+  }
+
+  public dispose(): void {
+    this.disposables.forEach((disposable) => disposable.dispose());
+  }
+}
