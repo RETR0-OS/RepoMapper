@@ -13,7 +13,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     serve = subparsers.add_parser("serve", help="Run the local FastAPI service")
     serve.add_argument("--port", default=8765, type=int)
     serve.add_argument("--reload", action="store_true")
-    mcp = subparsers.add_parser("mcp", help="Run repository tools over MCP stdio")
+    mcp = subparsers.add_parser(
+        "mcp",
+        help=(
+            "Run a standalone MCP process; it cannot feed Observe in a different service "
+            "process (use the service's /mcp endpoint for shared events)"
+        ),
+    )
     mcp.add_argument(
         "--transport",
         choices=("stdio", "sse", "streamable-http"),

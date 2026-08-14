@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 import os
 import uuid
-from collections.abc import Iterator, Mapping
+from collections.abc import AsyncIterator, Iterator, Mapping
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -18,9 +19,16 @@ from .analyzer import analyze_repository
 from .cards import SourceCard, build_source_cards
 from .config import HydraDBConfig
 from .discovery import DiscoveryReport, discover_files
-from .events import EventBus
+from .events import (
+    EventBus,
+    ObserveSessionInactive,
+    ObserveSessionLimit,
+    ObserveSessionNotFound,
+    ObserveSessions,
+)
 from .evolution_service import EvolutionService
 from .hydradb import HydraDBClient
+from .ids import normalize_relative_path
 from .models import GraphNode
 from .query import QueryService
 from .sync import SyncService
@@ -78,6 +86,19 @@ class AcceptLensBody(APIModel):
     confirm: bool = False
 
 
+class EmptyBody(APIModel):
+    pass
+
+
+class ViewItemBody(APIModel):
+    item_id: str = Field(min_length=1, max_length=1_024)
+    item_kind: Literal["node", "edge"]
+
+
+class WorkspaceChangeBody(APIModel):
+    path: str = Field(min_length=1, max_length=1_024)
+
+
 @dataclass(slots=True)
 class ServiceContainer:
     config: HydraDBConfig
@@ -88,6 +109,7 @@ class ServiceContainer:
     sync: SyncService
     repository_root: Path
     evolution: EvolutionService | None = None
+    observe_sessions: ObserveSessions | None = None
 
 
 def create_container(
@@ -180,17 +202,35 @@ def _build_container(
         sync=sync,
         repository_root=root,
         evolution=evolution,
+        observe_sessions=ObserveSessions(events),
     )
 
 
 def create_app(container: ServiceContainer | None = None) -> FastAPI:
     services = container or create_container()
+    if services.observe_sessions is None:
+        services.observe_sessions = ObserveSessions(services.events)
+    from .mcp_server import create_mcp_server
+
+    mcp_server = create_mcp_server(services)
+    mcp_app = mcp_server.streamable_http_app()
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        async with mcp_app.router.lifespan_context(mcp_app):
+            yield
+
     app = FastAPI(
         title="Hack Hydra Repository Service",
         version="0.1.0",
-        description="HydraDB-backed repository views for people and coding agents.",
+        description=(
+            "HydraDB-backed repository views for people and coding agents. The mounted MCP "
+            "endpoint is /mcp and shares this process's Observe events and views."
+        ),
+        lifespan=lifespan,
     )
     app.state.services = services
+    app.state.mcp_server = mcp_server
 
     @app.get("/health")
     def health() -> dict[str, Any]:
@@ -229,6 +269,7 @@ def create_app(container: ServiceContainer | None = None) -> FastAPI:
             ),
             "database": services.config.database or None,
             "collection": services.config.collection,
+            "mcp_endpoint": "/mcp",
             "message": message,
         }
 
@@ -246,6 +287,138 @@ def create_app(container: ServiceContainer | None = None) -> FastAPI:
         )
         services.views.store.put(view, query_result)
         return view
+
+    @app.post("/api/observe/sessions", status_code=201)
+    def start_observe_session(_: EmptyBody) -> dict[str, Any]:
+        sync_status = services.sync.status
+        revision_id = sync_status.get("ready_revision")
+        if (
+            sync_status.get("status") != "ready"
+            or not revision_id
+            or not sync_status.get("hydradb_available")
+            or sync_status.get("current_state_indeterminate")
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Observe requires a currently verified HydraDB revision.",
+            )
+        try:
+            session, event = services.observe_sessions.start(str(revision_id))
+        except ObserveSessionLimit as exc:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many Observe sessions are active.",
+            ) from exc
+        return {
+            "status": "active",
+            "session_id": session.session_id,
+            "revision_id": session.revision_id,
+            "event": event.as_dict(),
+        }
+
+    @app.post("/api/observe/sessions/{session_id}/complete")
+    def complete_observe_session(
+        session_id: str, _: EmptyBody
+    ) -> dict[str, Any]:
+        try:
+            session, event = services.observe_sessions.complete(session_id)
+        except ObserveSessionNotFound as exc:
+            raise HTTPException(status_code=404, detail="Observe session was not found.") from exc
+        except ObserveSessionInactive as exc:
+            raise HTTPException(
+                status_code=409,
+                detail="Observe session is already complete.",
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Observe session ID is invalid.") from exc
+        return {
+            "status": "completed",
+            "session_id": session.session_id,
+            "event": event.as_dict(),
+        }
+
+    @app.get("/api/views/by-id/{view_id}")
+    def get_view_by_id(view_id: str) -> dict[str, Any]:
+        stored = _stored_hydradb_view(services, view_id)
+        return dict(stored["view"])
+
+    @app.post("/api/views/{view_id}/selection")
+    def record_selection(view_id: str, body: ViewItemBody) -> dict[str, Any]:
+        return _record_view_item(
+            services,
+            view_id=view_id,
+            body=body,
+            event_type="context_selected",
+            require_evidence=False,
+        )
+
+    @app.post("/api/views/{view_id}/evidence-opened")
+    def record_evidence_opened(view_id: str, body: ViewItemBody) -> dict[str, Any]:
+        return _record_view_item(
+            services,
+            view_id=view_id,
+            body=body,
+            event_type="evidence_opened",
+            require_evidence=True,
+        )
+
+    @app.post("/api/views/{view_id}/workspace-change")
+    def record_workspace_change(
+        view_id: str, body: WorkspaceChangeBody
+    ) -> dict[str, Any]:
+        stored, session_id, revision_id = _observe_view_context(services, view_id)
+        try:
+            relative_path = normalize_relative_path(body.path)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail="Workspace change path must stay inside the configured repository.",
+            ) from exc
+        if relative_path == ".":
+            raise HTTPException(status_code=422, detail="Workspace change path must name a file.")
+        try:
+            resolved = (services.repository_root / relative_path).resolve()
+        except OSError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail="Workspace change path could not be validated.",
+            ) from exc
+        try:
+            resolved.relative_to(services.repository_root.resolve())
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail="Workspace change path must stay inside the configured repository.",
+            ) from exc
+        view = stored["view"]
+        compared_path = relative_path.casefold() if os.name == "nt" else relative_path
+        entity_ids = tuple(
+            dict.fromkeys(
+                str(node["id"])
+                for node in view.get("nodes", [])
+                if isinstance(node, Mapping)
+                and isinstance(node.get("path"), str)
+                and (
+                    str(node["path"]).casefold()
+                    if os.name == "nt"
+                    else str(node["path"])
+                )
+                == compared_path
+            )
+        )[:100]
+        if not entity_ids:
+            raise HTTPException(
+                status_code=422,
+                detail="Workspace change path is not shown in this bounded view.",
+            )
+        event = services.events.emit(
+            "workspace_entity_changed",
+            session_id=session_id,
+            revision_id=revision_id,
+            view_id=view_id,
+            entity_ids=entity_ids,
+        )
+        return {"status": "recorded", "event": event.as_dict()}
 
     @app.get("/api/views/{mode}")
     def get_view(
@@ -345,7 +518,11 @@ def create_app(container: ServiceContainer | None = None) -> FastAPI:
         }
 
     @app.get("/api/events")
-    def events(session_id: str | None = None) -> list[dict[str, Any]]:
+    def events(session_id: str = Query(min_length=1, max_length=256)) -> list[dict[str, Any]]:
+        try:
+            services.observe_sessions.require(session_id)
+        except ObserveSessionNotFound as exc:
+            raise HTTPException(status_code=404, detail="Observe session was not found.") from exc
         return services.events.recent(session_id=session_id)
 
     @app.get("/api/events/stream")
@@ -418,6 +595,7 @@ def create_app(container: ServiceContainer | None = None) -> FastAPI:
         except (OSError, ValueError) as exc:
             raise HTTPException(status_code=409, detail="Shared lens update refused.") from exc
 
+    app.mount("/mcp", mcp_app, name="mcp")
     return app
 
 
@@ -425,6 +603,114 @@ def _require_evolution(services: ServiceContainer) -> EvolutionService:
     if services.evolution is None:
         raise HTTPException(status_code=503, detail="Evolution service is not configured.")
     return services.evolution
+
+
+def _stored_hydradb_view(
+    services: ServiceContainer, view_id: str
+) -> dict[str, Any]:
+    if not view_id.strip() or len(view_id) > 256:
+        raise HTTPException(status_code=404, detail="HydraDB view was not found.")
+    stored = services.views.store.get(view_id)
+    if stored is None:
+        raise HTTPException(status_code=404, detail="HydraDB view was not found.")
+    view = stored.get("view")
+    query = stored.get("query")
+    if not isinstance(view, Mapping) or not isinstance(query, Mapping):
+        raise HTTPException(status_code=404, detail="HydraDB view was not found.")
+    query_hydradb = query.get("hydradb")
+    view_hydradb = view.get("hydradb")
+    if (
+        query.get("response_schema") != "hack-hydra.query-response.v1"
+        or query.get("status") != "ready"
+        or query.get("view_id") != view_id
+        or view.get("view_id") != view_id
+        or not isinstance(query_hydradb, Mapping)
+        or query_hydradb.get("available") is not True
+        or not isinstance(view_hydradb, Mapping)
+        or view_hydradb.get("available") is not True
+    ):
+        raise HTTPException(status_code=404, detail="HydraDB view was not found.")
+    return {"view": dict(view), "query": dict(query)}
+
+
+def _observe_view_context(
+    services: ServiceContainer, view_id: str
+) -> tuple[dict[str, Any], str, str]:
+    stored = _stored_hydradb_view(services, view_id)
+    session_id = stored["query"].get("session_id")
+    revision_id = stored["view"].get("revision_id")
+    if not isinstance(session_id, str) or not isinstance(revision_id, str):
+        raise HTTPException(status_code=404, detail="Observe session was not found.")
+    try:
+        session = services.observe_sessions.require(session_id, active=True)
+    except ObserveSessionNotFound as exc:
+        raise HTTPException(status_code=404, detail="Observe session was not found.") from exc
+    except ObserveSessionInactive as exc:
+        raise HTTPException(status_code=409, detail="Observe session is complete.") from exc
+    if session.revision_id != revision_id:
+        raise HTTPException(
+            status_code=409,
+            detail="HydraDB view revision does not match the Observe session.",
+        )
+    return stored, session_id, revision_id
+
+
+def _record_view_item(
+    services: ServiceContainer,
+    *,
+    view_id: str,
+    body: ViewItemBody,
+    event_type: Literal["context_selected", "evidence_opened"],
+    require_evidence: bool,
+) -> dict[str, Any]:
+    stored, session_id, revision_id = _observe_view_context(services, view_id)
+    collection = "nodes" if body.item_kind == "node" else "edges"
+    item = next(
+        (
+            candidate
+            for candidate in stored["view"].get(collection, [])
+            if isinstance(candidate, Mapping) and candidate.get("id") == body.item_id
+        ),
+        None,
+    )
+    if item is None:
+        raise HTTPException(status_code=404, detail="View item was not found.")
+    if require_evidence and not _has_openable_evidence(item, body.item_kind):
+        raise HTTPException(
+            status_code=422,
+            detail="View item has no grounded source evidence to open.",
+        )
+    event = services.events.emit(
+        event_type,
+        session_id=session_id,
+        revision_id=revision_id,
+        view_id=view_id,
+        entity_ids=(body.item_id,) if body.item_kind == "node" else (),
+        relationship_ids=(body.item_id,) if body.item_kind == "edge" else (),
+    )
+    return {"status": "recorded", "event": event.as_dict()}
+
+
+def _has_openable_evidence(item: Mapping[str, Any], item_kind: str) -> bool:
+    if item_kind == "node":
+        span = item.get("span")
+        return bool(
+            item.get("path") not in {None, "."}
+            and isinstance(span, Mapping)
+            and span.get("start_line")
+            and span.get("end_line")
+        )
+    evidence = item.get("evidence")
+    return bool(
+        isinstance(evidence, list)
+        and any(
+            isinstance(record, Mapping)
+            and record.get("path") not in {None, "."}
+            and record.get("start_line")
+            and record.get("end_line")
+            for record in evidence
+        )
+    )
 
 
 def _view_from_evolution_result(

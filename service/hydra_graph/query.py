@@ -83,7 +83,7 @@ class QueryService:
         self.events.emit(
             "query_started",
             session_id=session_id,
-            revision_id=request.revision,
+            revision_id=requested_revision,
             view_id=view_id,
             hydradb_query_metadata=query_metadata,
         )

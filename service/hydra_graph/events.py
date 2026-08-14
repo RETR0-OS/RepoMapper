@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from collections import deque
+from collections import OrderedDict, deque
 from collections.abc import Iterator, Mapping
 from contextlib import suppress
 from dataclasses import asdict, dataclass
@@ -49,6 +49,127 @@ class AgentEvent:
         if self.hydradb_query_metadata is not None:
             data["hydradb_query_metadata"] = dict(self.hydradb_query_metadata)
         return data
+
+
+@dataclass(frozen=True, slots=True)
+class ObserveSession:
+    session_id: str
+    revision_id: str
+    active: bool
+
+
+class ObserveSessionNotFound(LookupError):
+    """Raised when an opaque Observe session ID is unknown or expired."""
+
+
+class ObserveSessionInactive(RuntimeError):
+    """Raised when an Observe session was already completed."""
+
+
+class ObserveSessionLimit(RuntimeError):
+    """Raised instead of silently evicting a still-active Observe session."""
+
+
+class ObserveSessionAmbiguous(RuntimeError):
+    """Raised when an omitted tool session cannot be correlated safely."""
+
+
+class ObserveSessions:
+    """Bounded registry for server-issued Observe sessions."""
+
+    def __init__(
+        self,
+        events: EventBus,
+        *,
+        max_active: int = 32,
+        history_limit: int = 128,
+    ) -> None:
+        if max_active < 1 or history_limit < max_active:
+            raise ValueError("Observe session bounds are invalid")
+        self.events = events
+        self.max_active = max_active
+        self.history_limit = history_limit
+        self._sessions: OrderedDict[str, ObserveSession] = OrderedDict()
+        self._lock = Lock()
+
+    def start(self, revision_id: str) -> tuple[ObserveSession, AgentEvent]:
+        _validate_identifier("revision_id", revision_id)
+        with self._lock:
+            active_count = sum(session.active for session in self._sessions.values())
+            if active_count >= self.max_active:
+                raise ObserveSessionLimit("Too many Observe sessions are active")
+            session = ObserveSession(
+                session_id=f"session_{uuid.uuid4().hex}",
+                revision_id=revision_id,
+                active=True,
+            )
+            self._sessions[session.session_id] = session
+            self._prune_completed()
+        event = self.events.emit(
+            "session_started",
+            session_id=session.session_id,
+            revision_id=revision_id,
+        )
+        return session, event
+
+    def require(self, session_id: str, *, active: bool = False) -> ObserveSession:
+        _validate_identifier("session_id", session_id)
+        with self._lock:
+            session = self._sessions.get(session_id)
+        if session is None:
+            raise ObserveSessionNotFound(session_id)
+        if active and not session.active:
+            raise ObserveSessionInactive(session_id)
+        return session
+
+    def complete(self, session_id: str) -> tuple[ObserveSession, AgentEvent]:
+        _validate_identifier("session_id", session_id)
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                raise ObserveSessionNotFound(session_id)
+            if not session.active:
+                raise ObserveSessionInactive(session_id)
+            completed = ObserveSession(
+                session_id=session.session_id,
+                revision_id=session.revision_id,
+                active=False,
+            )
+            self._sessions[session_id] = completed
+            self._sessions.move_to_end(session_id)
+        event = self.events.emit(
+            "session_completed",
+            session_id=session_id,
+            revision_id=session.revision_id,
+        )
+        return completed, event
+
+    def resolve(self, session_id: str | None) -> ObserveSession | None:
+        """Resolve an explicit session or the sole active mounted-MCP session."""
+
+        if session_id is not None:
+            return self.require(session_id, active=True)
+        with self._lock:
+            active_sessions = [
+                session for session in self._sessions.values() if session.active
+            ]
+        if not active_sessions:
+            return None
+        if len(active_sessions) > 1:
+            raise ObserveSessionAmbiguous(
+                "More than one Observe session is active; pass session_id explicitly"
+            )
+        return active_sessions[0]
+
+    def _prune_completed(self) -> None:
+        while len(self._sessions) > self.history_limit:
+            removable = next(
+                (key for key, session in self._sessions.items() if not session.active),
+                None,
+            )
+            if removable is None:
+                break
+            self._sessions.pop(removable)
 
 
 class EventBus:

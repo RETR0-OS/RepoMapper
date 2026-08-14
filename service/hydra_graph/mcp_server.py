@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from .query import QueryRequest
 from .views import ViewDepth, ViewMode, build_product_view
@@ -22,6 +23,23 @@ def create_mcp_server(services: Any | None = None) -> FastMCP:
             "Repository observability tools backed by HydraDB. Returned paths are HydraDB query "
             "results, not hidden model reasoning. Empty unavailable results must not be replaced "
             "with local repository search."
+        ),
+        streamable_http_path="/",
+        transport_security=TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=[
+                "127.0.0.1",
+                "127.0.0.1:*",
+                "localhost",
+                "localhost:*",
+                "[::1]",
+                "[::1]:*",
+            ],
+            allowed_origins=[
+                "http://127.0.0.1:*",
+                "http://localhost:*",
+                "http://[::1]:*",
+            ],
         ),
     )
 
@@ -53,7 +71,7 @@ def create_mcp_server(services: Any | None = None) -> FastMCP:
                 max_results=max_results,
                 max_context_chars=max_context_chars,
                 relation_quality=tuple(relation_quality or ("exact", "inferred")),
-                session_id=session_id,
+                session_id=_observe_session_id(services, session_id),
             )
         )
         remember(result)
@@ -93,7 +111,7 @@ def create_mcp_server(services: Any | None = None) -> FastMCP:
                 max_relations=max(0, budget),
                 query_by="text",
                 mode="fast" if depth == 1 else "thinking",
-                session_id=session_id,
+                session_id=_observe_session_id(services, session_id),
             )
         )
         result["warnings"].append(
@@ -134,7 +152,7 @@ def create_mcp_server(services: Any | None = None) -> FastMCP:
                 query_by="hybrid",
                 mode="thinking",
                 graph_context=True,
-                session_id=session_id,
+                session_id=_observe_session_id(services, session_id),
             )
         )
         remember(result)
@@ -172,7 +190,7 @@ def create_mcp_server(services: Any | None = None) -> FastMCP:
             after_revision_id=after,
             focus=focus,
             max_changes=max_changes,
-            session_id=session_id,
+            session_id=_observe_session_id(services, session_id),
         )
         remember(result, ViewMode.COMPARE)
         return result
@@ -188,7 +206,10 @@ def create_mcp_server(services: Any | None = None) -> FastMCP:
         evolution = getattr(services, "evolution", None)
         if evolution is None:
             return _missing_evolution_result(services, revision=revision)
-        result = evolution.open_lens(lens=lens, session_id=session_id)
+        result = evolution.open_lens(
+            lens=lens,
+            session_id=_observe_session_id(services, session_id),
+        )
         if revision != "current":
             result["warnings"].append(
                 "The revision argument does not trigger cross-collection traversal; this "
@@ -206,6 +227,7 @@ def create_mcp_server(services: Any | None = None) -> FastMCP:
         instruction: str,
         session_id: str,
     ) -> dict[str, Any]:
+        session_id = _observe_session_id(services, session_id) or session_id
         stored = services.views.store.get(view_id)
         if stored is None:
             return {
@@ -240,6 +262,26 @@ def create_mcp_server(services: Any | None = None) -> FastMCP:
         }
 
     return server
+
+
+def _observe_session_id(services: Any, session_id: str | None) -> str | None:
+    sessions = getattr(services, "observe_sessions", None)
+    if sessions is None:
+        return session_id
+    if session_id is not None:
+        try:
+            sessions.require(session_id, active=True)
+        except LookupError:
+            # Explicit bounded IDs remain valid independent MCP correlation IDs.
+            return session_id
+        except RuntimeError as exc:
+            raise ValueError("Observe session is inactive") from exc
+        return session_id
+    try:
+        resolved = sessions.resolve(None)
+    except RuntimeError as exc:
+        raise ValueError("Observe session is ambiguous") from exc
+    return resolved.session_id if resolved is not None else None
 
 
 def tool_names(server: FastMCP) -> Sequence[str]:

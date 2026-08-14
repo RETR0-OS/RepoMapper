@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from hydra_graph.config import HydraDBConfig
-from hydra_graph.events import EventBus
+from hydra_graph.events import EventBus, ObserveSessions
 from hydra_graph.hydradb import HydraDBClient
 from hydra_graph.mcp_server import create_mcp_server
 from hydra_graph.query import QueryService
@@ -201,3 +201,17 @@ def test_missing_evolution_result_matches_query_envelope_contract() -> None:
     assert result["chunk_id_to_group_ids"] == {}
     assert result["budget"]["max_context_chars"] > 0
     assert transport.calls == []
+
+
+def test_explicit_external_session_id_remains_valid_with_observe_registry() -> None:
+    server, _, services = mcp()
+    services.observe_sessions = ObserveSessions(services.events)
+
+    result = call(
+        server,
+        "repository_query",
+        {"question": "authorization", "session_id": "external-agent-session"},
+    )
+
+    assert result["session_id"] == "external-agent-session"
+    assert services.events.recent(session_id="external-agent-session")
