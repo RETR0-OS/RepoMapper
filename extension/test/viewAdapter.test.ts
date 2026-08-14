@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { createPreviewView } from "../src/previewData.js";
-import { normalizeGraphView } from "../src/viewAdapter.js";
+import { normalizeGraphView, normalizeHealth } from "../src/viewAdapter.js";
 
 describe("product view normalization", () => {
-  it("adapts the shared snake_case schema without inventing HydraDB metadata", () => {
+  it("adapts the shared snake_case schema and preserves explicit HydraDB unavailability", () => {
     const result = normalizeGraphView({
       view_id: "view-1", revision_id: "rev-8", mode: "repository", depth: "file",
       nodes: [{
@@ -19,8 +19,19 @@ describe("product view normalization", () => {
     expect(result.mode).toBe("repository");
     expect(result.nodes[0]?.source).toMatchObject({ startLine: 5, startColumn: 0, endColumn: 9 });
     expect(result.nodes[0]?.reason).toBe("Focused result");
-    expect(result.hydradb).toBeUndefined();
+    expect(result.hydradb).toMatchObject({ available: false, graphContext: false });
     expect(result.budget).toMatchObject({ returnedNodes: 1, truncated: true });
+  });
+
+  it("does not treat a configured but generic current marker as a verified revision", () => {
+    expect(normalizeHealth({ state: "ready", revision_id: "current", message: "Configured" })).toMatchObject({
+      state: "unverified",
+      revision: "current"
+    });
+    expect(normalizeHealth({ state: "ready", revision_id: "rev-a1" })).toMatchObject({
+      state: "ready",
+      revision: "rev-a1"
+    });
   });
 
   it("keeps preview data explicitly separate from HydraDB result metadata", () => {

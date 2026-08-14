@@ -57,12 +57,15 @@ class SummaryProvider implements vscode.TreeDataProvider<SummaryItem> {
       if (health.state === "indexing") {
         return [new SummaryItem("Indexing", health.message ?? "Last verified revision remains active", "sync~spin", open("repository"))];
       }
+      if (health.state === "unverified") {
+        return [new SummaryItem("Revision not verified", health.message ?? "HydraDB is configured, but no verified revision is ready", "question", open("repository"))];
+      }
       return [new SummaryItem("HydraDB unavailable", "Open preview or configure service", "warning", {
         command: "hydra.configureService", title: "Configure service"
       })];
     }
     const copy: Record<Exclude<Section, "current" | "status">, [string, string, string, string]> = {
-      entrypoints: ["Open repository map", health.state === "ready" ? "Load verified entrypoints" : "Requires repository service", "symbol-event", "repository"],
+      entrypoints: ["Open repository map", health.state === "ready" ? "Load verified entrypoints" : "Requires a verified revision", "symbol-event", "repository"],
       lenses: ["No loaded lenses", health.state === "ready" ? "Open Preserve to review" : "Requires HydraDB Memory", "bookmark", "preserve"],
       changes: ["Review graph changes", health.state === "ready" ? "Compare verified revisions" : "Requires repository service", "diff", "compare"],
       activity: ["Observe agent activity", health.state === "ready" ? "Follow explicit tool events" : "Requires repository service", "pulse", "observe"]

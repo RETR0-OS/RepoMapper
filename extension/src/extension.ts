@@ -30,6 +30,10 @@ export function activate(context: vscode.ExtensionContext): void {
       hydraStatus.text = "$(sync~spin) HydraDB · indexing";
       hydraStatus.tooltip = health.message ?? "Indexing changed repository sources.";
       hydraStatus.backgroundColor = undefined;
+    } else if (health.state === "unverified") {
+      hydraStatus.text = "$(question) HydraDB · revision unverified";
+      hydraStatus.tooltip = health.message ?? "HydraDB is configured, but no verified revision is ready.";
+      hydraStatus.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
     } else {
       hydraStatus.text = "$(warning) HydraDB · unavailable";
       hydraStatus.tooltip = health.message ?? "Repository graph features are paused.";

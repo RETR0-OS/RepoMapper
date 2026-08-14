@@ -4,6 +4,7 @@ import { createPreviewView } from "./previewData.js";
 import { parseWebviewMessage } from "./messageValidation.js";
 import { RepositoryServiceClient, ServiceError } from "./serviceClient.js";
 import { validateSourceRange } from "./sourceNavigation.js";
+import { reconcileHealthWithView } from "./statusState.js";
 import type {
   GraphDepth,
   HostToWebviewMessage,
@@ -119,8 +120,9 @@ export class GraphPanel implements vscode.Disposable {
     this.post({ type: "loading", mode: this.mode, message: `Loading ${this.mode} view…` });
     try {
       const [health, view] = await Promise.all([this.client().health(), this.client().getView(this.mode, this.depth)]);
-      this.setHealth(health);
-      this.post({ type: "view", view, health });
+      const effectiveHealth = reconcileHealthWithView(health, view);
+      this.setHealth(effectiveHealth);
+      this.post({ type: "view", view, health: effectiveHealth });
     } catch (error) {
       const message = error instanceof ServiceError ? error.message : "Repository service is unavailable.";
       const health: ServiceHealth = { state: "unavailable", message };
@@ -139,7 +141,8 @@ export class GraphPanel implements vscode.Disposable {
     this.post({ type: "loading", mode: "trace", message: "Asking HydraDB for a bounded graph path…" });
     try {
       const view = await this.client().query(trimmed, this.depth);
-      const health = await this.updateHealth();
+      const health = reconcileHealthWithView(await this.fetchHealth(), view);
+      this.setHealth(health);
       this.post({ type: "view", view, health });
     } catch (error) {
       const message = error instanceof ServiceError ? error.message : "The query could not be completed.";
@@ -173,17 +176,19 @@ export class GraphPanel implements vscode.Disposable {
   }
 
   private async updateHealth(): Promise<ServiceHealth> {
+    const health = await this.fetchHealth();
+    this.setHealth(health);
+    return health;
+  }
+
+  private async fetchHealth(): Promise<ServiceHealth> {
     try {
-      const health = await this.client().health();
-      this.setHealth(health);
-      return health;
+      return await this.client().health();
     } catch (error) {
-      const health: ServiceHealth = {
+      return {
         state: "unavailable",
         message: error instanceof Error ? error.message : "Repository service is unavailable."
       };
-      this.setHealth(health);
-      return health;
     }
   }
 

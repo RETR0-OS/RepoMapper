@@ -1,5 +1,6 @@
 import "./styles.css";
 import { createPreviewView } from "../previewData.js";
+import { deriveViewStatus } from "../statusState.js";
 import type {
   GraphDepth,
   GraphEdge,
@@ -90,7 +91,7 @@ app.innerHTML = `
       <div id="query-meta" class="query-meta"></div>
     </section>
     <section id="degraded-banner" class="degraded-banner" role="status" hidden>
-      <div><strong>Interactive preview</strong><span id="degraded-copy"></span></div>
+        <div><strong id="degraded-title">Interactive preview</strong><span id="degraded-copy"></span></div>
       <button id="retry-button" type="button" class="button button-quiet">Retry service</button>
     </section>
     <section class="workspace">
@@ -154,6 +155,7 @@ const elements = {
   queryInput: required<HTMLInputElement>("query-input"),
   queryMeta: required("query-meta"),
   degradedBanner: required("degraded-banner"),
+  degradedTitle: required("degraded-title"),
   degradedCopy: required("degraded-copy"),
   retryButton: required<HTMLButtonElement>("retry-button"),
   eyebrow: required("eyebrow"),
@@ -286,16 +288,16 @@ function renderModes(): void {
 }
 
 function renderStatus(): void {
-  const ready = health.state === "ready" && !view.preview;
-  elements.serviceStatus.className = `status-pill ${ready ? "is-ready" : "is-degraded"}`;
-  elements.serviceStatus.textContent = ready ? "HydraDB · current revision ready" : "Preview · service unavailable";
-  elements.revisionStatus.textContent = view.preview ? "Not a repository result" : `Revision ${view.revision}`;
-  elements.degradedBanner.hidden = ready;
-  elements.degradedCopy.textContent = health.message
-    ? ` ${health.message} No HydraDB result is being shown.`
-    : " The service is unavailable. No HydraDB result is being shown.";
+  const status = deriveViewStatus(view, health);
+  health = status.health;
+  elements.serviceStatus.className = `status-pill ${status.tone === "ready" ? "is-ready" : status.tone === "loading" ? "is-loading" : "is-degraded"}`;
+  elements.serviceStatus.textContent = status.label;
+  elements.revisionStatus.textContent = status.revisionLabel;
+  elements.degradedBanner.hidden = status.bannerHidden;
+  elements.degradedTitle.textContent = status.bannerTitle;
+  elements.degradedCopy.textContent = ` ${status.bannerMessage}`;
   elements.queryMeta.replaceChildren();
-  if (view.hydradb && ready) {
+  if (view.hydradb?.available === true) {
     const labels = [
       "HydraDB",
       view.hydradb.queryBy,

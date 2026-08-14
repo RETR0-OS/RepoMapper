@@ -1,7 +1,7 @@
 export type ViewMode = "repository" | "explore" | "trace" | "observe" | "compare" | "preserve";
 export type GraphDepth = "package" | "file" | "symbol";
 export type RelationQuality = "exact" | "inferred" | "semantic" | "unknown";
-export type ServiceState = "ready" | "indexing" | "unavailable" | "failed";
+export type ServiceState = "ready" | "indexing" | "unverified" | "unavailable" | "failed";
 
 export interface SourceRange {
   path: string;
@@ -61,6 +61,7 @@ export interface TimelineEvent {
 }
 
 export interface HydraMetadata {
+  available: boolean;
   database?: string;
   collection?: string;
   queryBy?: "hybrid" | "text";
@@ -68,6 +69,7 @@ export interface HydraMetadata {
   graphContext?: boolean;
   pathId?: string;
   origin?: string;
+  status?: string;
 }
 
 export interface GraphView {

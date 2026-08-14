@@ -119,18 +119,20 @@ function normalizeTimeline(value: unknown): TimelineEvent[] {
 
 function normalizeHydra(value: unknown): HydraMetadata | undefined {
   const hydra = record(value);
-  if (Object.keys(hydra).length === 0 || hydra.available === false) {
+  if (Object.keys(hydra).length === 0) {
     return undefined;
   }
   const collections = stringArray(hydra.collections);
   return {
+    available: hydra.available === true,
     database: textValue(hydra.database) || undefined,
     collection: textValue(hydra.collection) || collections[0],
     queryBy: textValue(hydra.query_by ?? hydra.queryBy) as HydraMetadata["queryBy"] || undefined,
     mode: textValue(hydra.mode) as HydraMetadata["mode"] || undefined,
     graphContext: Boolean(hydra.graph_context ?? hydra.graphContext),
     pathId: stringArray(hydra.path_ids)[0] ?? (textValue(hydra.pathId) || undefined),
-    origin: textValue(hydra.origin) || undefined
+    origin: textValue(hydra.origin) || undefined,
+    status: textValue(hydra.status) || undefined
   };
 }
 
@@ -166,12 +168,15 @@ export function normalizeGraphView(value: unknown, fallbackMode: ViewMode): Grap
 export function normalizeHealth(value: unknown): ServiceHealth {
   const health = record(value);
   const rawState = textValue(health.state ?? health.status, "unavailable");
-  const state = rawState === "ok" || rawState === "ready" ? "ready"
+  const reportedState = rawState === "ok" || rawState === "ready" ? "ready"
     : rawState === "indexing" ? "indexing"
       : rawState === "failed" || rawState === "error" ? "failed" : "unavailable";
+  const revision = textValue(health.revision_id ?? health.revision) || undefined;
+  const state = reportedState === "ready" && (!revision || revision === "current" || revision === "unknown")
+    ? "unverified" : reportedState;
   return {
     state,
-    revision: textValue(health.revision_id ?? health.revision) || undefined,
+    revision,
     database: textValue(health.database) || undefined,
     collection: textValue(health.collection) || stringArray(health.collections)[0],
     message: textValue(health.message) || undefined
