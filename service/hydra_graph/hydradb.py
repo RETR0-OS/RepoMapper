@@ -132,6 +132,22 @@ class HydraDBClient:
         }
         return self._call("POST", "/context/ingest", form=form)
 
+    def ingest_evolution(
+        self,
+        *,
+        app_knowledge: Sequence[Mapping[str, Any]],
+        graph_payload: Mapping[str, Mapping[str, Any]],
+        upsert: bool = True,
+    ) -> JsonObject:
+        """Ingest immutable deltas or shared lenses into one explicit collection."""
+
+        return self.ingest(
+            app_knowledge=app_knowledge,
+            graph_payload=graph_payload,
+            collection=self.config.evolution_collection,
+            upsert=upsert,
+        )
+
     def query(
         self,
         *,
@@ -169,6 +185,32 @@ class HydraDBClient:
         if metadata_filters:
             body["metadata_filters"] = dict(metadata_filters)
         return self._call("POST", "/query", json_body=body)
+
+    def query_evolution(
+        self,
+        *,
+        query: str,
+        query_type: str = "knowledge",
+        query_by: str = "hybrid",
+        mode: str = "thinking",
+        graph_context: bool = True,
+        max_results: int = 10,
+        metadata_filters: Mapping[str, Any] | None = None,
+        query_forceful_relations: bool = True,
+    ) -> JsonObject:
+        """Query only the configured evolution collection; never traverse current."""
+
+        return self.query(
+            query=query,
+            collection=self.config.evolution_collection,
+            query_type=query_type,
+            query_by=query_by,
+            mode=mode,
+            graph_context=graph_context,
+            max_results=max_results,
+            metadata_filters=metadata_filters,
+            query_forceful_relations=query_forceful_relations,
+        )
 
     def status(self, ids: Sequence[str]) -> JsonObject:
         clean_ids = _clean_ids(ids)

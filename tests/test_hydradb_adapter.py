@@ -43,12 +43,14 @@ def test_config_reads_canonical_environment_names() -> None:
             "HYDRA_DB_API_KEY": " secret ",
             "HYDRA_DB_DATABASE": "repo",
             "HYDRA_DB_COLLECTION": "revision_a",
+            "HYDRA_DB_EVOLUTION_COLLECTION": "evolution_a",
         }
     )
 
     assert result.api_key == "secret"
     assert result.database == "repo"
     assert result.collection == "revision_a"
+    assert result.evolution_collection == "evolution_a"
     assert result.api_url == DEFAULT_API_URL
     assert result.configured is True
 
@@ -131,6 +133,37 @@ def test_query_uses_canonical_v2_fields_and_explicit_graph_mode() -> None:
     }
     assert "tenant_id" not in sent["json_body"]
     assert "sub_tenant_id" not in sent["json_body"]
+
+
+def test_evolution_helpers_use_one_explicit_collection() -> None:
+    transport = RecordingTransport(
+        [
+            {"success": True, "data": {"ids": ["delta-1"]}},
+            {"success": True, "data": {"chunks": []}},
+        ]
+    )
+    client = HydraDBClient(
+        config(evolution_collection="evolution_records"), transport=transport
+    )
+
+    client.ingest_evolution(
+        app_knowledge=[{"id": "delta-1"}],
+        graph_payload={"delta-1": {"entities": {}, "relations": []}},
+    )
+    client.query_evolution(
+        query="changes",
+        metadata_filters={"entity_kind": "CHANGE_EVENT"},
+    )
+
+    assert transport.requests[0]["form"]["collection"] == "evolution_records"
+    query = transport.requests[1]["json_body"]
+    assert query["collection"] == "evolution_records"
+    assert "collections" not in query
+
+
+def test_current_and_evolution_collections_must_be_distinct() -> None:
+    with pytest.raises(ValueError, match="must be distinct"):
+        config(collection="same", evolution_collection="same")
 
 
 def test_status_delete_and_relations_stay_behind_v2_adapter() -> None:

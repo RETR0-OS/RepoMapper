@@ -20,12 +20,19 @@ class HydraDBConfig:
     api_key: str | None
     database: str
     collection: str = "current"
+    evolution_collection: str = "evolution"
     api_url: str = DEFAULT_API_URL
     request_timeout_seconds: float = 20.0
     max_retries: int = 2
     retry_backoff_seconds: float = 0.25
     poll_interval_seconds: float = 1.0
     poll_timeout_seconds: float = 120.0
+
+    def __post_init__(self) -> None:
+        if not self.collection.strip() or not self.evolution_collection.strip():
+            raise ValueError("HydraDB collection names must not be blank")
+        if self.collection == self.evolution_collection:
+            raise ValueError("Current and evolution collections must be distinct")
 
     @property
     def configured(self) -> bool:
@@ -38,6 +45,9 @@ class HydraDBConfig:
             api_key=_clean(env.get("HYDRA_DB_API_KEY")),
             database=_clean(env.get("HYDRA_DB_DATABASE")) or "",
             collection=_clean(env.get("HYDRA_DB_COLLECTION")) or "current",
+            evolution_collection=(
+                _clean(env.get("HYDRA_DB_EVOLUTION_COLLECTION")) or "evolution"
+            ),
             api_url=(_clean(env.get("HYDRA_DB_API_URL")) or DEFAULT_API_URL).rstrip("/"),
             request_timeout_seconds=_positive_float(
                 env.get("HYDRA_DB_TIMEOUT_SECONDS"), 20.0, "HYDRA_DB_TIMEOUT_SECONDS"
