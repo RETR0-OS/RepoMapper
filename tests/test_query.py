@@ -41,21 +41,55 @@ def test_query_preserves_hydradb_rank_and_path_data() -> None:
 
     result = service.repository_query(QueryRequest(question="How does authorization work?"))
 
-    assert [chunk["id"] for chunk in result["chunks"]] == [
+    assert [chunk["source_id"] for chunk in result["chunks"]] == [
         "source-authorize",
         "source-store",
         "source-decoy",
     ]
-    assert result["paths"][0]["triplets"][0]["relation"]["relationship_id"] == "hydra-rel-calls"
+    assert result["paths"][0]["hops"][0]["relation"]["id"] == "hydra-rel-calls"
     assert result["hydradb"]["origin"] == "byog"
     assert result["revision"] == "rev-abc"
-    assert result["additional_context"][0]["context_id"] == "source-auth-test"
+    assert result["additional_context"][0]["chunk_id"] == "chunk-auth-test"
     assert [event["type"] for event in events.recent()] == [
         "query_started",
         "hydradb_result_returned",
         "path_replay_started",
         "path_hop_replayed",
     ]
+    assert set(result["chunks"][0]) == {
+        "rank",
+        "chunk_id",
+        "source_id",
+        "content",
+        "content_truncated",
+        "title",
+        "source_type",
+        "score",
+        "path",
+        "span",
+        "revision",
+        "repository_id",
+        "entity_kind",
+        "language",
+        "relation_quality",
+        "node_id",
+        "logical_id",
+        "qualified_name",
+        "signature",
+        "content_hash",
+        "parser",
+        "parser_version",
+        "is_generated",
+        "group_ids",
+    }
+    assert set(result["paths"][0]) == {
+        "path_id",
+        "rank",
+        "score",
+        "summary",
+        "chunk_ids",
+        "hops",
+    }
 
 
 def test_context_budget_keeps_ranked_prefix_instead_of_selecting_fixture_favorites() -> None:
@@ -68,9 +102,12 @@ def test_context_budget_keeps_ranked_prefix_instead_of_selecting_fixture_favorit
         QueryRequest(question="authorization", max_context_chars=len(first_content) + 12)
     )
 
-    assert [chunk["id"] for chunk in result["chunks"]] == ["source-authorize", "source-store"]
+    assert [chunk["source_id"] for chunk in result["chunks"]] == [
+        "source-authorize",
+        "source-store",
+    ]
     assert result["chunks"][1]["content_truncated"] is True
-    assert result["chunks"][1]["chunk_content"] == raw["data"]["chunks"][1]["chunk_content"][:12]
+    assert result["chunks"][1]["content"] == raw["data"]["chunks"][1]["chunk_content"][:12]
     assert result["budget"]["truncated"] is True
 
 
@@ -84,8 +121,8 @@ def test_query_results_really_come_from_mocked_hydradb_response() -> None:
         QueryRequest(question="sentinel")
     )
 
-    assert result["chunks"][0]["id"] == "proof-from-transport"
-    assert result["chunks"][0]["chunk_content"] == "transport sentinel"
+    assert result["chunks"][0]["source_id"] == "proof-from-transport"
+    assert result["chunks"][0]["content"] == "transport sentinel"
     assert len(transport.calls) == 1
 
 
@@ -117,3 +154,153 @@ def test_transport_failure_is_visible_and_not_replaced() -> None:
     assert result["status"] == "unavailable"
     assert result["chunks"] == []
     assert result["warnings"] == ["network sentinel"]
+
+
+def test_current_query_refuses_mixed_hydradb_revisions() -> None:
+    raw = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    raw["data"]["chunks"][1]["metadata"]["revision_id"] = "rev-candidate"
+    transport = FixtureTransport(raw)
+    service = QueryService(client_for(transport), repository_id="hack-hydra")
+
+    result = service.repository_query(QueryRequest(question="authorization", revision="current"))
+
+    assert result["status"] == "degraded"
+    assert result["chunks"] == []
+    assert result["paths"] == []
+    assert "inconsistent revision slice" in result["warnings"][0]
+    assert len(transport.calls) == 1
+
+
+def test_current_query_filters_to_last_verified_revision_when_known() -> None:
+    raw = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    transport = FixtureTransport(raw)
+    service = QueryService(
+        client_for(transport),
+        repository_id="hack-hydra",
+        verified_revision=lambda: "rev-abc",
+    )
+
+    result = service.repository_query(QueryRequest(question="authorization", revision="current"))
+
+    assert result["status"] == "ready"
+    assert transport.calls[0]["json_body"]["metadata_filters"]["revision_id"] == "rev-abc"
+
+
+def test_expected_revision_requires_revision_metadata_and_anchored_paths() -> None:
+    raw = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    raw["data"]["chunks"][0]["metadata"].pop("revision_id")
+    transport = FixtureTransport(raw)
+    service = QueryService(
+        client_for(transport),
+        repository_id="hack-hydra",
+        verified_revision=lambda: "rev-abc",
+    )
+
+    result = service.repository_query(QueryRequest(question="authorization"))
+
+    assert result["status"] == "degraded"
+    assert result["chunks"] == []
+
+    raw = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    raw["data"]["graph_context"]["query_paths"][0]["source_chunk_ids"].append(
+        "candidate-chunk"
+    )
+    transport = FixtureTransport(raw)
+    service = QueryService(client_for(transport), repository_id="hack-hydra")
+
+    result = service.repository_query(QueryRequest(question="authorization"))
+
+    assert result["status"] == "degraded"
+    assert result["paths"] == []
+
+
+def test_indeterminate_current_state_is_gated_without_hydradb_or_local_fallback() -> None:
+    raw = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    transport = FixtureTransport(raw)
+    service = QueryService(
+        client_for(transport),
+        repository_id="hack-hydra",
+        verified_revision=lambda: "rev-abc",
+        current_state_indeterminate=lambda: True,
+    )
+
+    result = service.repository_query(QueryRequest(question="authorization"))
+
+    assert result["status"] == "degraded"
+    assert result["hydradb"]["available"] is True
+    assert result["chunks"] == []
+    assert result["paths"] == []
+    assert "indeterminate" in result["warnings"][0]
+    assert transport.calls == []
+
+
+def test_event_bus_rejects_unbounded_or_blank_external_fields() -> None:
+    events = EventBus(subscriber_queue_limit=1)
+
+    try:
+        events.emit("evidence_opened", session_id=" ", revision_id="rev")
+    except ValueError as exc:
+        assert "session_id" in str(exc)
+    else:
+        raise AssertionError("blank session ID was accepted")
+
+    try:
+        events.emit(
+            "evidence_opened",
+            session_id="session",
+            revision_id="rev",
+            hydradb_query_metadata={"large": "x" * 16_001},
+        )
+    except ValueError as exc:
+        assert "16000" in str(exc)
+    else:
+        raise AssertionError("unbounded metadata was accepted")
+
+
+def test_one_large_hydradb_path_cannot_bypass_per_path_hop_budget() -> None:
+    raw = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    group = raw["data"]["graph_context"]["query_paths"][0]
+    group["triplets"] = group["triplets"] * 100
+    raw["data"]["graph_context"]["chunk_relations"] = []
+    transport = FixtureTransport(raw)
+
+    result = QueryService(client_for(transport), repository_id="hack-hydra").repository_query(
+        QueryRequest(
+            question="authorization",
+            max_paths=2,
+            max_relations=50,
+            max_hops_per_path=4,
+        )
+    )
+
+    assert len(result["paths"][0]["hops"]) == 4
+    assert result["budget"]["returned_relations"] == 4
+    assert result["budget"]["truncated"] is True
+
+
+def test_large_result_caps_observational_event_references_without_failing_query() -> None:
+    raw = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    template = raw["data"]["graph_context"]["query_paths"][0]
+    groups = []
+    for index in range(101):
+        group = json.loads(json.dumps(template))
+        group["group_id"] = f"path-{index}"
+        group["triplets"][0]["relation"]["relationship_id"] = f"relation-{index}"
+        groups.append(group)
+    raw["data"]["graph_context"]["query_paths"] = groups
+    raw["data"]["graph_context"]["chunk_relations"] = []
+    events = EventBus()
+
+    result = QueryService(
+        client_for(FixtureTransport(raw)),
+        repository_id="hack-hydra",
+        events=events,
+    ).repository_query(
+        QueryRequest(question="authorization", max_paths=101, max_relations=101)
+    )
+
+    returned = next(
+        event for event in events.recent() if event["type"] == "hydradb_result_returned"
+    )
+    assert result["budget"]["returned_relations"] == 101
+    assert len(returned["relationship_ids"]) == 100

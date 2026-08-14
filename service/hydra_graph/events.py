@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from collections import deque
 from collections.abc import Iterator, Mapping
+from contextlib import suppress
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
-from queue import Empty, Queue
+from queue import Empty, Full, Queue
 from threading import Lock
 from typing import Any
 
@@ -52,11 +54,12 @@ class AgentEvent:
 class EventBus:
     """Bounded history plus live subscribers for extension SSE clients."""
 
-    def __init__(self, *, history_limit: int = 500) -> None:
-        if history_limit < 1:
-            raise ValueError("history_limit must be positive")
+    def __init__(self, *, history_limit: int = 500, subscriber_queue_limit: int = 100) -> None:
+        if history_limit < 1 or subscriber_queue_limit < 1:
+            raise ValueError("event history and subscriber queue limits must be positive")
         self._history: deque[AgentEvent] = deque(maxlen=history_limit)
         self._subscribers: set[Queue[AgentEvent]] = set()
+        self._subscriber_queue_limit = subscriber_queue_limit
         self._lock = Lock()
 
     def emit(
@@ -72,6 +75,21 @@ class EventBus:
     ) -> AgentEvent:
         if event_type not in EVENT_TYPES:
             raise ValueError(f"Unknown event type: {event_type}")
+        _validate_identifier("session_id", session_id)
+        _validate_identifier("revision_id", revision_id)
+        if view_id is not None:
+            _validate_identifier("view_id", view_id)
+        if len(entity_ids) > 100 or len(relationship_ids) > 100:
+            raise ValueError("An event can reference at most 100 entities and relationships")
+        for value in (*entity_ids, *relationship_ids):
+            _validate_identifier("event reference", value, max_length=1_024)
+        if hydradb_query_metadata is not None:
+            try:
+                encoded_metadata = json.dumps(hydradb_query_metadata)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("hydradb_query_metadata must be JSON serializable") from exc
+            if len(encoded_metadata) > 16_000:
+                raise ValueError("hydradb_query_metadata exceeds 16000 characters")
         event = AgentEvent(
             event_id=f"event_{uuid.uuid4().hex}",
             session_id=session_id,
@@ -87,7 +105,14 @@ class EventBus:
             self._history.append(event)
             subscribers = tuple(self._subscribers)
         for subscriber in subscribers:
-            subscriber.put_nowait(event)
+            try:
+                subscriber.put_nowait(event)
+            except Full:
+                # Slow SSE consumers keep only the newest bounded activity.
+                with suppress(Empty):
+                    subscriber.get_nowait()
+                with suppress(Full):
+                    subscriber.put_nowait(event)
         return event
 
     def recent(self, *, session_id: str | None = None) -> list[dict[str, Any]]:
@@ -102,7 +127,7 @@ class EventBus:
     def stream(self, *, timeout: float = 15.0) -> Iterator[AgentEvent | None]:
         """Yield live events; ``None`` is a heartbeat after an idle timeout."""
 
-        subscriber: Queue[AgentEvent] = Queue()
+        subscriber: Queue[AgentEvent] = Queue(maxsize=self._subscriber_queue_limit)
         with self._lock:
             self._subscribers.add(subscriber)
         try:
@@ -114,3 +139,10 @@ class EventBus:
         finally:
             with self._lock:
                 self._subscribers.discard(subscriber)
+
+
+def _validate_identifier(name: str, value: str, *, max_length: int = 256) -> None:
+    if not value.strip():
+        raise ValueError(f"{name} must not be blank")
+    if len(value) > max_length:
+        raise ValueError(f"{name} exceeds {max_length} characters")

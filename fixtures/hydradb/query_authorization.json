@@ -114,7 +114,7 @@
               "relation": {
                 "canonical_predicate": "CALLS",
                 "raw_predicate": "CALLS",
-                "context": "src/payments/auth.py:14 calls TokenStore.resolve.",
+                "context": "{\"edge_id\":\"edge-calls\",\"evidence\":{\"end_column\":28,\"end_line\":14,\"excerpt_hash\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"explanation\":\"Call expression resolves to TokenStore.resolve.\",\"id\":\"evidence-calls\",\"path\":\"src/payments/auth.py\",\"start_column\":4,\"start_line\":14},\"extractor\":\"python-ast\",\"extractor_version\":\"1\",\"quality\":\"exact\",\"schema\":\"hack-hydra.relation-evidence.v1\",\"summary\":\"authorize_user calls TokenStore.resolve at src/payments/auth.py:14.\"}",
                 "confidence": 1.0,
                 "relationship_id": "hydra-rel-calls",
                 "chunk_id": "chunk-authorize",
@@ -142,7 +142,7 @@
           "triplets": [
             {
               "source": {"name": "authorize_user", "type": "FUNCTION", "entity_id": "hydra-entity-authorize", "identifier": "node-authorize"},
-              "relation": {"canonical_predicate": "CALLS", "context": "src/payments/auth.py:14 calls TokenStore.resolve.", "relationship_id": "hydra-rel-calls", "chunk_id": "chunk-authorize", "origin": "byog"},
+              "relation": {"canonical_predicate": "CALLS", "context": "{\"edge_id\":\"edge-calls\",\"evidence\":{\"end_column\":28,\"end_line\":14,\"excerpt_hash\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"explanation\":\"Call expression resolves to TokenStore.resolve.\",\"id\":\"evidence-calls\",\"path\":\"src/payments/auth.py\",\"start_column\":4,\"start_line\":14},\"extractor\":\"python-ast\",\"extractor_version\":\"1\",\"quality\":\"exact\",\"schema\":\"hack-hydra.relation-evidence.v1\",\"summary\":\"authorize_user calls TokenStore.resolve at src/payments/auth.py:14.\"}", "relationship_id": "hydra-rel-calls", "chunk_id": "chunk-authorize", "origin": "byog"},
               "target": {"name": "TokenStore.resolve", "type": "METHOD", "entity_id": "hydra-entity-store", "identifier": "node-store"}
             }
           ],
@@ -161,7 +161,8 @@
         "id": "source-auth-test",
         "chunk_content": "test_authorize_user rejects expired bearer tokens.",
         "source_type": "code_symbol",
-        "source_title": "test_authorize_user"
+        "source_title": "test_authorize_user",
+        "metadata": {"repository_id": "hack-hydra", "revision_id": "rev-abc"}
       }
     }
   },
