@@ -101,6 +101,13 @@ export interface ServiceHealth {
   message?: string;
 }
 
+export interface ViewRequestContext {
+  question?: string;
+  beforeRevision?: string;
+  afterRevision?: string;
+  lens?: string;
+}
+
 export interface SidebarSnapshot {
   currentSymbol?: Pick<GraphNode, "id" | "displayName" | "kind" | "source">;
   entrypoints: Array<Pick<GraphNode, "id" | "displayName" | "kind" | "source">>;

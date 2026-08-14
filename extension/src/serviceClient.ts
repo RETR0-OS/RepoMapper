@@ -1,5 +1,15 @@
-import type { GraphDepth, GraphView, ServiceHealth, ViewMode } from "./types.js";
+import type { GraphDepth, GraphView, ServiceHealth, ViewMode, ViewRequestContext } from "./types.js";
 import { normalizeIndexPreview, normalizeIndexResult, type IndexPreview, type IndexResult } from "./indexing.js";
+import {
+  normalizeCheckpoint,
+  normalizeLens,
+  normalizePublish,
+  type CheckpointResponse,
+  type CheckpointSlot,
+  type LensDraft,
+  type LensResponse,
+  type PublishResponse
+} from "./evolution.js";
 import { normalizeGraphView, normalizeHealth } from "./viewAdapter.js";
 
 export class ServiceError extends Error {
@@ -19,12 +29,29 @@ export interface ServiceClientOptions {
   fetchImpl?: typeof fetch;
 }
 
+export function requireLoopbackServiceUrl(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new ServiceError("Repository service URL must be a valid loopback HTTP URL.");
+  }
+  const loopbackHosts = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+  if (!loopbackHosts.has(url.hostname.toLowerCase()) || !["http:", "https:"].includes(url.protocol)) {
+    throw new ServiceError("Repository service URL must use localhost, 127.0.0.1, or ::1.");
+  }
+  if (url.username || url.password || url.search || url.hash) {
+    throw new ServiceError("Repository service URL cannot contain credentials, query parameters, or fragments.");
+  }
+  return url.toString().replace(/\/+$/, "");
+}
+
 export class RepositoryServiceClient {
   private readonly fetchImpl: typeof fetch;
   private readonly baseUrl: string;
 
   public constructor(private readonly options: ServiceClientOptions) {
-    this.baseUrl = options.baseUrl.replace(/\/+$/, "");
+    this.baseUrl = requireLoopbackServiceUrl(options.baseUrl);
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
@@ -32,11 +59,12 @@ export class RepositoryServiceClient {
     return normalizeHealth(await this.request<unknown>("/health", { method: "GET" }));
   }
 
-  public async getView(mode: ViewMode, depth: GraphDepth, question?: string): Promise<GraphView> {
+  public async getView(mode: ViewMode, depth: GraphDepth, context: ViewRequestContext = {}): Promise<GraphView> {
     const query = new URLSearchParams({ depth });
-    if (question) {
-      query.set("question", question);
-    }
+    if (context.question) query.set("question", context.question);
+    if (context.beforeRevision) query.set("before_revision", context.beforeRevision);
+    if (context.afterRevision) query.set("after_revision", context.afterRevision);
+    if (context.lens) query.set("lens", context.lens);
     return normalizeGraphView(await this.request<unknown>(`/api/views/${mode}?${query.toString()}`, { method: "GET" }), mode);
   }
 
@@ -81,6 +109,42 @@ export class RepositoryServiceClient {
       body: JSON.stringify({ revision_id: revisionId })
     });
     return normalizeIndexResult(response);
+  }
+
+  public async checkpoint(slot: CheckpointSlot, revisionId: string): Promise<CheckpointResponse> {
+    const response = await this.request<unknown>(`/api/evolution/checkpoints/${slot}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ revision_id: revisionId })
+    });
+    return normalizeCheckpoint(response);
+  }
+
+  public async publishEvolution(beforeRevisionId: string, afterRevisionId: string, confirm: boolean): Promise<PublishResponse> {
+    const response = await this.request<unknown>("/api/evolution/publish", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ before_revision_id: beforeRevisionId, after_revision_id: afterRevisionId, confirm })
+    });
+    return normalizePublish(response);
+  }
+
+  public async saveLens(draft: LensDraft, confirm: boolean): Promise<LensResponse> {
+    const response = await this.request<unknown>("/api/lenses", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: draft.name, purpose: draft.purpose, view_id: draft.viewId, notes: null, confirm })
+    });
+    return normalizeLens(response);
+  }
+
+  public async acceptLens(lensId: string, viewId: string, confirm: boolean): Promise<LensResponse> {
+    const response = await this.request<unknown>(`/api/lenses/${encodeURIComponent(lensId)}/accept`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ view_id: viewId, confirm })
+    });
+    return normalizeLens(response);
   }
 
   private async request<T>(path: string, init: RequestInit): Promise<T> {

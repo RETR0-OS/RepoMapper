@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveViewStatus, reconcileHealthWithView } from "../src/statusState.js";
+import { deriveViewStatus, groundedViewContext, reconcileHealthWithView } from "../src/statusState.js";
 import { normalizeGraphView } from "../src/viewAdapter.js";
 import type { GraphView, ServiceHealth } from "../src/types.js";
 
@@ -68,5 +68,17 @@ describe("view status truthfulness", () => {
       state: "unavailable",
       message: "HydraDB query failed; no local fallback was used."
     });
+  });
+
+  it("exposes a view ID for writes only when the exact revision is grounded and ready", () => {
+    const view = serviceView(true, "rev-1");
+
+    expect(groundedViewContext(view, { state: "ready", revision: "rev-1" })).toEqual({
+      viewId: "view-status",
+      revision: "rev-1"
+    });
+    expect(groundedViewContext(view, { state: "ready", revision: "rev-2" })).toBeUndefined();
+    expect(groundedViewContext({ ...view, preview: true }, { state: "ready", revision: "rev-1" })).toBeUndefined();
+    expect(groundedViewContext({ ...view, hydradb: { ...view.hydradb!, available: false } }, { state: "ready", revision: "rev-1" })).toBeUndefined();
   });
 });

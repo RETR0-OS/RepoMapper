@@ -11,6 +11,11 @@ export interface ViewStatusPresentation {
   bannerMessage: string;
 }
 
+export interface GroundedViewContext {
+  viewId: string;
+  revision: string;
+}
+
 export function isConcreteRevision(value: string | undefined): value is string {
   return Boolean(value && value !== "current" && value !== "unknown" && value !== "preview");
 }
@@ -121,4 +126,19 @@ export function deriveViewStatus(view: GraphView, health: ServiceHealth): ViewSt
     bannerTitle: "Repository graph unavailable",
     bannerMessage: effective.message ?? "HydraDB is unavailable for this view; no local retrieval fallback is active."
   };
+}
+
+export function groundedViewContext(view: GraphView | undefined, health: ServiceHealth): GroundedViewContext | undefined {
+  if (
+    !view
+    || view.preview
+    || !view.viewId
+    || view.hydradb?.available !== true
+    || health.state !== "ready"
+    || !isConcreteRevision(view.revision)
+    || view.revision !== health.revision
+  ) {
+    return undefined;
+  }
+  return { viewId: view.viewId, revision: view.revision };
 }

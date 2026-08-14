@@ -69,7 +69,7 @@ describe("editor-native focused views", () => {
     });
     const request = focusedViewRequest("trace", { relativePath: "src/api route.py", line: 9 });
 
-    await client.getView(request.mode, "symbol", request.question);
+    await client.getView(request.mode, "symbol", { question: request.question });
 
     expect(fetchMock).toHaveBeenCalledOnce();
     const rawUrl = String(fetchMock.mock.calls[0]?.[0]);
