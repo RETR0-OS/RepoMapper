@@ -96,9 +96,7 @@ def register(client: TestClient) -> dict[str, Any]:
 def authorize(client: TestClient, registered: dict[str, Any]) -> tuple[str, str]:
     verifier = "pkce-verifier-with-at-least-forty-three-characters-123456"
     challenge = (
-        base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest())
-        .rstrip(b"=")
-        .decode()
+        base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
     )
     response = client.get(
         "/authorize",

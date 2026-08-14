@@ -133,9 +133,7 @@ def test_extension_scope_headers_select_the_workspace_without_environment_config
     }
 
     health = client.get("/health", headers=headers).json()
-    preview = client.post(
-        "/api/index/preview", json={}, headers=headers
-    ).json()
+    preview = client.post("/api/index/preview", json={}, headers=headers).json()
 
     assert health["repository_id"] == "Customer-Portal-a1b2c3d4e5f6"
     assert health["repository_root_fingerprint"] == repository_root_fingerprint(repository)
@@ -169,8 +167,7 @@ def test_extension_repository_scopes_are_isolated(tmp_path: Path) -> None:
     assert scopes.by_repository_id("first-a1b2c3d4e5f6").repository_root == first.resolve()
     assert scopes.by_repository_id("second-a1b2c3d4e5f6").repository_root == second.resolve()
     assert (
-        first_health["repository_root_fingerprint"]
-        != second_health["repository_root_fingerprint"]
+        first_health["repository_root_fingerprint"] != second_health["repository_root_fingerprint"]
     )
 
 

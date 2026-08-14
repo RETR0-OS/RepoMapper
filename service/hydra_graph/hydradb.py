@@ -181,9 +181,7 @@ class HydraDBClient:
                 "app_knowledge": json.dumps(sources, separators=(",", ":")),
                 "graph_payload": json.dumps(graph_payload, separators=(",", ":")),
             }
-            return self._call(
-                "POST", "/context/ingest", credentials=credentials, form=form
-            )
+            return self._call("POST", "/context/ingest", credentials=credentials, form=form)
 
     def ingest_evolution(
         self,
@@ -310,9 +308,7 @@ class HydraDBClient:
             }
             if cursor is not None:
                 params["cursor"] = cursor
-            return self._call(
-                "GET", "/context/relations", credentials=credentials, query=params
-            )
+            return self._call("GET", "/context/relations", credentials=credentials, query=params)
 
     @property
     def configured(self) -> bool:

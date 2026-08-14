@@ -89,10 +89,10 @@ class SyncService:
         if self.manifest.repository_id != repository_id:
             raise ValueError("Sync manifest belongs to another repository")
         database_fingerprint = self.client.database_fingerprint()
-        if (
-            database_fingerprint is not None
-            and self.manifest.database_fingerprint not in {None, database_fingerprint}
-        ):
+        if database_fingerprint is not None and self.manifest.database_fingerprint not in {
+            None,
+            database_fingerprint,
+        }:
             raise ValueError("Sync manifest belongs to another HydraDB database")
         if self.manifest.collection not in {None, self.client.config.collection}:
             raise ValueError("Sync manifest belongs to another HydraDB collection")

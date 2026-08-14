@@ -82,9 +82,7 @@ class ManagedOAuthProvider:
         if not client_info.client_id:
             raise RegistrationError("invalid_client_metadata", "client_id is required")
         if not client_info.client_name or len(client_info.client_name) > 200:
-            raise RegistrationError(
-                "invalid_client_metadata", "A bounded client name is required"
-            )
+            raise RegistrationError("invalid_client_metadata", "A bounded client name is required")
         if not client_info.redirect_uris or not all(
             _safe_loopback_redirect(str(item)) for item in client_info.redirect_uris
         ):
@@ -129,19 +127,13 @@ class ManagedOAuthProvider:
             subject=selected_repository,
         )
         self._store_model("code", code_value, code)
-        return construct_redirect_uri(
-            str(params.redirect_uri), code=code_value, state=params.state
-        )
+        return construct_redirect_uri(str(params.redirect_uri), code=code_value, state=params.state)
 
     async def load_authorization_code(
         self, client: OAuthClientInformationFull, authorization_code: str
     ) -> AuthorizationCode | None:
         code = self._load_model("code", authorization_code, AuthorizationCode)
-        if (
-            code is None
-            or code.client_id != client.client_id
-            or code.expires_at <= time.time()
-        ):
+        if code is None or code.client_id != client.client_id or code.expires_at <= time.time():
             if code is not None:
                 self._delete("code", authorization_code)
             return None

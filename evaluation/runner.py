@@ -563,10 +563,9 @@ def _live_result_is_grounded(
     graph_context: bool,
 ) -> bool:
     hydradb = _record(normalized.get("hydradb"))
-    if (
-        normalized.get("revision") != target.revision_id
-        or hydradb.get("collections") != [target.collection]
-    ):
+    if normalized.get("revision") != target.revision_id or hydradb.get("collections") != [
+        target.collection
+    ]:
         return False
     chunks = _records(normalized.get("chunks"))
     if not chunks or any(

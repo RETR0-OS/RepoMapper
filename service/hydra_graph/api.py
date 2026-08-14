@@ -399,9 +399,7 @@ def create_app(
                 return await call_next(request)
             try:
                 grant = managed_security.authorize(request.headers.get("authorization"))
-                scoped = repository_scopes.get(
-                    str(grant.repository_root), grant.repository_id
-                )
+                scoped = repository_scopes.get(str(grant.repository_root), grant.repository_id)
             except RuntimeError as exc:
                 return JSONResponse(status_code=429, content={"detail": str(exc)})
             except (HTTPException, ValueError) as exc:
@@ -798,27 +796,21 @@ def create_app(
 
     @app.post("/api/index/preview")
     def index_preview(_: IndexPreviewBody) -> dict[str, Any]:
-        prepared = prepare_automatic_index(
-            services.repository_root, services.sync.repository_id
-        )
+        prepared = prepare_automatic_index(services.repository_root, services.sync.repository_id)
         store = _require_index_previews(services)
         preview_ref = store.issue(prepared)
         return _automatic_index_preview(services, prepared, preview_ref.token)
 
     @app.post("/api/index")
     def index_repository(body: IndexConfirmBody) -> dict[str, Any]:
-        prepared = prepare_automatic_index(
-            services.repository_root, services.sync.repository_id
-        )
+        prepared = prepare_automatic_index(services.repository_root, services.sync.repository_id)
         store = _require_index_previews(services)
         try:
             store.consume(body.preview_token, prepared)
         except IndexPreviewConflict as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         preview = _automatic_index_preview(services, prepared, body.preview_token)
-        result = services.sync.sync(
-            prepared.cards, revision_id=prepared.revision_id
-        ).as_dict()
+        result = services.sync.sync(prepared.cards, revision_id=prepared.revision_id).as_dict()
         return {"preview": preview, "sync": result}
 
     @app.post("/api/evolution/checkpoints/{slot}")

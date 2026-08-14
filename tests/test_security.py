@@ -85,18 +85,14 @@ def test_signed_attachment_issues_a_project_bound_short_lived_token(tmp_path: Pa
     client, security = managed_api(tmp_path, now=lambda: clock[0])
     response = attach(client, security, tmp_path, timestamp=clock[0])
 
-    health = client.get(
-        "/health", headers={"Authorization": f"Bearer {response['access_token']}"}
-    )
+    health = client.get("/health", headers={"Authorization": f"Bearer {response['access_token']}"})
     assert health.status_code == 200
     assert health.json()["repository_id"] == "git:example:0123456789abcdefabcd"
     assert response["expires_at"] == clock[0] + 300
     assert str(tmp_path) not in json.dumps(response)
 
     clock[0] += 301
-    expired = client.get(
-        "/health", headers={"Authorization": f"Bearer {response['access_token']}"}
-    )
+    expired = client.get("/health", headers={"Authorization": f"Bearer {response['access_token']}"})
     assert expired.status_code == 401
 
 
