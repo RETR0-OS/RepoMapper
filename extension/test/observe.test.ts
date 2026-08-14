@@ -54,8 +54,8 @@ describe("Observe event transport", () => {
   });
 
   it("orders by timestamp, dedupes event IDs, and ignores another session", () => {
-    const log = new ObserveEventLog("session-1");
-    log.ingest([
+    const log = new ObserveEventLog("session-1", "rev-1");
+    log.ingestPolledBatch([
       rawEvent("event-late", "2026-08-14T10:00:02.000Z"),
       rawEvent("event-early", "2026-08-14T10:00:01.000Z"),
       rawEvent("event-late", "2026-08-14T10:00:03.000Z"),
@@ -63,13 +63,14 @@ describe("Observe event transport", () => {
     ]);
 
     expect(log.visibleEvents().map((event) => event.eventId)).toEqual(["event-early", "event-late"]);
+    expect(log.lastAcceptedCursor()).toBe("event-late");
   });
 
   it("buffers while paused and releases a bounded chronological batch on resume", () => {
-    const log = new ObserveEventLog("session-1", 5, 2, 10);
-    log.ingest([rawEvent("event-initial", "2026-08-14T10:00:00.000Z")]);
+    const log = new ObserveEventLog("session-1", "rev-1", 5, 2, 10);
+    log.ingestPolledBatch([rawEvent("event-initial", "2026-08-14T10:00:00.000Z")]);
     log.setPaused(true);
-    expect(log.ingest([
+    expect(log.ingestPolledBatch([
       rawEvent("event-3", "2026-08-14T10:00:03.000Z"),
       rawEvent("event-1", "2026-08-14T10:00:01.000Z"),
       rawEvent("event-2", "2026-08-14T10:00:02.000Z")
@@ -80,6 +81,23 @@ describe("Observe event transport", () => {
 
     expect(log.setPaused(false).map((event) => event.eventId)).toEqual(["event-2", "event-3"]);
     expect(log.visibleEvents().map((event) => event.eventId)).toEqual(["event-initial", "event-2", "event-3"]);
+  });
+
+  it("does not let a direct response skip an earlier polled event and advances through its duplicate tail", () => {
+    const log = new ObserveEventLog("session-1", "rev-1");
+    log.ingestPolledBatch([rawEvent("event-start", "2026-08-14T10:00:00.000Z", { type: "session_started", view_id: null, entity_ids: [], relationship_ids: [] })]);
+
+    log.ingestDirect([rawEvent("event-direct", "2026-08-14T10:00:02.000Z", { type: "context_selected" })]);
+    expect(log.lastAcceptedCursor()).toBe("event-start");
+
+    const accepted = log.ingestPolledBatch([
+      rawEvent("event-between", "2026-08-14T10:00:01.000Z", { type: "query_started", entity_ids: [], relationship_ids: [] }),
+      rawEvent("event-direct", "2026-08-14T10:00:02.000Z", { type: "context_selected" })
+    ]);
+
+    expect(accepted.map((event) => event.eventId)).toEqual(["event-between"]);
+    expect(log.visibleEvents().map((event) => event.eventId)).toEqual(["event-start", "event-between", "event-direct"]);
+    expect(log.lastAcceptedCursor()).toBe("event-direct");
   });
 
   it("keeps exact view/revision references and rejects an unknown or substituted stored view", () => {
@@ -120,6 +138,20 @@ describe("Observe event transport", () => {
     expect(changed.nodes[0]?.state).toBe("edited");
     expect(changed.edges[0]?.state).toBe("opened");
     expect(changed.timeline.map((item) => item.id)).toEqual(["event-edited", "event-opened", "event-selected", "event-returned"]);
+  });
+
+  it("rejects wrong-revision events before cursor, timeline, or graph state", () => {
+    const log = new ObserveEventLog("session-1", "rev-1");
+    log.ingestPolledBatch([rawEvent("event-wrong-revision", "2026-08-14T10:00:00.000Z", {
+      type: "workspace_entity_changed", revision_id: "rev-other", relationship_ids: []
+    })]);
+
+    const changed = applyObserveEvents(baseView, log.visibleEvents());
+
+    expect(changed.nodes[0]?.state).toBeUndefined();
+    expect(changed.timeline).toEqual([]);
+    expect(log.visibleEvents()).toEqual([]);
+    expect(log.lastAcceptedCursor()).toBeUndefined();
   });
 
   it("rejects malformed, oversized, and unknown events", () => {

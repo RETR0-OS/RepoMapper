@@ -34,6 +34,7 @@ export interface ObserveSessionResponse {
   status: string;
   sessionId: string;
   revisionId: string;
+  repositoryRootFingerprint: string;
   event?: AgentEvent;
 }
 
@@ -103,6 +104,9 @@ export function normalizeObserveSession(value: unknown): ObserveSessionResponse 
     status: typeof item.status === "string" ? item.status : "",
     sessionId: boundedId(item.session_id ?? item.sessionId, 256) ?? "",
     revisionId: boundedId(item.revision_id ?? item.revisionId, 256) ?? "",
+    repositoryRootFingerprint: typeof (item.repository_root_fingerprint ?? item.repositoryRootFingerprint) === "string"
+      ? String(item.repository_root_fingerprint ?? item.repositoryRootFingerprint)
+      : "",
     event: normalizeAgentEvent(item.event)
   };
 }
@@ -128,6 +132,7 @@ export function observeSessionIsActive(response: ObserveSessionResponse): boolea
   return response.status === "active"
     && Boolean(response.sessionId)
     && Boolean(response.revisionId)
+    && /^[a-f0-9]{64}$/.test(response.repositoryRootFingerprint)
     && response.event?.type === "session_started"
     && response.event.sessionId === response.sessionId
     && response.event.revisionId === response.revisionId;
@@ -144,6 +149,7 @@ export function observeRecordMatches(
   response: ObserveRecordedResponse,
   expectedType: "context_selected" | "evidence_opened" | "workspace_entity_changed",
   sessionId: string,
+  revisionId: string,
   viewId: string,
   selectedItemId?: string,
   selectedItemKind?: "node" | "edge"
@@ -155,6 +161,7 @@ export function observeRecordMatches(
   return response.status === "recorded"
     && event?.type === expectedType
     && event.sessionId === sessionId
+    && event.revisionId === revisionId
     && event.viewId === viewId
     && itemMatches;
 }
@@ -178,24 +185,39 @@ export class ObserveEventLog {
   private sequence = 0;
   private paused = false;
   private bufferedOverflow = 0;
+  private lastCursor: string | undefined;
 
   public constructor(
     private readonly sessionId: string,
+    private readonly revisionId: string,
     private readonly historyLimit = 500,
     private readonly bufferLimit = 200,
     private readonly seenLimit = 1_000
   ) {
-    if (!boundedId(sessionId, 256) || historyLimit < 1 || bufferLimit < 1 || seenLimit < historyLimit) {
-      throw new Error("Observe event bounds must be positive and the session ID must be concrete.");
+    if (!boundedId(sessionId, 256) || !boundedId(revisionId, 256) || historyLimit < 1 || bufferLimit < 1 || seenLimit < historyLimit) {
+      throw new Error("Observe event bounds must be positive and the session and revision IDs must be concrete.");
     }
   }
 
-  public ingest(values: unknown): AgentEvent[] {
+  public ingestPolledBatch(values: unknown): AgentEvent[] {
+    return this.ingest(values, true);
+  }
+
+  public ingestDirect(values: unknown): AgentEvent[] {
+    return this.ingest(values, false);
+  }
+
+  private ingest(values: unknown, advanceCursor: boolean): AgentEvent[] {
     if (!Array.isArray(values)) return [];
     const accepted: SequencedEvent[] = [];
     for (const value of values.slice(-this.historyLimit)) {
       const event = normalizeAgentEvent(value);
-      if (!event || event.sessionId !== this.sessionId || this.seen.has(event.eventId)) continue;
+      if (!event || event.sessionId !== this.sessionId || event.revisionId !== this.revisionId) continue;
+      // The polling cursor follows server-list order, including already-rendered
+      // direct events. A POST response may be rendered immediately, but it must
+      // never skip older events that have not arrived through the poll stream.
+      if (advanceCursor) this.lastCursor = event.eventId;
+      if (this.seen.has(event.eventId)) continue;
       const sequenced = { event, sequence: this.sequence++ };
       this.seen.set(event.eventId, sequenced.sequence);
       accepted.push(sequenced);
@@ -238,6 +260,10 @@ export class ObserveEventLog {
 
   public visibleEvents(): AgentEvent[] {
     return this.visible.map((item) => item.event);
+  }
+
+  public lastAcceptedCursor(): string | undefined {
+    return this.lastCursor;
   }
 
   private pruneSeen(): void {
@@ -384,7 +410,7 @@ export function applyObserveEvents(baseView: GraphView, events: readonly AgentEv
   const nodeStates = new Map<string, ObservableNodeState>();
   const edgeStates = new Map<string, ObservableEdgeState>();
   for (const event of events) {
-    if (event.viewId !== baseView.viewId) continue;
+    if (event.viewId !== baseView.viewId || event.revisionId !== baseView.revision) continue;
     const nextNodeState = nodeState(event);
     const nextEdgeState = edgeState(event);
     if (nextNodeState) keepStrongestState(nodeStates, event.entityIds, nextNodeState);

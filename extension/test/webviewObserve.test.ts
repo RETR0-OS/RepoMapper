@@ -33,7 +33,7 @@ describe("Observe webview interaction", () => {
     expect(messages.at(-1)).toEqual({ type: "setObservePaused", paused: true });
 
     window.dispatchEvent(new MessageEvent<HostToWebviewMessage>("message", {
-      data: { type: "observeStatus", paused: true, bufferedCount: 3, sessionId: "session-1" }
+      data: { type: "observeStatus", active: true, paused: true, bufferedCount: 3, sessionId: "session-1" }
     }));
     expect(primary.textContent).toBe("Resume follow (3)");
     window.dispatchEvent(new MessageEvent<HostToWebviewMessage>("message", {
@@ -42,5 +42,12 @@ describe("Observe webview interaction", () => {
     expect(primary.textContent).toBe("Resume follow (3)");
     primary.click();
     expect(messages.at(-1)).toEqual({ type: "setObservePaused", paused: false });
+
+    window.dispatchEvent(new MessageEvent<HostToWebviewMessage>("message", {
+      data: { type: "observeStatus", active: false, paused: false, bufferedCount: 0, message: "Restart required." }
+    }));
+    expect(primary.textContent).toBe("Restart follow");
+    primary.click();
+    expect(messages.at(-1)).toEqual({ type: "retry" });
   });
 });

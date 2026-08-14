@@ -1,6 +1,12 @@
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { unambiguousWorkspaceRoot, visibleNodeIdsForWorkspaceChange, workspaceRelativePathForChange } from "../src/workspaceChanges.js";
+import {
+  matchingWorkspaceRoot,
+  normalizeCanonicalRoot,
+  repositoryRootFingerprint,
+  visibleNodeIdsForWorkspaceChange,
+  workspaceRelativePathForChange
+} from "../src/workspaceChanges.js";
 import type { GraphNode } from "../src/types.js";
 
 const root = path.resolve("C:/work/repository");
@@ -28,9 +34,23 @@ describe("Observe workspace change scope", () => {
     expect(visibleNodeIdsForWorkspaceChange(many, path.resolve(root, "src/api.py"), [root])).toHaveLength(100);
   });
 
-  it("disables service-root mapping when multiple VS Code roots are open", () => {
-    expect(unambiguousWorkspaceRoot([root])).toBe(root);
-    expect(unambiguousWorkspaceRoot([root, path.resolve("C:/work/other")])).toBeUndefined();
-    expect(unambiguousWorkspaceRoot([])).toBeUndefined();
+  it("uses the shared canonical normalization before hashing root identity", () => {
+    expect(normalizeCanonicalRoot("C:\\Work\\Repository\\", "win32")).toBe("c:/work/repository");
+    expect(repositoryRootFingerprint("C:\\Work\\Repository\\", "win32")).toBe(
+      repositoryRootFingerprint("c:/work/repository", "win32")
+    );
+  });
+
+  it("enables edit reporting only for exactly one canonical root identity match", () => {
+    const realRoot = path.resolve("C:/real/repository");
+    const otherRoot = path.resolve("C:/real/other");
+    const fingerprint = repositoryRootFingerprint(realRoot);
+    const realpaths = new Map([[root, realRoot], [otherRoot, otherRoot]]);
+    const resolve = (value: string): string => realpaths.get(value) ?? value;
+
+    expect(matchingWorkspaceRoot([root], fingerprint, resolve)).toBe(root);
+    expect(matchingWorkspaceRoot([otherRoot], fingerprint, resolve)).toBeUndefined();
+    expect(matchingWorkspaceRoot([root, path.resolve("C:/alias")], fingerprint, () => realRoot)).toBeUndefined();
+    expect(matchingWorkspaceRoot([root], "not-a-fingerprint", resolve)).toBeUndefined();
   });
 });

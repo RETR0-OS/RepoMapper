@@ -1,3 +1,5 @@
+import * as crypto from "node:crypto";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import type { GraphNode } from "./types.js";
 
@@ -6,8 +8,30 @@ function comparisonPath(value: string): string {
   return process.platform === "win32" ? resolved.toLowerCase() : resolved;
 }
 
-export function unambiguousWorkspaceRoot(workspaceRoots: readonly string[]): string | undefined {
-  return workspaceRoots.length === 1 && workspaceRoots[0]?.trim() ? workspaceRoots[0] : undefined;
+export function normalizeCanonicalRoot(value: string, platform: NodeJS.Platform = process.platform): string {
+  const slashes = value.replaceAll("\\", "/").replace(/\/+$/, "") || "/";
+  return platform === "win32" ? slashes.toLowerCase() : slashes;
+}
+
+export function repositoryRootFingerprint(canonicalRealPath: string, platform: NodeJS.Platform = process.platform): string {
+  return crypto.createHash("sha256").update(normalizeCanonicalRoot(canonicalRealPath, platform), "utf8").digest("hex");
+}
+
+export function matchingWorkspaceRoot(
+  workspaceRoots: readonly string[],
+  expectedFingerprint: string,
+  realpath: (value: string) => string = fs.realpathSync.native
+): string | undefined {
+  if (!/^[a-f0-9]{64}$/.test(expectedFingerprint)) return undefined;
+  const matches: string[] = [];
+  for (const root of workspaceRoots) {
+    try {
+      if (repositoryRootFingerprint(realpath(root)) === expectedFingerprint) matches.push(root);
+    } catch {
+      // A root that cannot be resolved cannot prove identity with the service root.
+    }
+  }
+  return matches.length === 1 ? matches[0] : undefined;
 }
 
 export function workspaceRelativePathForChange(absolutePath: string, workspaceRoots: readonly string[]): string | undefined {

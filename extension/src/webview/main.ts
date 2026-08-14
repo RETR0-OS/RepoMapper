@@ -62,6 +62,7 @@ let relationKinds = new Set(view.edges.map((edge) => edge.predicate));
 let showInferred = false;
 let observePaused = false;
 let observeBufferedCount = 0;
+let observeActive = false;
 let reviewIndex = -1;
 let toastTimer: number | undefined;
 let dragState:
@@ -200,6 +201,7 @@ window.addEventListener("message", (event: MessageEvent<HostToWebviewMessage>) =
     markOpened(message.itemId);
     showToast("Opened exact source evidence in the editor.");
   } else if (message.type === "observeStatus") {
+    observeActive = message.active;
     observePaused = message.paused;
     observeBufferedCount = message.bufferedCount;
     renderHeader();
@@ -265,6 +267,9 @@ function applyView(nextView: GraphView, nextHealth: ServiceHealth): void {
   if (nextView.mode !== "observe") {
     observePaused = false;
     observeBufferedCount = 0;
+    observeActive = false;
+  } else if (nextView.preview) {
+    observeActive = true;
   }
   renderAll();
   persistDisplayState();
@@ -327,9 +332,11 @@ function renderHeader(): void {
   elements.eyebrow.textContent = view.preview ? `${mode.label} · interaction preview` : `${mode.label} · bounded repository view`;
   elements.viewTitle.textContent = mode.hint;
   elements.viewSummary.textContent = view.summary ?? `${view.nodes.length} concrete entities and ${view.edges.length} relations are visible.`;
-  elements.primaryAction.textContent = view.mode === "observe" && observePaused
-    ? `Resume follow${observeBufferedCount ? ` (${observeBufferedCount})` : ""}`
-    : PRIMARY_LABELS[view.mode];
+  elements.primaryAction.textContent = view.mode === "observe" && !observeActive
+    ? "Restart follow"
+    : view.mode === "observe" && observePaused
+      ? `Resume follow${observeBufferedCount ? ` (${observeBufferedCount})` : ""}`
+      : PRIMARY_LABELS[view.mode];
 }
 
 function renderDepth(): void {
@@ -617,7 +624,7 @@ function runPrimaryAction(): void {
     return;
   }
   if (view.mode === "observe") {
-    vscode.postMessage({ type: "setObservePaused", paused: !observePaused });
+    vscode.postMessage(observeActive ? { type: "setObservePaused", paused: !observePaused } : { type: "retry" });
     return;
   }
   if (view.mode === "compare") {
@@ -813,7 +820,7 @@ function createBrowserApi(): VsCodeApi {
         } satisfies HostToWebviewMessage }));
       } else if (message.type === "setObservePaused") {
         window.dispatchEvent(new MessageEvent("message", { data: {
-          type: "observeStatus", paused: message.paused, bufferedCount: 0,
+          type: "observeStatus", active: true, paused: message.paused, bufferedCount: 0,
           message: message.paused ? "Visual following paused. Observable events will remain buffered." : "Following observable preview events."
         } satisfies HostToWebviewMessage }));
       } else if (message.type === "query" || message.type === "primaryAction") {

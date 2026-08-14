@@ -30,7 +30,10 @@ describe("Observe service client contract", () => {
       calls.push({ url, method: init?.method, body: init?.body === undefined ? undefined : JSON.parse(String(init.body)) });
       let response: unknown;
       if (url.endsWith("/api/observe/sessions")) {
-        response = { status: "active", session_id: "session / one", revision_id: "rev-1", event: event("session_started") };
+        response = {
+          status: "active", session_id: "session / one", revision_id: "rev-1",
+          repository_root_fingerprint: "a".repeat(64), event: event("session_started")
+        };
       } else if (url.endsWith("/complete")) {
         response = { status: "completed", session_id: "session / one", event: event("session_completed") };
       } else if (url.includes("/api/events?")) {
@@ -55,7 +58,7 @@ describe("Observe service client contract", () => {
     });
 
     const started = await client.startObserveSession();
-    const events = await client.observeEvents("session / one");
+    const events = await client.observeEvents("session / one", "event-session_started");
     await client.getViewById("view / one");
     const selection = await client.recordObserveInteraction("selection", "view / one", "edge-1", "edge");
     const evidence = await client.recordObserveInteraction("evidence-opened", "view / one", "node-1", "node");
@@ -64,9 +67,9 @@ describe("Observe service client contract", () => {
 
     expect(observeSessionIsActive(started)).toBe(true);
     expect(Array.isArray(events)).toBe(true);
-    expect(observeRecordMatches(selection, "context_selected", "session / one", "view / one", "edge-1", "edge")).toBe(true);
-    expect(observeRecordMatches(evidence, "evidence_opened", "session / one", "view / one", "node-1", "node")).toBe(true);
-    expect(observeRecordMatches(changed, "workspace_entity_changed", "session / one", "view / one")).toBe(true);
+    expect(observeRecordMatches(selection, "context_selected", "session / one", "rev-1", "view / one", "edge-1", "edge")).toBe(true);
+    expect(observeRecordMatches(evidence, "evidence_opened", "session / one", "rev-1", "view / one", "node-1", "node")).toBe(true);
+    expect(observeRecordMatches(changed, "workspace_entity_changed", "session / one", "rev-1", "view / one")).toBe(true);
     expect(observeSessionWasCompleted(completed, "session / one")).toBe(true);
     expect(calls.map((call) => ({ path: new URL(call.url).pathname, method: call.method, body: call.body }))).toEqual([
       { path: "/api/observe/sessions", method: "POST", body: {} },
@@ -78,12 +81,13 @@ describe("Observe service client contract", () => {
       { path: "/api/observe/sessions/session%20%2F%20one/complete", method: "POST", body: {} }
     ]);
     expect(new URL(calls[1]!.url).searchParams.get("session_id")).toBe("session / one");
+    expect(new URL(calls[1]!.url).searchParams.get("after_event_id")).toBe("event-session_started");
     expect(calls[1]!.url).toContain("session_id=session+%2F+one");
   });
 
   it("fails closed when session or recorded event IDs are substituted", () => {
     const active = {
-      status: "active", sessionId: "session-1", revisionId: "rev-1",
+      status: "active", sessionId: "session-1", revisionId: "rev-1", repositoryRootFingerprint: "a".repeat(64),
       event: {
         eventId: "event-1", sessionId: "other", timestamp: "2026-08-14T10:00:00Z", type: "session_started" as const,
         revisionId: "rev-1", entityIds: [], relationshipIds: []
@@ -98,7 +102,21 @@ describe("Observe service client contract", () => {
     };
 
     expect(observeSessionIsActive(active)).toBe(false);
-    expect(observeRecordMatches(recorded, "context_selected", "session-1", "view-1", "node-1", "node")).toBe(false);
+    expect(observeSessionIsActive({ ...active, event: { ...active.event, sessionId: "session-1" }, repositoryRootFingerprint: "A".repeat(64) })).toBe(false);
+    expect(observeRecordMatches(recorded, "context_selected", "session-1", "rev-1", "view-1", "node-1", "node")).toBe(false);
+    expect(observeRecordMatches({ ...recorded, event: { ...recorded.event, viewId: "view-1" } }, "context_selected", "session-1", "rev-other", "view-1", "node-1", "node")).toBe(false);
+  });
+
+  it("surfaces a cursor history gap as HTTP 409 without retrying without the cursor", async () => {
+    const fetchMock = vi.fn(async (_input: string | URL | Request) => ({ ok: false, status: 409, json: async () => ({ detail: "gap" }) } as Response));
+    const client = new RepositoryServiceClient({
+      baseUrl: "http://127.0.0.1:8765", timeoutMs: 1000, fetchImpl: fetchMock as typeof fetch
+    });
+
+    await expect(client.observeEvents("session-1", "event-499")).rejects.toMatchObject({ status: 409 });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const url = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(url.searchParams.get("after_event_id")).toBe("event-499");
   });
 
   it("rejects a selected item returned in the wrong event ID category", () => {
@@ -110,7 +128,7 @@ describe("Observe service client contract", () => {
       }
     };
 
-    expect(observeRecordMatches(swapped, "context_selected", "session-1", "view-1", "node-1", "node")).toBe(false);
-    expect(observeRecordMatches(swapped, "context_selected", "session-1", "view-1", "node-1", "edge")).toBe(true);
+    expect(observeRecordMatches(swapped, "context_selected", "session-1", "rev-1", "view-1", "node-1", "node")).toBe(false);
+    expect(observeRecordMatches(swapped, "context_selected", "session-1", "rev-1", "view-1", "node-1", "edge")).toBe(true);
   });
 });

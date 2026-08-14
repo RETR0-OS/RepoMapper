@@ -28,7 +28,7 @@ import type {
 } from "./types.js";
 import { compareViewContext, preserveViewContext } from "./viewContext.js";
 import { safeDisplayStateKey } from "./webview/graphState.js";
-import { unambiguousWorkspaceRoot, visibleNodeIdsForWorkspaceChange, workspaceRelativePathForChange } from "./workspaceChanges.js";
+import { matchingWorkspaceRoot, visibleNodeIdsForWorkspaceChange, workspaceRelativePathForChange } from "./workspaceChanges.js";
 
 export class GraphPanel implements vscode.Disposable {
   private panel: vscode.WebviewPanel | undefined;
@@ -40,7 +40,7 @@ export class GraphPanel implements vscode.Disposable {
   private viewContext: ViewRequestContext = {};
   private currentView: GraphView | undefined;
   private observeBaseView: GraphView | undefined;
-  private observeSession: { sessionId: string; revisionId: string } | undefined;
+  private observeSession: { sessionId: string; revisionId: string; workspaceRoot?: string } | undefined;
   private observeEventLog: ObserveEventLog | undefined;
   private readonly observePoller = new BoundedPoller();
   private readonly unavailableObserveViews = new Map<string, number>();
@@ -406,16 +406,22 @@ export class GraphPanel implements vscode.Disposable {
         await client.completeObserveSession(response.sessionId).catch(() => undefined);
         return;
       }
-      this.observeSession = { sessionId: response.sessionId, revisionId: response.revisionId };
-      this.observeEventLog = new ObserveEventLog(response.sessionId);
-      this.observeEventLog.ingest(response.event ? [response.event] : []);
+      const workspaceRoot = matchingWorkspaceRoot(
+        vscode.workspace.workspaceFolders?.map((folder) => folder.uri.fsPath) ?? [],
+        response.repositoryRootFingerprint
+      );
+      this.observeSession = { sessionId: response.sessionId, revisionId: response.revisionId, workspaceRoot };
+      this.observeEventLog = new ObserveEventLog(response.sessionId, response.revisionId);
+      this.observeEventLog.ingestPolledBatch(response.event ? [response.event] : []);
       this.observeBaseView = undefined;
       this.currentView = undefined;
       this.unavailableObserveViews.clear();
-      this.observeMultiRootWarningShown = false;
+      this.observeMultiRootWarningShown = !workspaceRoot;
       this.setHealth(health);
       this.renderObserveView();
-      this.postObserveStatus("Following explicit repository events. No hidden reasoning is observed.");
+      this.postObserveStatus(workspaceRoot
+        ? "Following explicit repository events. No hidden reasoning is observed."
+        : "Following explicit repository events. Workspace edit overlay is disabled because no single VS Code root matches the service repository identity.");
       this.observePoller.start(() => this.pollObserve(response.sessionId));
     } catch (error) {
       if (client && startedSessionId && generation === this.observeGeneration) {
@@ -449,7 +455,7 @@ export class GraphPanel implements vscode.Disposable {
     const log = this.observeEventLog;
     if (!session || session.sessionId !== sessionId || !log) return;
     try {
-      const visible = log.ingest(await this.client().observeEvents(sessionId));
+      const visible = log.ingestPolledBatch(await this.client().observeEvents(sessionId, log.lastAcceptedCursor()));
       if (this.observeSession?.sessionId !== sessionId) return;
       if (log.isPaused()) {
         this.postObserveStatus();
@@ -462,6 +468,13 @@ export class GraphPanel implements vscode.Disposable {
       if (visible.length > 0 || needsView) await this.resolveObserveViewAndRender(sessionId);
     } catch (error) {
       if (this.observeSession?.sessionId !== sessionId) return;
+      if (error instanceof ServiceError && error.status === 409) {
+        await this.stopObserveFollowing();
+        const message = "Observe event history has a gap. Following stopped; restart Observe to begin a new exact session.";
+        this.post({ type: "observeStatus", active: false, paused: false, bufferedCount: 0, message });
+        this.post({ type: "error", message, recoverable: true });
+        return;
+      }
       const message = error instanceof Error ? error.message : "Observable events could not be polled.";
       this.post({ type: "error", message: `Observe polling encountered an error and will retry. ${message}`, recoverable: true });
     }
@@ -529,6 +542,7 @@ export class GraphPanel implements vscode.Disposable {
     const overflow = log.bufferedOverflowCount();
     this.post({
       type: "observeStatus",
+      active: true,
       paused: log.isPaused(),
       bufferedCount: log.bufferedCount(),
       sessionId: this.observeSession?.sessionId,
@@ -551,7 +565,7 @@ export class GraphPanel implements vscode.Disposable {
       if (this.observeSession?.sessionId !== session.sessionId || this.observeBaseView?.viewId !== viewId) return;
       const response = await this.client().recordObserveInteraction(kind, viewId, itemId, itemKind);
       const type = kind === "selection" ? "context_selected" : "evidence_opened";
-      if (!observeRecordMatches(response, type, session.sessionId, viewId, itemId, itemKind) || !response.event) {
+      if (!observeRecordMatches(response, type, session.sessionId, session.revisionId, viewId, itemId, itemKind) || !response.event) {
         throw new Error(`The service did not record the exact ${kind} interaction.`);
       }
       await this.ingestRecordedObserveEvent(session.sessionId, response.event);
@@ -562,9 +576,8 @@ export class GraphPanel implements vscode.Disposable {
     const session = this.observeSession;
     const viewId = this.observeBaseView?.viewId;
     const nodes = this.currentView?.nodes;
-    const roots = vscode.workspace.workspaceFolders?.map((folder) => folder.uri.fsPath) ?? [];
     if (this.mode !== "observe" || uri.scheme !== "file" || !session || !viewId || !nodes) return;
-    const root = unambiguousWorkspaceRoot(roots);
+    const root = session.workspaceRoot;
     if (!root) {
       if (!this.observeMultiRootWarningShown) {
         this.observeMultiRootWarningShown = true;
@@ -584,7 +597,7 @@ export class GraphPanel implements vscode.Disposable {
       const response = await this.client().recordWorkspaceChange(viewId, relativePath);
       const event = response.event;
       if (
-        !observeRecordMatches(response, "workspace_entity_changed", session.sessionId, viewId)
+        !observeRecordMatches(response, "workspace_entity_changed", session.sessionId, session.revisionId, viewId)
         || !event
         || event.entityIds.length === 0
         || event.relationshipIds.length > 0
@@ -599,7 +612,7 @@ export class GraphPanel implements vscode.Disposable {
   private async ingestRecordedObserveEvent(sessionId: string, event: unknown): Promise<void> {
     const log = this.observeEventLog;
     if (this.observeSession?.sessionId !== sessionId || !log) return;
-    const visible = log.ingest([event]);
+    const visible = log.ingestDirect([event]);
     if (log.isPaused()) {
       this.postObserveStatus();
     } else if (visible.length > 0) {

@@ -171,8 +171,9 @@ export class RepositoryServiceClient {
     }));
   }
 
-  public async observeEvents(sessionId: string): Promise<unknown> {
+  public async observeEvents(sessionId: string, afterEventId?: string): Promise<unknown> {
     const query = new URLSearchParams({ session_id: sessionId });
+    if (afterEventId) query.set("after_event_id", afterEventId);
     return this.request<unknown>(`/api/events?${query.toString()}`, { method: "GET" });
   }
 
