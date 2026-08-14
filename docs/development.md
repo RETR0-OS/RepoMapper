@@ -15,7 +15,7 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
 
-Push-Location .\extension
+cd .\extension
 npm install
 Pop-Location
 ```
@@ -45,7 +45,7 @@ Run focused checks while iterating, then run the complete script before committi
 python -m pytest tests/test_query.py -q
 python -m ruff check service tests
 
-Push-Location .\extension
+cd .\extension
 npm run check
 npm test
 npm run build
@@ -57,9 +57,9 @@ Pop-Location
 The standalone preview uses checked, clearly labeled interaction data. It is useful for visual development but is not repository truth.
 
 ```powershell
-Push-Location .\extension
+cd .\extension
 npm run preview
-Pop-Location
+cd ..
 ```
 
 Open the local URL printed by the preview process. Check all six modes, keyboard focus, graph selection, filters, dragging, pan and zoom, narrow layouts, and the textual path view.
@@ -67,7 +67,7 @@ Open the local URL printed by the preview process. Check all six modes, keyboard
 For a real extension host:
 
 ```powershell
-Push-Location .\extension
+cd .\extension
 npm run build
 Pop-Location
 code --extensionDevelopmentPath="$PWD\extension"
