@@ -20,12 +20,8 @@ def validate_view(view: dict[str, Any]) -> None:
     product_schema = json.loads(
         (schema_root / "product-view.schema.json").read_text(encoding="utf-8")
     )
-    graph_schema = json.loads(
-        (schema_root / "graph-ir.schema.json").read_text(encoding="utf-8")
-    )
-    registry = Registry().with_resource(
-        graph_schema["$id"], Resource.from_contents(graph_schema)
-    )
+    graph_schema = json.loads((schema_root / "graph-ir.schema.json").read_text(encoding="utf-8"))
+    registry = Registry().with_resource(graph_schema["$id"], Resource.from_contents(graph_schema))
     Draft202012Validator(product_schema, registry=registry).validate(view)
 
 
@@ -204,9 +200,9 @@ def test_invalid_predicate_or_evidence_is_omitted_or_downgraded() -> None:
     validate_view(downgraded)
 
     for group_name in ("query_paths", "chunk_relations"):
-        invalid_relation = transport.response["data"]["graph_context"][group_name][0][
-            "triplets"
-        ][0]["relation"]
+        invalid_relation = transport.response["data"]["graph_context"][group_name][0]["triplets"][
+            0
+        ]["relation"]
         invalid_relation["canonical_predicate"] = "RELATED_TO"
         invalid_relation["raw_predicate"] = "RELATED_TO"
     omitted = views.load(ViewRequest(mode=ViewMode.TRACE, question="authorization flow"))

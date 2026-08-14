@@ -132,19 +132,23 @@ class QueryService:
             expected_revision=(requested_revision if requested_revision != "current" else None),
             expected_entity_kind=request.entity_kind,
         )
-        relationship_ids = tuple(dict.fromkeys(
-            str(hop.get("relation", {}).get("id"))
-            for path in result["paths"]
-            for hop in path.get("hops", [])
-            if hop.get("relation", {}).get("id")
-        ))[:100]
-        entity_ids = tuple(dict.fromkeys(
-            str(entity.get("id"))
-            for path in result["paths"]
-            for hop in path.get("hops", [])
-            for entity in (hop.get("source", {}), hop.get("target", {}))
-            if entity.get("id")
-        ))[:100]
+        relationship_ids = tuple(
+            dict.fromkeys(
+                str(hop.get("relation", {}).get("id"))
+                for path in result["paths"]
+                for hop in path.get("hops", [])
+                if hop.get("relation", {}).get("id")
+            )
+        )[:100]
+        entity_ids = tuple(
+            dict.fromkeys(
+                str(entity.get("id"))
+                for path in result["paths"]
+                for hop in path.get("hops", [])
+                for entity in (hop.get("source", {}), hop.get("target", {}))
+                if entity.get("id")
+            )
+        )[:100]
         self.events.emit(
             "hydradb_result_returned",
             session_id=session_id,
@@ -586,9 +590,7 @@ def _normalize_groups(
         raw_hops = _mapping_list(group.get("triplets"))
         available = max(0, hop_limit - used_hops)
         group_available = (
-            min(available, per_group_hop_limit)
-            if per_group_hop_limit is not None
-            else available
+            min(available, per_group_hop_limit) if per_group_hop_limit is not None else available
         )
         selected = raw_hops[:group_available]
         if len(selected) < len(raw_hops):

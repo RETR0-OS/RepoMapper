@@ -329,9 +329,7 @@ def test_incomplete_or_generic_change_chunks_cannot_masquerade(tmp_path: Path) -
 
     raw = json.loads(HYDRA_FIXTURE.read_text(encoding="utf-8"))
     generic, _, _, _ = _service(tmp_path, Transport([raw]), before, after)
-    ignored_filter = generic.compare(
-        before_revision_id="before", after_revision_id="after"
-    )
+    ignored_filter = generic.compare(before_revision_id="before", after_revision_id="after")
 
     assert incomplete["status"] == "degraded"
     assert incomplete["records"] == []
@@ -392,9 +390,7 @@ def test_partial_ingest_acknowledgement_is_indeterminate_and_retains_checkpoints
 def test_missing_credentials_refuse_confirmed_delta_without_transport(tmp_path: Path) -> None:
     before, after = _graphs(tmp_path)
     transport = Transport([])
-    service, checkpoints, _, _ = _service(
-        tmp_path, transport, before, after, api_key=None
-    )
+    service, checkpoints, _, _ = _service(tmp_path, transport, before, after, api_key=None)
 
     result = service.publish_delta(
         before_revision_id="before", after_revision_id="after", confirm=True
@@ -659,9 +655,7 @@ def test_accept_lens_requires_opaque_refresh_view_binding(tmp_path: Path) -> Non
     )
     opened = service.open_lens(lens=lens.lens_id)
 
-    rejected = service.accept_lens(
-        lens_id=lens.lens_id, view_id="arbitrary", confirm=False
-    )
+    rejected = service.accept_lens(lens_id=lens.lens_id, view_id="arbitrary", confirm=False)
     preview = service.accept_lens(
         lens_id=lens.lens_id,
         view_id=opened["view_id"],

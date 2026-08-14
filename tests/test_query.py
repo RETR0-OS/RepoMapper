@@ -234,9 +234,7 @@ def test_expected_revision_requires_revision_metadata_and_anchored_paths() -> No
     assert result["chunks"] == []
 
     raw = json.loads(FIXTURE.read_text(encoding="utf-8"))
-    raw["data"]["graph_context"]["query_paths"][0]["source_chunk_ids"].append(
-        "candidate-chunk"
-    )
+    raw["data"]["graph_context"]["query_paths"][0]["source_chunk_ids"].append("candidate-chunk")
     transport = FixtureTransport(raw)
     service = QueryService(client_for(transport), repository_id="hack-hydra")
 
@@ -327,9 +325,7 @@ def test_large_result_caps_observational_event_references_without_failing_query(
         client_for(FixtureTransport(raw)),
         repository_id="hack-hydra",
         events=events,
-    ).repository_query(
-        QueryRequest(question="authorization", max_paths=101, max_relations=101)
-    )
+    ).repository_query(QueryRequest(question="authorization", max_paths=101, max_relations=101))
 
     returned = next(
         event for event in events.recent() if event["type"] == "hydradb_result_returned"

@@ -113,9 +113,7 @@ class SyncService:
                 "current_state_indeterminate": self._current_state_indeterminate,
             }
 
-    def verifies_snapshot(
-        self, cards: Sequence[SourceCard], *, revision_id: str
-    ) -> bool:
+    def verifies_snapshot(self, cards: Sequence[SourceCard], *, revision_id: str) -> bool:
         """Return whether cards exactly match the last verified current snapshot."""
 
         try:
@@ -170,9 +168,7 @@ class SyncService:
             "hydradb_sync_started",
             session_id=session_id,
             revision_id=revision_id,
-            entity_ids=tuple(
-                card.node_id for card in cards if card.source_id in changed
-            )[:100],
+            entity_ids=tuple(card.node_id for card in cards if card.source_id in changed)[:100],
             hydradb_query_metadata={
                 "database": self.client.config.database,
                 "collection": self.client.config.collection,
@@ -238,9 +234,7 @@ class SyncService:
                         ready_revision=ready_revision,
                         added=added,
                         replaced=replaced,
-                        deleted=tuple(
-                            source_id for source_id in removed if source_id in confirmed
-                        ),
+                        deleted=tuple(source_id for source_id in removed if source_id in confirmed),
                         pending=tuple(
                             source_id for source_id in removed if source_id not in confirmed
                         ),
@@ -339,15 +333,11 @@ class SyncService:
             manifest = SyncManifest(
                 repository_id=str(payload["repository_id"]),
                 revision_id=(
-                    str(payload["revision_id"])
-                    if payload.get("revision_id") is not None
-                    else None
+                    str(payload["revision_id"]) if payload.get("revision_id") is not None else None
                 ),
                 sources={str(key): str(value) for key, value in payload["sources"].items()},
                 database=(str(payload["database"]) if payload.get("database") else None),
-                collection=(
-                    str(payload["collection"]) if payload.get("collection") else None
-                ),
+                collection=(str(payload["collection"]) if payload.get("collection") else None),
             )
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
             raise ValueError(f"Invalid sync manifest: {self.manifest_path}") from exc
@@ -413,8 +403,7 @@ class SyncService:
             if self._monotonic() >= deadline:
                 return {
                     source_id: (
-                        "indexing timed out in state "
-                        f"{item.get('indexing_status', 'unknown')}"
+                        f"indexing timed out in state {item.get('indexing_status', 'unknown')}"
                     )
                     for source_id, item in statuses.items()
                     if item.get("indexing_status") != "completed"

@@ -183,8 +183,7 @@ def _build_container(
         events=events,
         verified_revision=lambda: sync.status["ready_revision"],
         current_state_indeterminate=lambda: (
-            sync.status["status"] == "indexing"
-            or bool(sync.status["current_state_indeterminate"])
+            sync.status["status"] == "indexing" or bool(sync.status["current_state_indeterminate"])
         ),
     )
     views = ViewService(queries)
@@ -200,8 +199,7 @@ def _build_container(
         events=events,
         verified_revision=lambda: sync.status["ready_revision"],
         current_state_unsafe=lambda: (
-            sync.status["status"] == "indexing"
-            or bool(sync.status["current_state_indeterminate"])
+            sync.status["status"] == "indexing" or bool(sync.status["current_state_indeterminate"])
         ),
         snapshot_verifier=sync.verifies_snapshot,
     )
@@ -289,9 +287,7 @@ def create_app(container: ServiceContainer | None = None) -> FastAPI:
     def query_repository(body: QueryBody) -> dict[str, Any]:
         if body.session_id is not None:
             _require_query_session(services, body)
-        query_result = services.queries.repository_query(
-            _query_request_from_api(body)
-        )
+        query_result = services.queries.repository_query(_query_request_from_api(body))
         view = build_product_view(
             query_result,
             mode=ViewMode.TRACE,
@@ -327,16 +323,12 @@ def create_app(container: ServiceContainer | None = None) -> FastAPI:
             "status": "active",
             "session_id": session.session_id,
             "revision_id": session.revision_id,
-            "repository_root_fingerprint": repository_root_fingerprint(
-                services.repository_root
-            ),
+            "repository_root_fingerprint": repository_root_fingerprint(services.repository_root),
             "event": event.as_dict(),
         }
 
     @app.post("/api/observe/sessions/{session_id}/complete")
-    def complete_observe_session(
-        session_id: str, _: EmptyBody
-    ) -> dict[str, Any]:
+    def complete_observe_session(session_id: str, _: EmptyBody) -> dict[str, Any]:
         try:
             session, event = services.observe_sessions.complete(session_id)
         except ObserveSessionNotFound as exc:
@@ -380,9 +372,7 @@ def create_app(container: ServiceContainer | None = None) -> FastAPI:
         )
 
     @app.post("/api/views/{view_id}/workspace-change")
-    def record_workspace_change(
-        view_id: str, body: WorkspaceChangeBody
-    ) -> dict[str, Any]:
+    def record_workspace_change(view_id: str, body: WorkspaceChangeBody) -> dict[str, Any]:
         stored, session_id, revision_id = _observe_view_context(services, view_id)
         try:
             relative_path = normalize_relative_path(body.path)
@@ -415,11 +405,7 @@ def create_app(container: ServiceContainer | None = None) -> FastAPI:
                 for node in view.get("nodes", [])
                 if isinstance(node, Mapping)
                 and isinstance(node.get("path"), str)
-                and (
-                    str(node["path"]).casefold()
-                    if os.name == "nt"
-                    else str(node["path"])
-                )
+                and (str(node["path"]).casefold() if os.name == "nt" else str(node["path"]))
                 == compared_path
             )
         )[:100]
@@ -466,9 +452,7 @@ def create_app(container: ServiceContainer | None = None) -> FastAPI:
                 focus=question,
                 max_changes=max_edges,
             )
-            return _view_from_evolution_result(
-                services, result, mode, depth, max_nodes, max_edges
-            )
+            return _view_from_evolution_result(services, result, mode, depth, max_nodes, max_edges)
         if mode is ViewMode.PRESERVE:
             if services.evolution is None or not lens:
                 return _empty_evolution_view(
@@ -481,9 +465,7 @@ def create_app(container: ServiceContainer | None = None) -> FastAPI:
                     warning="Preserve requires a shared lens name or ID.",
                 )
             result = services.evolution.open_lens(lens=lens)
-            return _view_from_evolution_result(
-                services, result, mode, depth, max_nodes, max_edges
-            )
+            return _view_from_evolution_result(services, result, mode, depth, max_nodes, max_edges)
         return services.views.load(
             ViewRequest(
                 mode=mode,
@@ -510,9 +492,7 @@ def create_app(container: ServiceContainer | None = None) -> FastAPI:
                 )
             }
         focus = body.question or body.selected_id
-        question = (
-            f"Expand the HydraDB-backed repository context for {focus}." if focus else None
-        )
+        question = f"Expand the HydraDB-backed repository context for {focus}." if focus else None
         view = services.views.load(
             ViewRequest(
                 mode=mode,
@@ -660,9 +640,7 @@ def _require_query_session(services: ServiceContainer, body: QueryBody) -> None:
         )
 
 
-def _stored_hydradb_view(
-    services: ServiceContainer, view_id: str
-) -> dict[str, Any]:
+def _stored_hydradb_view(services: ServiceContainer, view_id: str) -> dict[str, Any]:
     if not view_id.strip() or len(view_id) > 256:
         raise HTTPException(status_code=404, detail="HydraDB view was not found.")
     stored = services.views.store.get(view_id)
@@ -802,9 +780,7 @@ def _view_from_evolution_result(
         ][:max_edges]
         view["budget"]["returned_nodes"] = len(view["nodes"])
         view["budget"]["returned_edges"] = len(view["edges"])
-        view["budget"]["truncated"] = view["budget"]["truncated"] or len(
-            deduplicated
-        ) > max_nodes
+        view["budget"]["truncated"] = view["budget"]["truncated"] or len(deduplicated) > max_nodes
     services.views.store.put(view, result)
     return view
 
@@ -820,8 +796,7 @@ def _evolution_record_nodes(result: Mapping[str, Any]) -> list[dict[str, Any]]:
             *result.get("chunks", []),
             *result.get("evolution_chunks", []),
         )
-        if isinstance(item, Mapping)
-        and item.get("entity_kind") in {"CHANGE_EVENT", "SYSTEM_LENS"}
+        if isinstance(item, Mapping) and item.get("entity_kind") in {"CHANGE_EVENT", "SYSTEM_LENS"}
     ]
     fact_state: dict[str, tuple[str, Mapping[str, Any]]] = {}
     for record in result.get("records", []):
@@ -866,8 +841,7 @@ def _evolution_record_nodes(result: Mapping[str, Any]) -> list[dict[str, Any]]:
                     "purpose": lens.get("purpose"),
                     "saved_revision_id": lens.get("saved_revision_id"),
                     "ownership": lens.get("ownership"),
-                    "drift_classification": drift.get("classification")
-                    or drift.get("kind"),
+                    "drift_classification": drift.get("classification") or drift.get("kind"),
                     "drift_explanation": drift.get("explanation"),
                 }
             )
@@ -925,9 +899,7 @@ def _empty_evolution_view(
         },
         "budget": {"truncated": False},
     }
-    return _view_from_evolution_result(
-        services, result, mode, depth, max_nodes, max_edges
-    )
+    return _view_from_evolution_result(services, result, mode, depth, max_nodes, max_edges)
 
 
 def _query_request_from_api(body: QueryBody):

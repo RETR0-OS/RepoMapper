@@ -256,9 +256,7 @@ def test_partial_delete_confirmation_cannot_publish_revision() -> None:
     )
     service, _ = sync_service(PartialDeleteTransport(), manifest=manifest)
 
-    result = service.sync(
-        [card("source-c", "node-c", "c" * 64)], revision_id="rev-new"
-    )
+    result = service.sync([card("source-c", "node-c", "c" * 64)], revision_id="rev-new")
 
     assert result.status is SyncStatus.FAILED
     assert result.ready_revision == "rev-old"
@@ -276,9 +274,7 @@ def test_deletion_only_outage_is_indeterminate_and_keeps_pending_source() -> Non
     )
     service, _ = sync_service(LifecycleTransport(unavailable=True), manifest=manifest)
 
-    result = service.sync(
-        [card("source-b", "node-b", "b" * 64)], revision_id="rev-new"
-    )
+    result = service.sync([card("source-b", "node-b", "b" * 64)], revision_id="rev-new")
 
     assert result.status is SyncStatus.UNAVAILABLE
     assert result.current_state_indeterminate is True
@@ -314,9 +310,7 @@ def test_foreign_repository_or_revision_card_fails_before_hydradb_io() -> None:
     else:
         raise AssertionError("foreign card was accepted")
 
-    wrong_revision = card(
-        "source-a", "node-a", "a" * 64, revision_id="different-revision"
-    )
+    wrong_revision = card("source-a", "node-a", "a" * 64, revision_id="different-revision")
     try:
         service.sync([wrong_revision], revision_id="rev-new")
     except ValueError as exc:
@@ -385,9 +379,7 @@ def test_indexing_status_is_visible_during_network_wait() -> None:
 
     service, _ = sync_service(BlockingTransport())
     worker = Thread(
-        target=lambda: service.sync(
-            [card("source-a", "node-a", "a" * 64)], revision_id="rev-new"
-        )
+        target=lambda: service.sync([card("source-a", "node-a", "a" * 64)], revision_id="rev-new")
     )
     worker.start()
     assert entered.wait(timeout=2)
@@ -402,10 +394,7 @@ def test_indexing_status_is_visible_during_network_wait() -> None:
 def test_large_sync_caps_events_and_batches_status_queries() -> None:
     transport = LifecycleTransport()
     service, events = sync_service(transport)
-    cards = [
-        card(f"source-{index}", f"node-{index}", f"{index:064x}")
-        for index in range(101)
-    ]
+    cards = [card(f"source-{index}", f"node-{index}", f"{index:064x}") for index in range(101)]
 
     result = service.sync(cards, revision_id="rev-new")
 
@@ -437,10 +426,13 @@ def test_persisted_manifest_allows_restart_to_delete_renamed_sources(tmp_path: A
         manifest_path=manifest_path,
         sleep=lambda _: None,
     )
-    assert first.sync(
-        [card("source-old", "node-old", "a" * 64, revision_id="rev-old")],
-        revision_id="rev-old",
-    ).status is SyncStatus.READY
+    assert (
+        first.sync(
+            [card("source-old", "node-old", "a" * 64, revision_id="rev-old")],
+            revision_id="rev-old",
+        ).status
+        is SyncStatus.READY
+    )
 
     second_transport = LifecycleTransport()
     second_client = HydraDBClient(first_client.config, transport=second_transport)

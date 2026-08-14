@@ -45,9 +45,7 @@ class HydraDBConfig:
             api_key=_clean(env.get("HYDRA_DB_API_KEY")),
             database=_clean(env.get("HYDRA_DB_DATABASE")) or "",
             collection=_clean(env.get("HYDRA_DB_COLLECTION")) or "current",
-            evolution_collection=(
-                _clean(env.get("HYDRA_DB_EVOLUTION_COLLECTION")) or "evolution"
-            ),
+            evolution_collection=(_clean(env.get("HYDRA_DB_EVOLUTION_COLLECTION")) or "evolution"),
             api_url=(_clean(env.get("HYDRA_DB_API_URL")) or DEFAULT_API_URL).rstrip("/"),
             request_timeout_seconds=_positive_float(
                 env.get("HYDRA_DB_TIMEOUT_SECONDS"), 20.0, "HYDRA_DB_TIMEOUT_SECONDS"

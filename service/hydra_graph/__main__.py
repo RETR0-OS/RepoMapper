@@ -25,9 +25,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         choices=("stdio", "sse", "streamable-http"),
         default="stdio",
     )
-    index = subparsers.add_parser(
-        "index", help="Analyze and index only HYDRA_REPOSITORY_ROOT"
-    )
+    index = subparsers.add_parser("index", help="Analyze and index only HYDRA_REPOSITORY_ROOT")
     index.add_argument("--revision", required=True, help="Explicit repository revision ID")
     index.add_argument(
         "--preview",
@@ -79,9 +77,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         services = create_container()
         assert services.evolution is not None
         if command == "checkpoint":
-            result = services.evolution.capture_checkpoint(
-                args.slot, revision_id=args.revision
-            )
+            result = services.evolution.capture_checkpoint(args.slot, revision_id=args.revision)
         elif command == "evolution-publish":
             result = services.evolution.publish_delta(
                 before_revision_id=args.before,

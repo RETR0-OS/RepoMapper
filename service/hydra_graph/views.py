@@ -192,11 +192,7 @@ def _symbol_graph(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
     chunks = [item for item in query.get("chunks", []) if isinstance(item, Mapping)]
     chunk_by_id = {str(item.get("chunk_id")): item for item in chunks}
-    chunk_by_node = {
-        str(item.get("node_id")): item
-        for item in chunks
-        if item.get("node_id")
-    }
+    chunk_by_node = {str(item.get("node_id")): item for item in chunks if item.get("node_id")}
     chunk_by_logical = {
         str(item.get("logical_id")): item for item in chunks if item.get("logical_id")
     }
@@ -322,8 +318,7 @@ def _relation_edge(
         quality = "unknown"
         raw_context = str(relation.get("context") or "HydraDB returned this relationship.")
         context = (
-            "HydraDB returned relation context without deterministic edge evidence: "
-            f"{raw_context}"
+            f"HydraDB returned relation context without deterministic edge evidence: {raw_context}"
         )
         evidence = []
         extractor = "hydradb-context-graph"

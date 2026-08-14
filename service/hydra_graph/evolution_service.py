@@ -809,8 +809,7 @@ def _lens_selection(
         if not selected:
             continue
         if any(
-            endpoints[index][1] != endpoints[index + 1][0]
-            for index in range(len(endpoints) - 1)
+            endpoints[index][1] != endpoints[index + 1][0] for index in range(len(endpoints) - 1)
         ):
             continue
         anchors = list(dict.fromkeys((endpoints[0][0], endpoints[-1][1])))
@@ -876,9 +875,7 @@ def _validated_records(
         matching = [
             lens
             for lens in lenses
-            if lookup is None
-            or lens.lens_id == lookup
-            or lens.name.casefold() == lookup.casefold()
+            if lookup is None or lens.lens_id == lookup or lens.name.casefold() == lookup.casefold()
         ]
         if len(matching) != 1:
             raise ValueError("HydraDB did not return exactly one matching shared lens")

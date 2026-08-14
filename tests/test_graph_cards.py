@@ -87,25 +87,17 @@ def test_byog_relation_context_round_trips_original_edge_evidence() -> None:
         assert envelope["quality"] == "exact"
         assert envelope["extractor"] == edge.extractor
         assert envelope["extractor_version"] == edge.extractor_version
-        assert envelope["evidence"] == edge.evidence[0].model_dump(
-            mode="json", exclude_none=True
-        )
-        serialized = json.dumps(
-            envelope, ensure_ascii=False, separators=(",", ":"), sort_keys=True
-        )
+        assert envelope["evidence"] == edge.evidence[0].model_dump(mode="json", exclude_none=True)
+        serialized = json.dumps(envelope, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
         assert len(serialized) <= 2_000
 
 
 def test_byog_relation_context_refuses_to_truncate_exact_evidence() -> None:
     graph = analyze_repository(FIXTURE, repository_id="sample", revision_id="r1")
     original = graph.edges[0]
-    oversized_evidence = original.evidence[0].model_copy(
-        update={"explanation": "x" * 2_000}
-    )
+    oversized_evidence = original.evidence[0].model_copy(update={"explanation": "x" * 2_000})
     oversized_edge = original.model_copy(update={"evidence": (oversized_evidence,)})
-    oversized_graph = graph.model_copy(
-        update={"edges": (oversized_edge, *graph.edges[1:])}
-    )
+    oversized_graph = graph.model_copy(update={"edges": (oversized_edge, *graph.edges[1:])})
 
     with pytest.raises(ValueError, match="cannot fit HydraDB"):
         build_source_cards(oversized_graph, FIXTURE)

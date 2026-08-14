@@ -166,9 +166,7 @@ def test_index_route_runs_analyze_card_ingest_and_status_pipeline(tmp_path: Path
         def request(self, **kwargs: Any) -> dict[str, Any]:
             self.calls.append(kwargs)
             if kwargs["url"].endswith("/context/ingest"):
-                source_ids = [
-                    item["id"] for item in json.loads(kwargs["form"]["app_knowledge"])
-                ]
+                source_ids = [item["id"] for item in json.loads(kwargs["form"]["app_knowledge"])]
                 return {"success": True, "data": {"ids": source_ids}}
             if kwargs["url"].endswith("/context/status"):
                 return {
@@ -258,9 +256,7 @@ def test_checkpoint_body_is_exact_and_contains_no_confirm_flag() -> None:
     evolution = Evolution()
     client.app.state.services.evolution = evolution
 
-    response = client.post(
-        "/api/evolution/checkpoints/before", json={"revision_id": "rev-ready"}
-    )
+    response = client.post("/api/evolution/checkpoints/before", json={"revision_id": "rev-ready"})
     rejected = client.post(
         "/api/evolution/checkpoints/before",
         json={"revision_id": "rev-ready", "confirm": True},

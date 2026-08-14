@@ -186,10 +186,7 @@ class ChangeEventRecord(FrozenModel):
             }
             if not revisions.issubset(allowed):
                 raise ValueError("change fact references an unrelated revision")
-        if (
-            self.lens_impact_status is LensImpactStatus.NOT_EVALUATED
-            and self.affected_lens_ids
-        ):
+        if self.lens_impact_status is LensImpactStatus.NOT_EVALUATED and self.affected_lens_ids:
             raise ValueError("unevaluated lens impact cannot claim affected lenses")
         return self
 
@@ -651,9 +648,7 @@ def classify_lens_drift(
     added = tuple(sorted(set(current_hops).difference(saved_hops)))
     removed = tuple(sorted(set(saved_hops).difference(current_hops)))
     current_entities = {entity.node_id for entity in current.entities}
-    removed_anchors = tuple(
-        sorted(set(saved.anchor_node_ids).difference(current_entities))
-    )
+    removed_anchors = tuple(sorted(set(saved.anchor_node_ids).difference(current_entities)))
     if removed_anchors:
         classification = LensDriftKind.ANCHOR_REMOVED
         explanation = "One or more saved anchor entities are absent from the current path."
@@ -661,9 +656,7 @@ def classify_lens_drift(
         changed_hops = [
             hop
             for hop_id in (*removed, *added)
-            for hop in (
-                saved_hops.get(hop_id) or current_hops.get(hop_id),
-            )
+            for hop in (saved_hops.get(hop_id) or current_hops.get(hop_id),)
             if hop is not None
         ]
         if any(hop.predicate is RelationPredicate.TESTS for hop in changed_hops):
@@ -775,8 +768,7 @@ def _change_relation(edge: GraphEdge) -> ChangeRelation:
         quality=edge.quality,
         confidence=edge.confidence,
         evidence=tuple(
-            RevisionEvidence(revision_id=edge.revision_id, evidence=item)
-            for item in edge.evidence
+            RevisionEvidence(revision_id=edge.revision_id, evidence=item) for item in edge.evidence
         ),
         extractor=edge.extractor,
         extractor_version=edge.extractor_version,

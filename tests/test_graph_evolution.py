@@ -137,9 +137,7 @@ def test_change_event_rejects_delta_mismatch_and_tampered_evidence_id(tmp_path: 
         update={"id": "evidence_000000000000000000000000"}
     )
     forged_edge = edge.model_copy(update={"evidence": (forged_evidence,)})
-    forged_after = after.model_copy(
-        update={"edges": (forged_edge, *after.edges[1:])}
-    )
+    forged_after = after.model_copy(update={"edges": (forged_edge, *after.edges[1:])})
     forged_delta = compare_graphs(graph, forged_after)
     with pytest.raises(ValueError, match="does not match its source identity"):
         build_change_event(forged_delta, graph, forged_after)
@@ -196,9 +194,7 @@ def test_system_lens_is_shared_exact_grounded_and_has_no_duplicate_byog(tmp_path
         edge_ids=[call.id],
     )
     card = build_system_lens_card(lens)
-    restored = SystemLensRecord.model_validate_json(
-        str(card.additional_metadata["record_json"])
-    )
+    restored = SystemLensRecord.model_validate_json(str(card.additional_metadata["record_json"]))
 
     assert restored == lens
     assert lens.ownership == "shared"
@@ -207,9 +203,10 @@ def test_system_lens_is_shared_exact_grounded_and_has_no_duplicate_byog(tmp_path
     assert card.source_type == "system_lens"
     assert card.graph.entities == {}
     assert card.graph.relations == ()
-    assert build_system_lens_card(
-        lens.model_copy(update={"name": "Renamed lens"})
-    ).source_id == card.source_id
+    assert (
+        build_system_lens_card(lens.model_copy(update={"name": "Renamed lens"})).source_id
+        == card.source_id
+    )
 
     unavailable = {**view, "hydradb": {"available": False}}
     with pytest.raises(ValueError, match="available HydraDB"):
@@ -275,12 +272,10 @@ def test_lens_drift_classification_has_honest_precedence(tmp_path: Path) -> None
         "view_id": "view_after",
         "revision_id": "after",
         "nodes": [
-            {**node.model_dump(mode="json"), "revision_id": "after"}
-            for node in returned_nodes
+            {**node.model_dump(mode="json"), "revision_id": "after"} for node in returned_nodes
         ],
         "edges": [
-            {**edge.model_dump(mode="json"), "revision_id": "after"}
-            for edge in returned_edges
+            {**edge.model_dump(mode="json"), "revision_id": "after"} for edge in returned_edges
         ],
     }
     current = build_system_lens(

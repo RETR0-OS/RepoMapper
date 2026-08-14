@@ -92,9 +92,10 @@ def test_ingest_uses_v2_multipart_and_matching_graph_keys() -> None:
     assert sent["headers"]["Authorization"] == "Bearer test-secret"
     assert sent["form"]["type"] == "knowledge"
     assert json.loads(sent["form"]["app_knowledge"])[0]["id"] == "symbol-1"
-    assert json.loads(sent["form"]["graph_payload"])["symbol-1"]["relations"][0][
-        "predicate"
-    ] == "CALLS"
+    assert (
+        json.loads(sent["form"]["graph_payload"])["symbol-1"]["relations"][0]["predicate"]
+        == "CALLS"
+    )
 
 
 def test_ingest_rejects_graph_for_source_not_in_request() -> None:
@@ -142,9 +143,7 @@ def test_evolution_helpers_use_one_explicit_collection() -> None:
             {"success": True, "data": {"chunks": []}},
         ]
     )
-    client = HydraDBClient(
-        config(evolution_collection="evolution_records"), transport=transport
-    )
+    client = HydraDBClient(config(evolution_collection="evolution_records"), transport=transport)
 
     client.ingest_evolution(
         app_knowledge=[{"id": "delta-1"}],

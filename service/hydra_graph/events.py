@@ -154,9 +154,7 @@ class ObserveSessions:
         if session_id is not None:
             return self.require(session_id, active=True)
         with self._lock:
-            active_sessions = [
-                session for session in self._sessions.values() if session.active
-            ]
+            active_sessions = [session for session in self._sessions.values() if session.active]
         if not active_sessions:
             return None
         if len(active_sessions) > 1:

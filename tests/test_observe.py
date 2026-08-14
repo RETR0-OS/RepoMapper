@@ -63,9 +63,7 @@ def observe_app(
         repository_id="hack-hydra",
         events=events,
         verified_revision=lambda: sync.status["ready_revision"],
-        current_state_indeterminate=lambda: bool(
-            sync.status["current_state_indeterminate"]
-        ),
+        current_state_indeterminate=lambda: bool(sync.status["current_state_indeterminate"]),
     )
     views = ViewService(queries, store=ViewStore(limit=view_limit))
     services = ServiceContainer(
@@ -246,9 +244,10 @@ def test_repository_root_fingerprint_uses_mirrorable_windows_lowercase(
         canonical = canonical.lower()
     canonical = canonical.rstrip("/") or "/"
 
-    assert repository_root_fingerprint(repository) == hashlib.sha256(
-        canonical.encode("utf-8")
-    ).hexdigest()
+    assert (
+        repository_root_fingerprint(repository)
+        == hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    )
 
 
 def test_observe_interactions_are_derived_from_stored_view_and_event_bus(
@@ -307,33 +306,46 @@ def test_observe_rejects_unverified_unknown_inactive_and_unshown_inputs(
         view_id = view["view_id"]
         assert client.get("/api/events", params={"session_id": "unknown"}).status_code == 404
         assert client.get("/api/views/by-id/unknown").status_code == 404
-        assert client.post(
-            f"/api/views/{view_id}/selection",
-            json={"item_id": "not-shown", "item_kind": "node"},
-        ).status_code == 404
-        assert client.post(
-            f"/api/views/{view_id}/workspace-change",
-            json={"path": "../outside.py"},
-        ).status_code == 422
-        assert client.post(
-            f"/api/views/{view_id}/workspace-change",
-            json={"path": "src/not-shown.py"},
-        ).status_code == 422
-        completed = client.post(
-            f"/api/observe/sessions/{session_id}/complete", json={}
+        assert (
+            client.post(
+                f"/api/views/{view_id}/selection",
+                json={"item_id": "not-shown", "item_kind": "node"},
+            ).status_code
+            == 404
         )
+        assert (
+            client.post(
+                f"/api/views/{view_id}/workspace-change",
+                json={"path": "../outside.py"},
+            ).status_code
+            == 422
+        )
+        assert (
+            client.post(
+                f"/api/views/{view_id}/workspace-change",
+                json={"path": "src/not-shown.py"},
+            ).status_code
+            == 422
+        )
+        completed = client.post(f"/api/observe/sessions/{session_id}/complete", json={})
         assert completed.status_code == 200
         assert completed.json()["event"]["type"] == "session_completed"
-        assert client.post(
-            f"/api/observe/sessions/{session_id}/complete", json={}
-        ).status_code == 409
-        assert client.post(
-            f"/api/observe/sessions/{session_id}/complete", json={"caller": "data"}
-        ).status_code == 422
-        assert client.post(
-            f"/api/views/{view_id}/selection",
-            json={"item_id": "node-authorize", "item_kind": "node"},
-        ).status_code == 409
+        assert (
+            client.post(f"/api/observe/sessions/{session_id}/complete", json={}).status_code == 409
+        )
+        assert (
+            client.post(
+                f"/api/observe/sessions/{session_id}/complete", json={"caller": "data"}
+            ).status_code
+            == 422
+        )
+        assert (
+            client.post(
+                f"/api/views/{view_id}/selection",
+                json={"item_id": "node-authorize", "item_kind": "node"},
+            ).status_code
+            == 409
+        )
 
 
 def test_api_query_rejects_invalid_observe_session_before_hydradb(tmp_path: Path) -> None:
@@ -421,13 +433,9 @@ def test_event_cursor_rejects_wrong_session_and_evicted_history(tmp_path: Path) 
         )
 
     overflow_app, _ = observe_app(tmp_path, event_history_limit=3)
-    with TestClient(
-        overflow_app, base_url="http://127.0.0.1:8765"
-    ) as overflow_client:
+    with TestClient(overflow_app, base_url="http://127.0.0.1:8765") as overflow_client:
         first = overflow_client.post("/api/observe/sessions", json={}).json()
-        overflow_client.post(
-            "/api/observe/sessions", json={}
-        )
+        overflow_client.post("/api/observe/sessions", json={})
         overflow_client.post(
             "/api/query",
             json={"question": "authorization", "session_id": first["session_id"]},
@@ -442,9 +450,7 @@ def test_event_cursor_rejects_wrong_session_and_evicted_history(tmp_path: Path) 
 
     assert evicted.status_code == 409
     assert wrong_session.status_code == 409
-    assert evicted.json() == {
-        "detail": "Observe event history has a gap; restart the session."
-    }
+    assert evicted.json() == {"detail": "Observe event history has a gap; restart the session."}
 
 
 def test_observe_active_session_bound_rejects_without_evicting(tmp_path: Path) -> None:
@@ -453,9 +459,7 @@ def test_observe_active_session_bound_rejects_without_evicting(tmp_path: Path) -
     with TestClient(app, base_url="http://127.0.0.1:8765") as client:
         first = client.post("/api/observe/sessions", json={})
         second = client.post("/api/observe/sessions", json={})
-        history = client.get(
-            "/api/events", params={"session_id": first.json()["session_id"]}
-        )
+        history = client.get("/api/events", params={"session_id": first.json()["session_id"]})
 
     assert first.status_code == 201
     assert second.status_code == 429
@@ -482,9 +486,7 @@ def test_expired_view_is_not_returned_or_accepted(tmp_path: Path) -> None:
         first = client.post(
             "/api/query", json={"question": "first", "session_id": session_id}
         ).json()
-        client.post(
-            "/api/query", json={"question": "second", "session_id": session_id}
-        )
+        client.post("/api/query", json={"question": "second", "session_id": session_id})
         fetched = client.get(f"/api/views/by-id/{first['view_id']}")
         selected = client.post(
             f"/api/views/{first['view_id']}/selection",
