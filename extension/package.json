@@ -59,7 +59,7 @@
       },
       {
         "command": "hydra.compareGraph",
-        "title": "Compare Graph Before and After Change",
+        "title": "Start or Finish Comparison",
         "category": "Repository Map"
       },
       {

@@ -134,7 +134,7 @@ def test_extension_scope_headers_select_the_workspace_without_environment_config
 
     health = client.get("/health", headers=headers).json()
     preview = client.post(
-        "/api/index/preview", json={"revision_id": "rev-workspace"}, headers=headers
+        "/api/index/preview", json={}, headers=headers
     ).json()
 
     assert health["repository_id"] == "Customer-Portal-a1b2c3d4e5f6"
@@ -207,6 +207,21 @@ def test_extension_query_route_returns_hydradb_backed_trace_view() -> None:
     assert transport.calls[0]["url"].endswith("/query")
 
 
+def test_setup_connection_check_is_read_only_and_discloses_no_credentials() -> None:
+    client, transport = api()
+
+    response = client.post("/api/setup/test", json={})
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "connected", "write_performed": False}
+    assert len(transport.calls) == 1
+    assert transport.calls[0]["method"] == "POST"
+    assert transport.calls[0]["url"].endswith("/query")
+    assert transport.calls[0]["json_body"]["graph_context"] is False
+    assert "api_key" not in json.dumps(response.json())
+    assert "database" not in json.dumps(response.json())
+
+
 def test_all_extension_view_routes_are_callable() -> None:
     client, transport = api()
 
@@ -251,12 +266,14 @@ def test_index_preview_analyzes_only_configured_root_without_upload(
     client, transport = api()
     client.app.state.services.repository_root = tmp_path.resolve()
 
-    response = client.post("/api/index/preview", json={"revision_id": "rev-preview"})
+    response = client.post("/api/index/preview", json={})
 
     assert response.status_code == 200
     preview = response.json()
     assert preview["repository_root"] == str(tmp_path.resolve())
-    assert preview["revision_id"] == "rev-preview"
+    assert preview["revision_id"].startswith("content:")
+    assert preview["revision_source"] == "content-digest"
+    assert len(preview["preview_token"]) >= 40
     assert preview["discovered_file_count"] == 1
     assert preview["source_count"] >= 2
     assert preview["uploads_performed"] is False
@@ -296,14 +313,33 @@ def test_index_route_runs_analyze_card_ingest_and_status_pipeline(tmp_path: Path
     transport = IndexTransport()
     client, _ = api(repository_root=tmp_path, transport_override=transport)
 
-    response = client.post("/api/index", json={"revision_id": "rev-index"})
+    preview_response = client.post("/api/index/preview", json={})
+    assert preview_response.status_code == 200
+    preview_token = preview_response.json()["preview_token"]
+    response = client.post("/api/index", json={"preview_token": preview_token})
 
     assert response.status_code == 200
     result = response.json()
     assert result["sync"]["status"] == "ready"
-    assert result["sync"]["ready_revision"] == "rev-index"
+    assert result["sync"]["ready_revision"] == preview_response.json()["revision_id"]
     assert result["preview"]["repository_root"] == str(tmp_path.resolve())
     assert [call["method"] for call in transport.calls] == ["POST", "GET"]
+
+
+def test_index_confirmation_rejects_changed_snapshot_and_manual_revision(tmp_path: Path) -> None:
+    source = tmp_path / "app.py"
+    source.write_text("value = 1\n", encoding="utf-8")
+    client, transport = api(repository_root=tmp_path)
+
+    manual = client.post("/api/index/preview", json={"revision_id": "caller-controlled"})
+    preview = client.post("/api/index/preview", json={}).json()
+    source.write_text("value = 2\n", encoding="utf-8")
+    changed = client.post("/api/index", json={"preview_token": preview["preview_token"]})
+
+    assert manual.status_code == 422
+    assert changed.status_code == 409
+    assert "changed" in changed.json()["detail"]
+    assert transport.calls == []
 
 
 def test_action_route_keeps_presentation_state_explicit() -> None:

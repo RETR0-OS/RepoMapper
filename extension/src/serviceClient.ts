@@ -71,6 +71,17 @@ export class RepositoryServiceClient {
     return normalizeHealth(await this.request<unknown>("/health", { method: "GET" }));
   }
 
+  public async testConnection(): Promise<void> {
+    const response = await this.request<Record<string, unknown>>("/api/setup/test", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({})
+    });
+    if (response.status !== "connected" || response.write_performed !== false) {
+      throw new ServiceError("HydraDB connection test did not return a safe read-only result.");
+    }
+  }
+
   public async getView(mode: ViewMode, depth: GraphDepth, context: ViewRequestContext = {}): Promise<GraphView> {
     const query = new URLSearchParams({ depth });
     if (context.question) query.set("question", context.question);
@@ -105,20 +116,20 @@ export class RepositoryServiceClient {
     return this.request<unknown>("/api/sidebar", { method: "GET" });
   }
 
-  public async previewIndex(revisionId: string): Promise<IndexPreview> {
+  public async previewIndex(): Promise<IndexPreview> {
     const response = await this.request<unknown>("/api/index/preview", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ revision_id: revisionId })
+      body: JSON.stringify({})
     });
     return normalizeIndexPreview(response);
   }
 
-  public async indexRepository(revisionId: string): Promise<IndexResult> {
+  public async indexRepository(previewToken: string): Promise<IndexResult> {
     const response = await this.request<unknown>("/api/index", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ revision_id: revisionId })
+      body: JSON.stringify({ preview_token: previewToken })
     });
     return normalizeIndexResult(response);
   }

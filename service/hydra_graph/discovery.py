@@ -15,7 +15,14 @@ from .ids import content_hash, normalize_relative_path
 
 DEFAULT_MAX_FILE_BYTES = 1_000_000
 _CONTROL_FILES = {".gitignore", ".hydraignore"}
-_ALWAYS_IGNORED_DIRECTORIES = {".git", ".hg", ".svn", "node_modules", "__pycache__"}
+_ALWAYS_IGNORED_DIRECTORIES = {
+    ".git",
+    ".hg",
+    ".hydra-graph",
+    ".svn",
+    "node_modules",
+    "__pycache__",
+}
 _SECRET_NAMES = {
     ".env",
     "id_rsa",

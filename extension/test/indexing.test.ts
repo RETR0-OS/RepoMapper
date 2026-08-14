@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import {
   formatIndexPreview,
   runSafeIndexing,
-  validateRevisionId,
   type IndexPreview,
   type IndexResult,
   type IndexingClient
@@ -10,9 +9,11 @@ import {
 import { RepositoryServiceClient } from "../src/serviceClient.js";
 
 const preview: IndexPreview = {
+  previewToken: "p".repeat(43),
   repositoryRoot: "C:\\configured\\repository",
   repositoryId: "repo-1",
   revisionId: "rev-42",
+  revisionSource: "content-digest",
   discoveredFileCount: 12,
   ignoredCount: 4,
   nodeCount: 31,
@@ -47,13 +48,15 @@ const readyResult: IndexResult = {
 };
 
 describe("safe repository indexing", () => {
-  it("sends only the explicit revision ID to preview and upload endpoints", async () => {
+  it("sends an empty preview body and only the server token on confirmation", async () => {
     const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
       const body = url.endsWith("/preview") ? {
+        preview_token: preview.previewToken,
         repository_root: preview.repositoryRoot,
         repository_id: preview.repositoryId,
         revision_id: "rev-42",
+        revision_source: "content-digest",
         discovered_file_count: 12,
         ignored_count: 4,
         node_count: 31,
@@ -81,8 +84,8 @@ describe("safe repository indexing", () => {
       fetchImpl: fetchMock as typeof fetch
     });
 
-    await client.previewIndex("rev-42");
-    await client.indexRepository("rev-42");
+    await client.previewIndex();
+    await client.indexRepository(preview.previewToken);
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe("http://127.0.0.1:8765/api/index/preview");
@@ -94,9 +97,10 @@ describe("safe repository indexing", () => {
       expect(headers.get("content-type")).toBe("application/json");
       expect(headers.get("x-hydra-repository-root")).toBe("C%3A%5CWorkspaces%5CHydra%20Repo");
       expect(headers.get("x-hydra-repository-id")).toBe("hydra-repo-a1b2c3d4e5f6");
-      expect(JSON.parse(String(init?.body))).toEqual({ revision_id: "rev-42" });
       expect(JSON.parse(String(init?.body))).not.toHaveProperty("repository_root");
     }
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({});
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({ preview_token: preview.previewToken });
   });
 
   it("does not call the upload endpoint when modal confirmation is cancelled", async () => {
@@ -106,7 +110,7 @@ describe("safe repository indexing", () => {
     };
     const confirm = vi.fn(async () => false);
 
-    const outcome = await runSafeIndexing(client, "rev-42", confirm);
+    const outcome = await runSafeIndexing(client, confirm);
 
     expect(outcome.status).toBe("cancelled");
     expect(client.previewIndex).toHaveBeenCalledOnce();
@@ -120,11 +124,11 @@ describe("safe repository indexing", () => {
       indexRepository: vi.fn(async () => readyResult)
     };
 
-    const outcome = await runSafeIndexing(client, "rev-42", async () => true);
+    const outcome = await runSafeIndexing(client, async () => true);
 
     expect(outcome.status).toBe("completed");
     expect(client.indexRepository).toHaveBeenCalledOnce();
-    expect(client.indexRepository).toHaveBeenCalledWith("rev-42");
+    expect(client.indexRepository).toHaveBeenCalledWith(preview.previewToken);
   });
 
   it("stops if the preview ever claims an upload was already performed", async () => {
@@ -134,19 +138,19 @@ describe("safe repository indexing", () => {
     };
     const confirm = vi.fn(async () => true);
 
-    await expect(runSafeIndexing(client, "rev-42", confirm)).rejects.toThrow("unexpectedly reported an upload");
+    await expect(runSafeIndexing(client, confirm)).rejects.toThrow("unexpectedly reported an upload");
     expect(confirm).not.toHaveBeenCalled();
     expect(client.indexRepository).not.toHaveBeenCalled();
   });
 
-  it("stops before confirmation when the server previews a different revision", async () => {
+  it("stops before confirmation when the server omits its preview token", async () => {
     const client: IndexingClient = {
-      previewIndex: vi.fn(async () => ({ ...preview, revisionId: "different-revision" })),
+      previewIndex: vi.fn(async () => ({ ...preview, previewToken: "" })),
       indexRepository: vi.fn(async () => readyResult)
     };
     const confirm = vi.fn(async () => true);
 
-    await expect(runSafeIndexing(client, "rev-42", confirm)).rejects.toThrow("did not match");
+    await expect(runSafeIndexing(client, confirm)).rejects.toThrow("confirmation token");
     expect(confirm).not.toHaveBeenCalled();
     expect(client.indexRepository).not.toHaveBeenCalled();
   });
@@ -162,7 +166,4 @@ describe("safe repository indexing", () => {
     expect(detail).toContain("One dynamic call target was unresolved.");
   });
 
-  it.each(["", "   ", "x".repeat(257), "bad\u0000revision"])("rejects an invalid explicit revision ID", (value) => {
-    expect(validateRevisionId(value)).toBeTypeOf("string");
-  });
 });

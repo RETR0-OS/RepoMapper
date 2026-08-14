@@ -25,7 +25,6 @@ import {
   formatIndexPreview,
   readyIndexSummary,
   runSafeIndexing,
-  validateRevisionId,
   type IndexingClient
 } from "./indexing.js";
 import { RepositorySidebar } from "./sidebar.js";
@@ -100,23 +99,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       ? configuration.get<number>("indexTimeoutMs", 120000)
       : configuration.get<number>("requestTimeoutMs", 5000));
   });
-  const promptRevision = async (title: string, prompt: string): Promise<string | undefined> => {
-    const value = await vscode.window.showInputBox({
-      title,
-      prompt,
-      placeHolder: "Explicit revision ID, such as a Git SHA",
-      ignoreFocusOut: true,
-      validateInput: validateRevisionId
-    });
-    if (value === undefined) return undefined;
-    const revision = value.trim();
-    const invalid = validateRevisionId(revision);
-    if (invalid) {
-      void vscode.window.showErrorMessage(invalid);
-      return undefined;
-    }
-    return revision;
-  };
   const checkpoint = async (
     client: EvolutionClient,
     slot: CheckpointSlot,
@@ -151,12 +133,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     try {
       const client = configuredClient();
-      if (!state) {
-        const beforeRevision = await promptRevision(
-          "Capture graph before change",
-          "Enter the currently verified revision before making the agent change"
+      const health = await client.health();
+      if (health.state !== "ready" || !health.revision) {
+        void vscode.window.showWarningMessage(
+          "Index this project to a verified revision before starting or finishing a comparison."
         );
-        if (!beforeRevision) return;
+        return;
+      }
+      if (!state) {
+        const beforeRevision = health.revision;
         if (!await checkpoint(client, "before", beforeRevision)) {
           void vscode.window.showInformationMessage("Before checkpoint cancelled. No comparison state was written.");
           return;
@@ -169,13 +154,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
       if (!state.afterRevision) {
-        const afterRevision = await promptRevision(
-          "Capture graph after change",
-          `Before revision is ${state.beforeRevision}. Enter the verified revision after the change.`
-        );
-        if (!afterRevision) return;
+        const afterRevision = health.revision;
         if (afterRevision === state.beforeRevision) {
-          void vscode.window.showErrorMessage("Before and after revision IDs must be different.");
+          void vscode.window.showInformationMessage(
+            "The verified revision has not changed. Index the changed project, then run Finish comparison again."
+          );
           return;
         }
         if (!await checkpoint(client, "after", afterRevision)) {
@@ -285,6 +268,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
   const show = (mode: ViewMode) => panel.show(mode);
+  const setupProject = async (): Promise<void> => {
+    if (!project) {
+      void vscode.window.showWarningMessage("Open a local project folder before configuring Repository Map.");
+      return;
+    }
+    const configured = await runCredentialSetup(credentialVault, project);
+    if (!configured) return;
+    try {
+      await vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification,
+        title: "Testing read-only HydraDB access…",
+        cancellable: false
+      }, () => configuredClient().testConnection());
+    } catch (error) {
+      void vscode.window.showErrorMessage(
+        `HydraDB read access could not be verified. ${error instanceof Error ? error.message : "Unknown connection error."}`
+      );
+      await panel.refresh();
+      return;
+    }
+    const next = await vscode.window.showInformationMessage(
+      `HydraDB read access is verified for ${project.projectName}. Preview the initial index now?`,
+      "Preview initial index",
+      "Later"
+    );
+    if (next === "Preview initial index") await vscode.commands.executeCommand("hydra.indexRepository");
+    await panel.refresh();
+  };
   const showFocused = async (action: FocusAction): Promise<void> => {
     const editor = vscode.window.activeTextEditor;
     const focus = captureEditorFocus(editor ? {
@@ -310,38 +321,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ["hydra.followAgent", () => show("observe")],
     ["hydra.refresh", () => panel.refresh()],
     ["hydra.indexRepository", async () => {
-      const revisionInput = await vscode.window.showInputBox({
-        title: "Index workspace with HydraDB",
-        prompt: "Enter the explicit revision ID that will identify this verified repository state",
-        placeHolder: "For example: git SHA or demo-before-auth-change",
-        ignoreFocusOut: true,
-        validateInput: validateRevisionId
-      });
-      if (revisionInput === undefined) {
-        return;
-      }
-      const revisionId = revisionInput.trim();
-      const invalidRevision = validateRevisionId(revisionId);
-      if (invalidRevision) {
-        void vscode.window.showErrorMessage(invalidRevision);
-        return;
-      }
       const progressClient: IndexingClient = {
-        previewIndex: async (revision) => await vscode.window.withProgress({
+        previewIndex: async () => await vscode.window.withProgress({
           location: vscode.ProgressLocation.Notification,
-          title: `Analyzing selected workspace for ${revision}…`,
+          title: "Analyzing the selected project and deriving its revision…",
           cancellable: false
-        }, () => configuredClient().previewIndex(revision)),
-        indexRepository: async (revision) => await vscode.window.withProgress({
+        }, () => configuredClient().previewIndex()),
+        indexRepository: async (previewToken) => await vscode.window.withProgress({
           location: vscode.ProgressLocation.Notification,
-          title: `Uploading revision ${revision} to HydraDB…`,
+          title: "Revalidating and uploading the confirmed revision to HydraDB…",
           cancellable: false
-        }, () => configuredClient().indexRepository(revision))
+        }, () => configuredClient().indexRepository(previewToken))
       };
       try {
-        const outcome = await runSafeIndexing(progressClient, revisionId, async (preview) => {
+        const outcome = await runSafeIndexing(progressClient, async (preview) => {
           const action = await vscode.window.showInformationMessage(
-            `Upload revision ${revisionId} from the selected workspace?`,
+            `Upload automatic revision ${preview.revisionId} from the selected project?`,
             { modal: true, detail: formatIndexPreview(preview) },
             "Upload to HydraDB"
           );
@@ -377,18 +372,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     }],
     ["hydra.configureService", async () => {
-      if (!project) {
-        void vscode.window.showWarningMessage("Open a local project folder before configuring Repository Map.");
-        return;
-      }
-      if (await runCredentialSetup(credentialVault, project)) await panel.refresh();
+      await setupProject();
     }],
     ["hydra.setup", async () => {
-      if (!project) {
-        void vscode.window.showWarningMessage("Open a local project folder before configuring Repository Map.");
-        return;
-      }
-      if (await runCredentialSetup(credentialVault, project)) await panel.refresh();
+      await setupProject();
     }],
     ["hydra.replaceApiKey", async () => {
       await replaceProfileKey(credentialVault);

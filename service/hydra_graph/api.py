@@ -32,8 +32,14 @@ from .events import (
     ObserveSessions,
 )
 from .evolution_service import EvolutionService
-from .hydradb import CredentialProvider, HydraDBClient
+from .hydradb import CredentialProvider, HydraDBClient, HydraDBError
 from .ids import normalize_relative_path, normalize_repository_id
+from .indexing_service import (
+    IndexPreviewConflict,
+    IndexPreviewStore,
+    PreparedIndex,
+    prepare_automatic_index,
+)
 from .models import GraphNode
 from .query import QUERY_RESPONSE_SCHEMA, QueryService
 from .security import MANAGED_SERVICE_PROTOCOL, MAX_REQUEST_BYTES, ManagedSecurity
@@ -65,8 +71,12 @@ class ActionBody(APIModel):
     revision: str = "current"
 
 
-class IndexBody(APIModel):
-    revision_id: str = Field(min_length=1, max_length=256)
+class IndexPreviewBody(APIModel):
+    pass
+
+
+class IndexConfirmBody(APIModel):
+    preview_token: str = Field(min_length=40, max_length=128)
 
 
 class CheckpointBody(APIModel):
@@ -125,6 +135,7 @@ class ServiceContainer:
     evolution: EvolutionService | None = None
     observe_sessions: ObserveSessions | None = None
     credential_provider: CredentialProvider | None = None
+    index_previews: IndexPreviewStore | None = None
 
 
 class RepositoryScopes:
@@ -299,6 +310,7 @@ def _build_container(
         evolution=evolution,
         observe_sessions=ObserveSessions(events),
         credential_provider=credential_provider,
+        index_previews=IndexPreviewStore(root, resolved_repository_id),
     )
 
 
@@ -465,6 +477,21 @@ def create_app(
             "mcp_endpoint": "/mcp",
             "message": message,
         }
+
+    @app.post("/api/setup/test")
+    def test_hydradb_access(_: EmptyBody) -> dict[str, Any]:
+        try:
+            services.client.query(
+                query="Repository Map connection check",
+                graph_context=False,
+                max_results=1,
+                query_by="text",
+                mode="fast",
+                metadata_filters={"repository_id": services.sync.repository_id},
+            )
+        except HydraDBError as exc:
+            raise HTTPException(status_code=503, detail="HydraDB read access failed.") from exc
+        return {"status": "connected", "write_performed": False}
 
     @app.post("/api/query")
     def query_repository(body: QueryBody) -> dict[str, Any]:
@@ -731,14 +758,28 @@ def create_app(
         return StreamingResponse(generate(), media_type="text/event-stream")
 
     @app.post("/api/index/preview")
-    def index_preview(body: IndexBody) -> dict[str, Any]:
-        _, _, preview = prepare_index(services, revision_id=body.revision_id)
-        return preview
+    def index_preview(_: IndexPreviewBody) -> dict[str, Any]:
+        prepared = prepare_automatic_index(
+            services.repository_root, services.sync.repository_id
+        )
+        store = _require_index_previews(services)
+        preview_ref = store.issue(prepared)
+        return _automatic_index_preview(services, prepared, preview_ref.token)
 
     @app.post("/api/index")
-    def index_repository(body: IndexBody) -> dict[str, Any]:
-        _, cards, preview = prepare_index(services, revision_id=body.revision_id)
-        result = services.sync.sync(cards, revision_id=body.revision_id).as_dict()
+    def index_repository(body: IndexConfirmBody) -> dict[str, Any]:
+        prepared = prepare_automatic_index(
+            services.repository_root, services.sync.repository_id
+        )
+        store = _require_index_previews(services)
+        try:
+            store.consume(body.preview_token, prepared)
+        except IndexPreviewConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        preview = _automatic_index_preview(services, prepared, body.preview_token)
+        result = services.sync.sync(
+            prepared.cards, revision_id=prepared.revision_id
+        ).as_dict()
         return {"preview": preview, "sync": result}
 
     @app.post("/api/evolution/checkpoints/{slot}")
@@ -1103,6 +1144,47 @@ def _query_request_from_api(body: QueryBody):
         graph_context=body.graph_context,
         session_id=body.session_id,
     )
+
+
+def _require_index_previews(services: ServiceContainer) -> IndexPreviewStore:
+    if services.index_previews is None:
+        services.index_previews = IndexPreviewStore(
+            services.repository_root, services.sync.repository_id
+        )
+    return services.index_previews
+
+
+def _automatic_index_preview(
+    services: ServiceContainer, prepared: PreparedIndex, preview_token: str
+) -> dict[str, Any]:
+    sources = [
+        {
+            "source_id": card.source_id,
+            "node_id": card.node_id,
+            "path": card.additional_metadata.get("path"),
+            "display_name": card.additional_metadata.get("display_name"),
+            "entity_kind": card.metadata.get("entity_kind"),
+            "content_chars": len(card.content),
+            "exact_relation_count": len(card.graph.relations),
+        }
+        for card in prepared.cards
+    ]
+    return {
+        "preview_token": preview_token,
+        "repository_root": str(services.repository_root),
+        "repository_id": services.sync.repository_id,
+        "revision_id": prepared.revision_id,
+        "revision_source": prepared.revision_source,
+        "discovered_file_count": len(prepared.discovery.files),
+        "ignored_count": len(prepared.discovery.ignored),
+        "ignored_counts": prepared.discovery.ignored_counts,
+        "node_count": prepared.node_count,
+        "edge_count": prepared.edge_count,
+        "source_count": len(prepared.cards),
+        "sources": sources,
+        "diagnostics": list(prepared.diagnostics),
+        "uploads_performed": False,
+    }
 
 
 def prepare_index(

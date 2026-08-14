@@ -9,9 +9,11 @@ export interface IndexSourceScope {
 }
 
 export interface IndexPreview {
+  previewToken: string;
   repositoryRoot: string;
   repositoryId: string;
   revisionId: string;
+  revisionSource: "git-clean" | "content-digest" | string;
   discoveredFileCount: number;
   ignoredCount: number;
   nodeCount: number;
@@ -41,8 +43,8 @@ export interface IndexResult {
 }
 
 export interface IndexingClient {
-  previewIndex(revisionId: string): Promise<IndexPreview>;
-  indexRepository(revisionId: string): Promise<IndexResult>;
+  previewIndex(): Promise<IndexPreview>;
+  indexRepository(previewToken: string): Promise<IndexResult>;
 }
 
 export type SafeIndexOutcome =
@@ -70,9 +72,11 @@ function strings(value: unknown): string[] {
 export function normalizeIndexPreview(value: unknown): IndexPreview {
   const preview = record(value);
   return {
+    previewToken: text(preview.preview_token ?? preview.previewToken),
     repositoryRoot: text(preview.repository_root ?? preview.repositoryRoot),
     repositoryId: text(preview.repository_id ?? preview.repositoryId),
     revisionId: text(preview.revision_id ?? preview.revisionId),
+    revisionSource: text(preview.revision_source ?? preview.revisionSource),
     discoveredFileCount: count(preview.discovered_file_count ?? preview.discoveredFileCount),
     ignoredCount: count(preview.ignored_count ?? preview.ignoredCount),
     nodeCount: count(preview.node_count ?? preview.nodeCount),
@@ -132,15 +136,14 @@ export function normalizeIndexResult(value: unknown): IndexResult {
 
 export async function runSafeIndexing(
   client: IndexingClient,
-  revisionId: string,
   confirm: (preview: IndexPreview) => Promise<boolean>
 ): Promise<SafeIndexOutcome> {
-  const preview = await client.previewIndex(revisionId);
+  const preview = await client.previewIndex();
   if (preview.uploadsPerformed) {
     throw new Error("The indexing preview unexpectedly reported an upload. Indexing was stopped.");
   }
-  if (preview.revisionId !== revisionId) {
-    throw new Error("The indexing preview did not match the requested revision. Indexing was stopped.");
+  if (!preview.revisionId || !preview.previewToken) {
+    throw new Error("The indexing preview did not include an automatic revision and confirmation token. Indexing was stopped.");
   }
   if (!preview.repositoryRoot) {
     throw new Error("The indexing preview did not report the selected workspace root. Indexing was stopped.");
@@ -148,7 +151,7 @@ export async function runSafeIndexing(
   if (!await confirm(preview)) {
     return { status: "cancelled", preview };
   }
-  const result = await client.indexRepository(revisionId);
+  const result = await client.indexRepository(preview.previewToken);
   return { status: "completed", preview, result };
 }
 
@@ -164,7 +167,7 @@ export function formatIndexPreview(preview: IndexPreview, visibleSourceLimit = 1
   return [
     `Workspace root: ${preview.repositoryRoot || "Not reported"}`,
     `Repository: ${preview.repositoryId || "Not reported"}`,
-    `Revision: ${preview.revisionId}`,
+    `Revision: ${preview.revisionId} (${preview.revisionSource === "git-clean" ? "clean Git commit" : "analyzed content"})`,
     `Discovered files: ${preview.discoveredFileCount}`,
     `Generated source cards: ${preview.sourceCount}`,
     `Repository nodes: ${preview.nodeCount}`,
