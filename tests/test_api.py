@@ -12,6 +12,7 @@ from hydra_graph.api import (
     _contained_manifest_path,
     create_app,
     create_container,
+    repository_root_fingerprint,
 )
 from hydra_graph.config import HydraDBConfig
 from hydra_graph.events import EventBus
@@ -76,6 +77,41 @@ def test_health_reports_explicit_configured_and_unavailable_states() -> None:
     unavailable_health = unavailable.get("/health").json()
     assert unavailable_health["state"] == "unavailable"
     assert "HYDRA_DB_API_KEY" in unavailable_health["message"]
+
+
+def test_health_exposes_repository_identity_without_raw_root(tmp_path: Path) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    client, _ = api(repository_root=repository)
+
+    health = client.get("/health").json()
+
+    assert health["repository_id"] == "hack-hydra"
+    assert health["repository_root_fingerprint"] == repository_root_fingerprint(repository)
+    assert len(health["repository_root_fingerprint"]) == 64
+    assert "repository_root" not in health
+    assert all(str(repository) not in str(value) for value in health.values())
+
+
+def test_health_root_fingerprint_resolves_repository_symlink(tmp_path: Path) -> None:
+    repository = tmp_path / "repository"
+    alias = tmp_path / "repository-alias"
+    repository.mkdir()
+    try:
+        os.symlink(repository, alias, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+    canonical, _ = api(repository_root=repository)
+    through_alias, _ = api(repository_root=alias)
+
+    canonical_health = canonical.get("/health").json()
+    alias_health = through_alias.get("/health").json()
+
+    assert alias_health["repository_root_fingerprint"] == canonical_health[
+        "repository_root_fingerprint"
+    ]
+    assert str(repository) not in alias_health.values()
+    assert str(alias) not in alias_health.values()
 
 
 def test_extension_query_route_returns_hydradb_backed_trace_view() -> None:

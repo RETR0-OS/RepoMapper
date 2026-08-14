@@ -279,6 +279,10 @@ def create_app(container: ServiceContainer | None = None) -> FastAPI:
             ),
             "database": services.config.database or None,
             "collection": services.config.collection,
+            "repository_id": services.sync.repository_id,
+            "repository_root_fingerprint": repository_root_fingerprint(
+                services.repository_root
+            ),
             "mcp_endpoint": "/mcp",
             "message": message,
         }
