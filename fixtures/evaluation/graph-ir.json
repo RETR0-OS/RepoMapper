@@ -1,0 +1,166 @@
+{
+  "graph_ir_version": "1.0",
+  "repository_id": "evaluation-fixture",
+  "revision_id": "eval-rev-1",
+  "nodes": [
+    {
+      "id": "node_20b86a1f77e991d7f9cf1f02",
+      "logical_id": "repo:evaluation-fixture:python:eval_app/api.py:function:eval_app.api.handle_request",
+      "kind": "FUNCTION",
+      "display_name": "handle_request",
+      "qualified_name": "eval_app.api.handle_request",
+      "language": "python",
+      "path": "eval_app/api.py",
+      "span": {"start_line": 4, "start_column": 0, "end_line": 7, "end_column": 21},
+      "signature": "handle_request(user: str) -> str",
+      "revision_id": "eval-rev-1",
+      "content_hash": "9d7c8f0db40b56fffba67630e951b4e01f2cd5dff5e922809811dcee5839ba14",
+      "parser": "python-ast",
+      "parser_version": "1",
+      "is_generated": false,
+      "attributes": {
+        "body_fingerprint": "d2b71524866084d60a69bbbaefc91c24d0ecef3cc2dd4d483c9f0a412c695f23",
+        "docstring": null,
+        "is_test": false
+      }
+    },
+    {
+      "id": "node_62cd89c087e62bd772b37452",
+      "logical_id": "repo:evaluation-fixture:python:tests/test_api.py:test:tests.test_api.test_handle_request_rejects_guest",
+      "kind": "TEST",
+      "display_name": "test_handle_request_rejects_guest",
+      "qualified_name": "tests.test_api.test_handle_request_rejects_guest",
+      "language": "python",
+      "path": "tests/test_api.py",
+      "span": {"start_line": 4, "start_column": 0, "end_line": 5, "end_column": 49},
+      "signature": "test_handle_request_rejects_guest() -> None",
+      "revision_id": "eval-rev-1",
+      "content_hash": "9167a621dca14314db1d4d8cab83214c5b30d66c90a7819b5f36b07e422dd716",
+      "parser": "python-ast",
+      "parser_version": "1",
+      "is_generated": false,
+      "attributes": {
+        "body_fingerprint": "6bf8e03764ad655f0c8f35fe1bc9859b6e2e8c27f246791e7e9f9702e36799c7",
+        "docstring": null,
+        "is_test": true
+      }
+    },
+    {
+      "id": "node_851de3f73b36629e337e18f4",
+      "logical_id": "repo:evaluation-fixture:python:eval_app/auth.py:function:eval_app.auth.authorize",
+      "kind": "FUNCTION",
+      "display_name": "authorize",
+      "qualified_name": "eval_app.auth.authorize",
+      "language": "python",
+      "path": "eval_app/auth.py",
+      "span": {"start_line": 4, "start_column": 0, "end_line": 5, "end_column": 28},
+      "signature": "authorize(user: str) -> bool",
+      "revision_id": "eval-rev-1",
+      "content_hash": "7f6c2228e91af37189610e681a0151c6bf7f63c8d4ecace8ecb3abc0ed79fb78",
+      "parser": "python-ast",
+      "parser_version": "1",
+      "is_generated": false,
+      "attributes": {
+        "body_fingerprint": "f1e0a5c27ebed72f04bc95d677cfd9f3f1a047c917d4b84825da5a100e796dd8",
+        "docstring": null,
+        "is_test": false
+      }
+    },
+    {
+      "id": "node_9424c0b9af08602043e5dade",
+      "logical_id": "repo:evaluation-fixture:python:eval_app/store.py:function:eval_app.store.load_policy",
+      "kind": "FUNCTION",
+      "display_name": "load_policy",
+      "qualified_name": "eval_app.store.load_policy",
+      "language": "python",
+      "path": "eval_app/store.py",
+      "span": {"start_line": 1, "start_column": 0, "end_line": 2, "end_column": 26},
+      "signature": "load_policy(user: str) -> bool",
+      "revision_id": "eval-rev-1",
+      "content_hash": "c80e0811994235d7977ed9e3015014eb8cd5ac935cd1c50b0d61f5699c0d6784",
+      "parser": "python-ast",
+      "parser_version": "1",
+      "is_generated": false,
+      "attributes": {
+        "body_fingerprint": "7e30c8da1915d708c18f8bc74cb667638034166b0d6c4dd353abd91be7578489",
+        "docstring": null,
+        "is_test": false
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge_09854ee9a3f80c9d805c034d",
+      "logical_id": "repo:evaluation-fixture:node_20b86a1f77e991d7f9cf1f02:CALLS:node_851de3f73b36629e337e18f4:exact",
+      "source_id": "node_20b86a1f77e991d7f9cf1f02",
+      "predicate": "CALLS",
+      "target_id": "node_851de3f73b36629e337e18f4",
+      "quality": "exact",
+      "confidence": null,
+      "evidence": [{
+        "id": "evidence_17c19bd3dbc5c6d8bc9f1a0f",
+        "path": "eval_app/api.py",
+        "start_line": 5,
+        "start_column": 11,
+        "end_line": 5,
+        "end_column": 26,
+        "excerpt_hash": "2b9a9c850f627de86278279424882352339877861df1d4cfcbe924fb254ea93e",
+        "explanation": "eval_app.api.handle_request calls eval_app.auth.authorize."
+      }],
+      "revision_id": "eval-rev-1",
+      "extractor": "python-ast",
+      "extractor_version": "1",
+      "owner_source_id": "node_20b86a1f77e991d7f9cf1f02",
+      "attributes": {}
+    },
+    {
+      "id": "edge_490be58d04fa0ab0aba16695",
+      "logical_id": "repo:evaluation-fixture:node_62cd89c087e62bd772b37452:TESTS:node_20b86a1f77e991d7f9cf1f02:exact",
+      "source_id": "node_62cd89c087e62bd772b37452",
+      "predicate": "TESTS",
+      "target_id": "node_20b86a1f77e991d7f9cf1f02",
+      "quality": "exact",
+      "confidence": null,
+      "evidence": [{
+        "id": "evidence_63e29bace15e711e609dae32",
+        "path": "tests/test_api.py",
+        "start_line": 5,
+        "start_column": 11,
+        "end_line": 5,
+        "end_column": 34,
+        "excerpt_hash": "a0ee62e3c78a33043c9f19d5253766bc80ee8e53d248c30ac4efd696eae46c18",
+        "explanation": "tests.test_api.test_handle_request_rejects_guest tests eval_app.api.handle_request through a resolved call."
+      }],
+      "revision_id": "eval-rev-1",
+      "extractor": "python-ast",
+      "extractor_version": "1",
+      "owner_source_id": "node_62cd89c087e62bd772b37452",
+      "attributes": {}
+    },
+    {
+      "id": "edge_52414a8d414e6fbee4c6da78",
+      "logical_id": "repo:evaluation-fixture:node_851de3f73b36629e337e18f4:CALLS:node_9424c0b9af08602043e5dade:exact",
+      "source_id": "node_851de3f73b36629e337e18f4",
+      "predicate": "CALLS",
+      "target_id": "node_9424c0b9af08602043e5dade",
+      "quality": "exact",
+      "confidence": null,
+      "evidence": [{
+        "id": "evidence_785bbf2d7e96b7c824206df7",
+        "path": "eval_app/auth.py",
+        "start_line": 5,
+        "start_column": 11,
+        "end_line": 5,
+        "end_column": 28,
+        "excerpt_hash": "b175328aacb0100508a376b79784c6b3e093455ff1b9fbdf88066679c613d12d",
+        "explanation": "eval_app.auth.authorize calls eval_app.store.load_policy."
+      }],
+      "revision_id": "eval-rev-1",
+      "extractor": "python-ast",
+      "extractor_version": "1",
+      "owner_source_id": "node_851de3f73b36629e337e18f4",
+      "attributes": {}
+    }
+  ],
+  "diagnostics": []
+}

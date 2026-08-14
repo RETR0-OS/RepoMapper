@@ -1,0 +1,22 @@
+{
+  "agent_run_schema": "hack-hydra.agent-run.v1",
+  "run_id": "replace-with-live-run-id",
+  "agent": "claude-code",
+  "model": "record-exact-model-version",
+  "question_ids": ["authorization-flow", "authorization-test"],
+  "conditions": ["A", "B", "C"],
+  "mcp_transport": "streamable-http",
+  "mcp_endpoint": "http://127.0.0.1:8765/mcp",
+  "observable_fields": [
+    "task_completed",
+    "correct_files_changed",
+    "unnecessary_files_opened_or_edited",
+    "repository_tool_calls",
+    "hydradb_query_calls",
+    "context_characters_returned",
+    "tests_passed",
+    "rework_count"
+  ],
+  "live_hydradb_required": true,
+  "results_path": null
+}

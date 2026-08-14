@@ -1,0 +1,56 @@
+[
+  {
+    "document_id": "api-handle-request",
+    "node_id": "node_20b86a1f77e991d7f9cf1f02",
+    "content": "handle_request checks authorization by calling authorize before accepting an incoming request",
+    "evidence": [{
+      "evidence_id": "evidence_17c19bd3dbc5c6d8bc9f1a0f",
+      "path": "eval_app/api.py",
+      "start_line": 5,
+      "start_column": 11,
+      "end_line": 5,
+      "end_column": 26,
+      "excerpt_hash": "2b9a9c850f627de86278279424882352339877861df1d4cfcbe924fb254ea93e"
+    }]
+  },
+  {
+    "document_id": "auth-authorize",
+    "node_id": "node_851de3f73b36629e337e18f4",
+    "content": "authorize loads an access policy from the policy store",
+    "evidence": [{
+      "evidence_id": "evidence_785bbf2d7e96b7c824206df7",
+      "path": "eval_app/auth.py",
+      "start_line": 5,
+      "start_column": 11,
+      "end_line": 5,
+      "end_column": 28,
+      "excerpt_hash": "b175328aacb0100508a376b79784c6b3e093455ff1b9fbdf88066679c613d12d"
+    }]
+  },
+  {
+    "document_id": "store-load-policy",
+    "node_id": "node_9424c0b9af08602043e5dade",
+    "content": "load_policy reads the authorization policy for a user",
+    "evidence": []
+  },
+  {
+    "document_id": "test-handle-request",
+    "node_id": "node_62cd89c087e62bd772b37452",
+    "content": "test_handle_request_rejects_guest exercises the authorization request path",
+    "evidence": [{
+      "evidence_id": "evidence_63e29bace15e711e609dae32",
+      "path": "tests/test_api.py",
+      "start_line": 5,
+      "start_column": 11,
+      "end_line": 5,
+      "end_column": 34,
+      "excerpt_hash": "a0ee62e3c78a33043c9f19d5253766bc80ee8e53d248c30ac4efd696eae46c18"
+    }]
+  },
+  {
+    "document_id": "unrelated-greeting",
+    "node_id": "node_unrelated",
+    "content": "format a greeting for a display name",
+    "evidence": []
+  }
+]

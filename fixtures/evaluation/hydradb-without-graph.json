@@ -1,0 +1,16 @@
+{
+  "response_schema": "hack-hydra.query-response.v1",
+  "status": "ready",
+  "chunks": [
+    {
+      "node_id": "node_851de3f73b36629e337e18f4",
+      "content": "authorize loads an access policy from the policy store"
+    },
+    {
+      "node_id": "node_unrelated",
+      "content": "format a greeting for a display name"
+    }
+  ],
+  "paths": [],
+  "warnings": []
+}

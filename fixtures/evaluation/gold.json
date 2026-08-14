@@ -1,0 +1,78 @@
+{
+  "gold_schema": "hack-hydra.evaluation-gold.v1",
+  "repository_id": "evaluation-fixture",
+  "revision_id": "eval-rev-1",
+  "fixture_root": "repo",
+  "graph_ir_path": "graph-ir.json",
+  "questions": [
+    {
+      "id": "authorization-flow",
+      "prompt": "How does an incoming request reach the authorization policy store?",
+      "category": "flow",
+      "required_node_logical_ids": [
+        "repo:evaluation-fixture:python:eval_app/api.py:function:eval_app.api.handle_request",
+        "repo:evaluation-fixture:python:eval_app/auth.py:function:eval_app.auth.authorize",
+        "repo:evaluation-fixture:python:eval_app/store.py:function:eval_app.store.load_policy"
+      ],
+      "required_relations": [
+        {
+          "edge_id": "edge_09854ee9a3f80c9d805c034d",
+          "source_logical_id": "repo:evaluation-fixture:python:eval_app/api.py:function:eval_app.api.handle_request",
+          "predicate": "CALLS",
+          "target_logical_id": "repo:evaluation-fixture:python:eval_app/auth.py:function:eval_app.auth.authorize",
+          "quality": "exact",
+          "evidence": [{
+            "evidence_id": "evidence_17c19bd3dbc5c6d8bc9f1a0f",
+            "path": "eval_app/api.py",
+            "start_line": 5,
+            "start_column": 11,
+            "end_line": 5,
+            "end_column": 26,
+            "excerpt_hash": "2b9a9c850f627de86278279424882352339877861df1d4cfcbe924fb254ea93e"
+          }]
+        },
+        {
+          "edge_id": "edge_52414a8d414e6fbee4c6da78",
+          "source_logical_id": "repo:evaluation-fixture:python:eval_app/auth.py:function:eval_app.auth.authorize",
+          "predicate": "CALLS",
+          "target_logical_id": "repo:evaluation-fixture:python:eval_app/store.py:function:eval_app.store.load_policy",
+          "quality": "exact",
+          "evidence": [{
+            "evidence_id": "evidence_785bbf2d7e96b7c824206df7",
+            "path": "eval_app/auth.py",
+            "start_line": 5,
+            "start_column": 11,
+            "end_line": 5,
+            "end_column": 28,
+            "excerpt_hash": "b175328aacb0100508a376b79784c6b3e093455ff1b9fbdf88066679c613d12d"
+          }]
+        }
+      ]
+    },
+    {
+      "id": "authorization-test",
+      "prompt": "Which test exercises the authorization request path?",
+      "category": "tests",
+      "required_node_logical_ids": [
+        "repo:evaluation-fixture:python:tests/test_api.py:test:tests.test_api.test_handle_request_rejects_guest",
+        "repo:evaluation-fixture:python:eval_app/api.py:function:eval_app.api.handle_request"
+      ],
+      "required_relations": [{
+        "edge_id": "edge_490be58d04fa0ab0aba16695",
+        "source_logical_id": "repo:evaluation-fixture:python:tests/test_api.py:test:tests.test_api.test_handle_request_rejects_guest",
+        "predicate": "TESTS",
+        "target_logical_id": "repo:evaluation-fixture:python:eval_app/api.py:function:eval_app.api.handle_request",
+        "quality": "exact",
+        "evidence": [{
+          "evidence_id": "evidence_63e29bace15e711e609dae32",
+          "path": "tests/test_api.py",
+          "start_line": 5,
+          "start_column": 11,
+          "end_line": 5,
+          "end_column": 34,
+          "excerpt_hash": "a0ee62e3c78a33043c9f19d5253766bc80ee8e53d248c30ac4efd696eae46c18"
+        }]
+      }]
+    }
+  ]
+}
