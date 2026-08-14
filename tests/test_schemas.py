@@ -13,6 +13,7 @@ from pydantic import ValidationError
 
 ROOT = Path(__file__).parents[1]
 FIXTURE = ROOT / "fixtures" / "sample_repo"
+QUERY_FIXTURE = ROOT / "fixtures" / "hydradb" / "product_query_authorization.json"
 
 
 def graph_payload() -> dict[str, Any]:
@@ -22,6 +23,13 @@ def graph_payload() -> dict[str, Any]:
 
 def graph_validator() -> Draft202012Validator:
     schema = json.loads((ROOT / "schemas" / "graph-ir.schema.json").read_text(encoding="utf-8"))
+    return Draft202012Validator(schema)
+
+
+def query_validator() -> Draft202012Validator:
+    schema = json.loads(
+        (ROOT / "schemas" / "query-response.schema.json").read_text(encoding="utf-8")
+    )
     return Draft202012Validator(schema)
 
 
@@ -111,3 +119,105 @@ def test_cross_record_and_range_order_rules_remain_pydantic_enforced() -> None:
     dangling["edges"][0]["target_id"] = "node_missing"
     with pytest.raises(ValidationError, match="references a missing node"):
         GraphIR.model_validate(dangling)
+
+
+def test_golden_query_response_matches_versioned_shared_schema() -> None:
+    query_validator().validate(json.loads(QUERY_FIXTURE.read_text(encoding="utf-8")))
+
+
+def test_query_schema_accepts_honest_empty_degraded_and_unavailable_results() -> None:
+    ready = json.loads(QUERY_FIXTURE.read_text(encoding="utf-8"))
+    validator = query_validator()
+    for status, available in (("degraded", True), ("unavailable", False)):
+        candidate = deepcopy(ready)
+        candidate["status"] = status
+        candidate["hydradb"].update(
+            available=available,
+            origin=None,
+            path_ids=[],
+            request_id=None,
+        )
+        candidate["paths"] = []
+        candidate["relations"] = []
+        candidate["chunk_id_to_group_ids"] = {}
+        candidate["chunks"] = []
+        candidate["sources"] = []
+        candidate["additional_context"] = []
+        candidate["warnings"] = [f"Explicit {status} result."]
+        candidate["budget"].update(
+            returned_context_chars=0,
+            returned_paths=0,
+            returned_relations=0,
+            truncated=status == "degraded",
+        )
+        validator.validate(candidate)
+
+
+def test_query_schema_rejects_raw_or_misrepresented_product_results() -> None:
+    valid = json.loads(QUERY_FIXTURE.read_text(encoding="utf-8"))
+    validator = query_validator()
+    mutations = {
+        "wrong schema version": (("response_schema",), "hydradb-sdk-v2"),
+        "unknown status": (("status",), "complete"),
+        "ready marked unavailable": (("hydradb", "available"), False),
+        "partial source span": (("chunks", 0, "span", "end_column"), None),
+        "invalid content hash": (("chunks", 0, "content_hash"), "not-a-hash"),
+        "invalid relation confidence": (
+            ("paths", 0, "hops", 0, "relation", "confidence"),
+            "high",
+        ),
+        "incomplete budget": (("budget", "max_context_chars"), None),
+    }
+    for label, (path, value) in mutations.items():
+        candidate = deepcopy(valid)
+        if label == "incomplete budget":
+            candidate["budget"].pop("max_context_chars")
+        else:
+            _set(candidate, path, value)
+        assert list(validator.iter_errors(candidate)), label
+
+    raw_leak = deepcopy(valid)
+    raw_leak["data"] = {"chunks": []}
+    assert list(validator.iter_errors(raw_leak))
+
+    unavailable_with_local_content = deepcopy(valid)
+    unavailable_with_local_content["status"] = "unavailable"
+    unavailable_with_local_content["hydradb"]["available"] = False
+    unavailable_with_local_content["warnings"] = ["HydraDB unavailable."]
+    assert list(validator.iter_errors(unavailable_with_local_content))
+
+
+def test_query_schema_allows_only_named_evolution_envelope_extensions() -> None:
+    candidate = json.loads(QUERY_FIXTURE.read_text(encoding="utf-8"))
+    lens = {
+        "record_schema": "hack-hydra.system-lens.v1",
+        "lens_id": "lens_123",
+        "repository_id": "hack-hydra",
+        "name": "Authorization",
+        "purpose": "Keep the exact authorization path visible.",
+        "saved_revision_id": "rev-abc",
+        "ownership": "shared",
+        "source_view_id": "view-saved",
+        "entities": [{"node_id": "one"}, {"node_id": "two"}],
+        "anchor_node_ids": ["one", "two"],
+        "baseline_hops": [{"edge_id": "edge-one-two"}],
+        "notes": None,
+    }
+    candidate["records"] = [lens]
+    candidate["evolution_chunks"] = []
+    candidate["evolution_hydradb"] = {
+        **candidate["hydradb"],
+        "collections": ["evolution"],
+        "cross_collection_traversal": False,
+        "memory_used": False,
+    }
+    candidate["lens"] = lens
+    candidate["drift"] = {"kind": "unresolved", "explanation": "No current path."}
+    query_validator().validate(candidate)
+
+    candidate["unversioned_extension"] = []
+    assert list(query_validator().iter_errors(candidate))
+
+    candidate.pop("unversioned_extension")
+    candidate["records"][0].pop("record_schema")
+    assert list(query_validator().iter_errors(candidate))

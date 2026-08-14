@@ -12,6 +12,8 @@ from typing import Any
 from .events import EventBus
 from .hydradb import HydraDBClient, HydraDBError, response_data
 
+QUERY_RESPONSE_SCHEMA = "hack-hydra.query-response.v1"
+
 
 @dataclass(frozen=True, slots=True)
 class QueryRequest:
@@ -181,6 +183,7 @@ class QueryService:
         query_metadata: Mapping[str, Any],
     ) -> dict[str, Any]:
         return {
+            "response_schema": QUERY_RESPONSE_SCHEMA,
             "session_id": session_id,
             "view_id": view_id,
             "status": "unavailable",
@@ -352,6 +355,7 @@ def normalize_query_response(
         for hop in path.get("hops", [])
     )
     return {
+        "response_schema": QUERY_RESPONSE_SCHEMA,
         "session_id": session_id,
         "view_id": view_id,
         "status": "ready",
@@ -410,6 +414,7 @@ def _revision_conflict_response(
 ) -> dict[str, Any]:
     revisions = ", ".join(sorted(returned_revisions)) or "missing revision metadata"
     return {
+        "response_schema": QUERY_RESPONSE_SCHEMA,
         "session_id": session_id,
         "view_id": view_id,
         "status": "degraded",

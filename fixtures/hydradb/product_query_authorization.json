@@ -1,0 +1,263 @@
+{
+  "additional_context": [
+    {
+      "chunk_id": "chunk-auth-test",
+      "content": "test_authorize_user rejects expired bearer tokens.",
+      "content_hash": null,
+      "content_truncated": false,
+      "entity_kind": null,
+      "group_ids": [],
+      "is_generated": false,
+      "language": null,
+      "logical_id": null,
+      "node_id": null,
+      "parser": null,
+      "parser_version": null,
+      "path": null,
+      "qualified_name": null,
+      "rank": 1,
+      "relation_quality": null,
+      "repository_id": "hack-hydra",
+      "revision": "rev-abc",
+      "score": null,
+      "signature": null,
+      "source_id": "source-auth-test",
+      "source_type": "code_symbol",
+      "span": null,
+      "title": "test_authorize_user"
+    }
+  ],
+  "budget": {
+    "max_context_chars": 7000,
+    "max_paths": 3,
+    "max_relations": 30,
+    "returned_context_chars": 269,
+    "returned_paths": 1,
+    "returned_relations": 2,
+    "truncated": false
+  },
+  "chunk_id_to_group_ids": {
+    "chunk-authorize": [
+      "path-auth"
+    ],
+    "chunk-store": [
+      "path-auth"
+    ]
+  },
+  "chunks": [
+    {
+      "chunk_id": "chunk-authorize",
+      "content": "authorize_user validates the bearer token, then calls TokenStore.resolve.",
+      "content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "content_truncated": false,
+      "entity_kind": "FUNCTION",
+      "group_ids": [
+        "path-auth"
+      ],
+      "is_generated": false,
+      "language": "python",
+      "logical_id": "payments.auth.authorize_user",
+      "node_id": "node-authorize",
+      "parser": "python-ast",
+      "parser_version": "3.13",
+      "path": "src/payments/auth.py",
+      "qualified_name": "payments.auth.authorize_user",
+      "rank": 1,
+      "relation_quality": "exact",
+      "repository_id": "hack-hydra",
+      "revision": "rev-abc",
+      "score": 0.94,
+      "signature": null,
+      "source_id": "source-authorize",
+      "source_type": "code_symbol",
+      "span": {
+        "end_column": 20,
+        "end_line": 18,
+        "start_column": 0,
+        "start_line": 10
+      },
+      "title": "authorize_user"
+    },
+    {
+      "chunk_id": "chunk-store",
+      "content": "TokenStore.resolve reads the indexed token and returns the matching account.",
+      "content_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "content_truncated": false,
+      "entity_kind": "METHOD",
+      "group_ids": [
+        "path-auth"
+      ],
+      "is_generated": false,
+      "language": "python",
+      "logical_id": "payments.store.TokenStore.resolve",
+      "node_id": "node-store",
+      "parser": "python-ast",
+      "parser_version": "3.13",
+      "path": "src/payments/store.py",
+      "qualified_name": "payments.store.TokenStore.resolve",
+      "rank": 2,
+      "relation_quality": "exact",
+      "repository_id": "hack-hydra",
+      "revision": "rev-abc",
+      "score": 0.81,
+      "signature": null,
+      "source_id": "source-store",
+      "source_type": "code_symbol",
+      "span": {
+        "end_column": 24,
+        "end_line": 29,
+        "start_column": 4,
+        "start_line": 22
+      },
+      "title": "TokenStore.resolve"
+    },
+    {
+      "chunk_id": "chunk-decoy",
+      "content": "This lower-ranked HydraDB result mentions authorization documentation.",
+      "content_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "content_truncated": false,
+      "entity_kind": "FILE",
+      "group_ids": [],
+      "is_generated": false,
+      "language": "markdown",
+      "logical_id": "docs.authorization",
+      "node_id": "node-decoy",
+      "parser": "markdown",
+      "parser_version": "1",
+      "path": "docs/authorization.md",
+      "qualified_name": "docs.authorization",
+      "rank": 3,
+      "relation_quality": "unknown",
+      "repository_id": "hack-hydra",
+      "revision": "rev-abc",
+      "score": 0.4,
+      "signature": null,
+      "source_id": "source-decoy",
+      "source_type": "code_symbol",
+      "span": null,
+      "title": "authorization_notes"
+    }
+  ],
+  "hydradb": {
+    "available": true,
+    "collections": [
+      "current"
+    ],
+    "database": "repo_hack_hydra",
+    "graph_context": true,
+    "mode": "thinking",
+    "origin": "byog",
+    "path_ids": [
+      "path-auth"
+    ],
+    "query_by": "hybrid",
+    "request_id": "request-fixture-auth"
+  },
+  "paths": [
+    {
+      "chunk_ids": [
+        "chunk-authorize",
+        "chunk-store"
+      ],
+      "hops": [
+        {
+          "hop": 1,
+          "relation": {
+            "chunk_id": "chunk-authorize",
+            "confidence": 1.0,
+            "context": "{\"edge_id\":\"edge-calls\",\"evidence\":{\"end_column\":28,\"end_line\":14,\"excerpt_hash\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"explanation\":\"Call expression resolves to TokenStore.resolve.\",\"id\":\"evidence-calls\",\"path\":\"src/payments/auth.py\",\"start_column\":4,\"start_line\":14},\"extractor\":\"python-ast\",\"extractor_version\":\"1\",\"quality\":\"exact\",\"schema\":\"hack-hydra.relation-evidence.v1\",\"summary\":\"authorize_user calls TokenStore.resolve at src/payments/auth.py:14.\"}",
+            "id": "hydra-rel-calls",
+            "origin": "byog",
+            "predicate": "CALLS",
+            "raw_predicate": "CALLS"
+          },
+          "source": {
+            "hydradb_entity_id": "hydra-entity-authorize",
+            "id": "node-authorize",
+            "kind": "FUNCTION",
+            "logical_id": "node-authorize",
+            "name": "payments.auth.authorize_user [function] @ src/payments/auth.py",
+            "namespace": "hack-hydra"
+          },
+          "target": {
+            "hydradb_entity_id": "hydra-entity-store",
+            "id": "node-store",
+            "kind": "METHOD",
+            "logical_id": "node-store",
+            "name": "payments.store.TokenStore.resolve [method] @ src/payments/store.py",
+            "namespace": "hack-hydra"
+          }
+        }
+      ],
+      "path_id": "path-auth",
+      "rank": 1,
+      "score": 0.91,
+      "summary": "authorize_user calls TokenStore.resolve."
+    }
+  ],
+  "relations": [
+    {
+      "chunk_ids": [
+        "chunk-authorize"
+      ],
+      "hops": [
+        {
+          "hop": 1,
+          "relation": {
+            "chunk_id": "chunk-authorize",
+            "confidence": null,
+            "context": "{\"edge_id\":\"edge-calls\",\"evidence\":{\"end_column\":28,\"end_line\":14,\"excerpt_hash\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"explanation\":\"Call expression resolves to TokenStore.resolve.\",\"id\":\"evidence-calls\",\"path\":\"src/payments/auth.py\",\"start_column\":4,\"start_line\":14},\"extractor\":\"python-ast\",\"extractor_version\":\"1\",\"quality\":\"exact\",\"schema\":\"hack-hydra.relation-evidence.v1\",\"summary\":\"authorize_user calls TokenStore.resolve at src/payments/auth.py:14.\"}",
+            "id": "hydra-rel-calls",
+            "origin": "byog",
+            "predicate": "CALLS",
+            "raw_predicate": null
+          },
+          "source": {
+            "hydradb_entity_id": "hydra-entity-authorize",
+            "id": "node-authorize",
+            "kind": "FUNCTION",
+            "logical_id": "node-authorize",
+            "name": "authorize_user",
+            "namespace": null
+          },
+          "target": {
+            "hydradb_entity_id": "hydra-entity-store",
+            "id": "node-store",
+            "kind": "METHOD",
+            "logical_id": "node-store",
+            "name": "TokenStore.resolve",
+            "namespace": null
+          }
+        }
+      ],
+      "path_id": "path-auth",
+      "rank": 1,
+      "score": null,
+      "summary": ""
+    }
+  ],
+  "response_schema": "hack-hydra.query-response.v1",
+  "revision": "rev-abc",
+  "session_id": "session-golden",
+  "sources": [
+    {
+      "path": "src/payments/auth.py",
+      "repository_id": "hack-hydra",
+      "revision": "rev-abc",
+      "source_id": "source-authorize",
+      "source_type": "code_symbol",
+      "title": "authorize_user"
+    },
+    {
+      "path": "src/payments/store.py",
+      "repository_id": "hack-hydra",
+      "revision": "rev-abc",
+      "source_id": "source-store",
+      "source_type": "code_symbol",
+      "title": "TokenStore.resolve"
+    }
+  ],
+  "status": "ready",
+  "view_id": "view-golden",
+  "warnings": []
+}

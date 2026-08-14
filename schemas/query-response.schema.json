@@ -1,0 +1,476 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hack-hydra.local/schemas/query-response.schema.json",
+  "title": "Hack Hydra Query Response",
+  "type": "object",
+  "required": [
+    "response_schema",
+    "session_id",
+    "view_id",
+    "status",
+    "hydradb",
+    "revision",
+    "paths",
+    "relations",
+    "chunk_id_to_group_ids",
+    "chunks",
+    "sources",
+    "additional_context",
+    "warnings",
+    "budget"
+  ],
+  "properties": {
+    "response_schema": { "const": "hack-hydra.query-response.v1" },
+    "session_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "view_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "status": { "enum": ["ready", "degraded", "unavailable"] },
+    "hydradb": { "$ref": "#/$defs/hydradb" },
+    "revision": { "type": "string", "minLength": 1 },
+    "paths": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/pathGroup" }
+    },
+    "relations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/pathGroup" }
+    },
+    "chunk_id_to_group_ids": {
+      "type": "object",
+      "propertyNames": { "minLength": 1 },
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "string", "minLength": 1 },
+        "uniqueItems": true
+      }
+    },
+    "chunks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/chunk" }
+    },
+    "sources": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/source" }
+    },
+    "additional_context": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/chunk" }
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "budget": { "$ref": "#/$defs/budget" },
+    "records": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/evolutionRecord" }
+    },
+    "evolution_hydradb": { "$ref": "#/$defs/hydradb" },
+    "evolution_chunks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/chunk" }
+    },
+    "lens": { "$ref": "#/$defs/systemLensRecord" },
+    "drift": { "$ref": "#/$defs/lensDrift" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "status": { "const": "ready" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "hydradb": {
+            "properties": { "available": { "const": true } }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "const": "unavailable" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "hydradb": {
+            "properties": { "available": { "const": false } }
+          },
+          "paths": { "maxItems": 0 },
+          "relations": { "maxItems": 0 },
+          "chunks": { "maxItems": 0 },
+          "sources": { "maxItems": 0 },
+          "additional_context": { "maxItems": 0 },
+          "warnings": { "minItems": 1 }
+        }
+      }
+    }
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "hydradb": {
+      "type": "object",
+      "required": [
+        "available",
+        "database",
+        "collections",
+        "query_by",
+        "mode",
+        "graph_context"
+      ],
+      "properties": {
+        "available": { "type": "boolean" },
+        "database": { "type": ["string", "null"] },
+        "collections": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "query_by": { "type": "string", "minLength": 1 },
+        "mode": { "type": "string", "minLength": 1 },
+        "graph_context": { "type": "boolean" },
+        "max_results": { "type": "integer", "minimum": 1, "maximum": 50 },
+        "path_ids": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "origin": { "type": ["string", "null"] },
+        "request_id": { "type": ["string", "null"] },
+        "cross_collection_traversal": { "type": "boolean" },
+        "memory_used": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "span": {
+      "type": "object",
+      "required": ["start_line", "start_column", "end_line", "end_column"],
+      "properties": {
+        "start_line": { "type": "integer", "minimum": 1 },
+        "start_column": { "type": "integer", "minimum": 0 },
+        "end_line": { "type": "integer", "minimum": 1 },
+        "end_column": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "entity": {
+      "type": "object",
+      "required": [
+        "id",
+        "logical_id",
+        "hydradb_entity_id",
+        "name",
+        "kind",
+        "namespace"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "logical_id": { "type": ["string", "null"] },
+        "hydradb_entity_id": { "type": ["string", "null"] },
+        "name": { "type": "string" },
+        "kind": { "type": "string", "minLength": 1 },
+        "namespace": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "hopRelation": {
+      "type": "object",
+      "required": [
+        "id",
+        "predicate",
+        "raw_predicate",
+        "context",
+        "confidence",
+        "origin",
+        "chunk_id"
+      ],
+      "properties": {
+        "id": { "type": ["string", "null"] },
+        "predicate": { "type": ["string", "null"] },
+        "raw_predicate": { "type": ["string", "null"] },
+        "context": { "type": ["string", "null"] },
+        "confidence": { "type": ["number", "null"] },
+        "origin": { "type": ["string", "null"] },
+        "chunk_id": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "hop": {
+      "type": "object",
+      "required": ["hop", "source", "relation", "target"],
+      "properties": {
+        "hop": { "type": "integer", "minimum": 1 },
+        "source": { "$ref": "#/$defs/entity" },
+        "relation": { "$ref": "#/$defs/hopRelation" },
+        "target": { "$ref": "#/$defs/entity" }
+      },
+      "additionalProperties": false
+    },
+    "pathGroup": {
+      "type": "object",
+      "required": ["path_id", "rank", "score", "summary", "chunk_ids", "hops"],
+      "properties": {
+        "path_id": { "type": "string", "minLength": 1 },
+        "rank": { "type": "integer", "minimum": 1 },
+        "score": { "type": ["number", "null"] },
+        "summary": { "type": "string" },
+        "chunk_ids": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "hops": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/hop" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "chunk": {
+      "type": "object",
+      "required": [
+        "rank",
+        "chunk_id",
+        "source_id",
+        "content",
+        "content_truncated",
+        "title",
+        "source_type",
+        "score",
+        "path",
+        "span",
+        "revision",
+        "repository_id",
+        "entity_kind",
+        "language",
+        "relation_quality",
+        "node_id",
+        "logical_id",
+        "qualified_name",
+        "signature",
+        "content_hash",
+        "parser",
+        "parser_version",
+        "is_generated",
+        "group_ids"
+      ],
+      "properties": {
+        "rank": { "type": "integer", "minimum": 1 },
+        "chunk_id": { "type": "string" },
+        "source_id": { "type": "string" },
+        "content": { "type": "string" },
+        "content_truncated": { "type": "boolean" },
+        "title": { "type": "string" },
+        "source_type": { "type": "string" },
+        "score": { "type": ["number", "null"] },
+        "path": { "type": ["string", "null"] },
+        "span": {
+          "oneOf": [
+            { "$ref": "#/$defs/span" },
+            { "type": "null" }
+          ]
+        },
+        "revision": { "type": ["string", "null"] },
+        "repository_id": { "type": ["string", "null"] },
+        "entity_kind": { "type": ["string", "null"] },
+        "language": { "type": ["string", "null"] },
+        "relation_quality": { "type": ["string", "null"] },
+        "node_id": { "type": ["string", "null"] },
+        "logical_id": { "type": ["string", "null"] },
+        "qualified_name": { "type": ["string", "null"] },
+        "signature": { "type": ["string", "null"] },
+        "content_hash": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "parser": { "type": ["string", "null"] },
+        "parser_version": { "type": ["string", "null"] },
+        "is_generated": { "type": "boolean" },
+        "group_ids": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "source_id",
+        "title",
+        "source_type",
+        "path",
+        "revision",
+        "repository_id"
+      ],
+      "properties": {
+        "source_id": { "type": "string" },
+        "title": { "type": "string" },
+        "source_type": { "type": "string" },
+        "path": { "type": ["string", "null"] },
+        "revision": { "type": ["string", "null"] },
+        "repository_id": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "budget": {
+      "type": "object",
+      "required": [
+        "max_context_chars",
+        "returned_context_chars",
+        "max_paths",
+        "returned_paths",
+        "max_relations",
+        "returned_relations",
+        "truncated"
+      ],
+      "properties": {
+        "max_context_chars": { "type": "integer", "minimum": 1 },
+        "returned_context_chars": { "type": "integer", "minimum": 0 },
+        "max_paths": { "type": "integer", "minimum": 0 },
+        "returned_paths": { "type": "integer", "minimum": 0 },
+        "max_relations": { "type": "integer", "minimum": 0 },
+        "returned_relations": { "type": "integer", "minimum": 0 },
+        "truncated": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "evolutionRecord": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "record_schema",
+            "event_id",
+            "repository_id",
+            "before_revision_id",
+            "after_revision_id",
+            "facts",
+            "structural_warnings",
+            "lens_impact_status",
+            "affected_lens_ids"
+          ],
+          "properties": {
+            "record_schema": { "const": "hack-hydra.change-event.v1" },
+            "event_id": { "type": "string", "minLength": 1 },
+            "repository_id": { "type": "string", "minLength": 1 },
+            "before_revision_id": { "type": "string", "minLength": 1 },
+            "after_revision_id": { "type": "string", "minLength": 1 },
+            "facts": { "type": "array", "maxItems": 49, "items": { "type": "object" } },
+            "structural_warnings": { "type": "array", "items": { "type": "string" } },
+            "lens_impact_status": { "enum": ["not_evaluated", "evaluated"] },
+            "affected_lens_ids": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "uniqueItems": true
+            }
+          },
+          "additionalProperties": false
+        },
+        { "$ref": "#/$defs/systemLensRecord" }
+      ]
+    },
+    "systemLensRecord": {
+      "type": "object",
+      "required": [
+        "record_schema",
+        "lens_id",
+        "repository_id",
+        "name",
+        "purpose",
+        "saved_revision_id",
+        "ownership",
+        "source_view_id",
+        "entities",
+        "anchor_node_ids",
+        "baseline_hops"
+      ],
+      "properties": {
+        "record_schema": { "const": "hack-hydra.system-lens.v1" },
+        "lens_id": { "type": "string", "minLength": 1 },
+        "repository_id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "purpose": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "saved_revision_id": { "type": "string", "minLength": 1 },
+        "ownership": { "const": "shared" },
+        "source_view_id": { "type": "string", "minLength": 1 },
+        "entities": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 25,
+          "items": { "type": "object" }
+        },
+        "anchor_node_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10,
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "baseline_hops": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 24,
+          "items": { "type": "object" }
+        },
+        "notes": { "type": ["string", "null"], "maxLength": 2000 }
+      },
+      "additionalProperties": false
+    },
+    "lensDrift": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "lens_id",
+            "repository_id",
+            "baseline_revision_id",
+            "current_revision_id",
+            "classification",
+            "added_hop_ids",
+            "removed_hop_ids",
+            "removed_anchor_node_ids",
+            "explanation"
+          ],
+          "properties": {
+            "lens_id": { "type": "string", "minLength": 1 },
+            "repository_id": { "type": "string", "minLength": 1 },
+            "baseline_revision_id": { "type": "string", "minLength": 1 },
+            "current_revision_id": { "type": ["string", "null"] },
+            "classification": {
+              "enum": [
+                "unchanged",
+                "path_extended",
+                "path_shortened",
+                "anchor_removed",
+                "relation_changed",
+                "test_coverage_relation_changed",
+                "unresolved"
+              ]
+            },
+            "added_hop_ids": { "type": "array", "items": { "type": "string" } },
+            "removed_hop_ids": { "type": "array", "items": { "type": "string" } },
+            "removed_anchor_node_ids": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "explanation": { "type": "string", "minLength": 1, "maxLength": 2000 }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "explanation"],
+          "properties": {
+            "kind": { "const": "unresolved" },
+            "explanation": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}

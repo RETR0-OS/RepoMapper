@@ -7,9 +7,17 @@ from typing import Any
 from hydra_graph.config import HydraDBConfig
 from hydra_graph.events import EventBus
 from hydra_graph.hydradb import HydraDBClient, HydraDBUnavailable
-from hydra_graph.query import QueryRequest, QueryService
+from hydra_graph.query import (
+    QUERY_RESPONSE_SCHEMA,
+    QueryRequest,
+    QueryService,
+    normalize_query_response,
+)
 
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "hydradb" / "query_authorization.json"
+PRODUCT_FIXTURE = (
+    Path(__file__).parents[1] / "fixtures" / "hydradb" / "product_query_authorization.json"
+)
 
 
 class FixtureTransport:
@@ -92,6 +100,29 @@ def test_query_preserves_hydradb_rank_and_path_data() -> None:
     }
 
 
+def test_raw_hydradb_fixture_maps_to_stable_golden_product_response() -> None:
+    raw = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    expected = json.loads(PRODUCT_FIXTURE.read_text(encoding="utf-8"))
+
+    result = normalize_query_response(
+        raw,
+        session_id="session-golden",
+        view_id="view-golden",
+        revision="current",
+        database="repo_hack_hydra",
+        collections=["current"],
+        query_by="hybrid",
+        mode="thinking",
+        graph_context=True,
+        max_context_chars=7_000,
+        max_paths=3,
+        max_relations=30,
+    )
+
+    assert result == expected
+    assert result["response_schema"] == QUERY_RESPONSE_SCHEMA
+
+
 def test_context_budget_keeps_ranked_prefix_instead_of_selecting_fixture_favorites() -> None:
     raw = json.loads(FIXTURE.read_text(encoding="utf-8"))
     transport = FixtureTransport(raw)
@@ -134,6 +165,7 @@ def test_unavailable_hydradb_returns_no_fixture_or_local_graph() -> None:
     result = service.repository_query(QueryRequest(question="authorization"))
 
     assert result["status"] == "unavailable"
+    assert result["response_schema"] == QUERY_RESPONSE_SCHEMA
     assert result["hydradb"]["available"] is False
     assert result["chunks"] == []
     assert result["paths"] == []
