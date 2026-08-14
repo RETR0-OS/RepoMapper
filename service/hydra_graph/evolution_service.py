@@ -400,10 +400,10 @@ class EvolutionService:
                 notes=record.notes,
             )
             drift = classify_lens_drift(record, candidate)
-        except (ValidationError, ValueError) as exc:
+        except (ValidationError, ValueError):
             current["drift"] = {
                 "kind": "unresolved",
-                "explanation": f"Current exact path could not be grounded: {exc}",
+                "explanation": "Current exact path could not be grounded from validated records.",
             }
             return current
         current["drift"] = drift.model_dump(mode="json")
@@ -457,14 +457,14 @@ class EvolutionService:
                 max_results=max_results,
                 metadata_filters=filters,
             )
-        except HydraDBError as exc:
+        except HydraDBError:
             return _empty_query(
                 session_id=session,
                 view_id=view_id,
                 revision=revision,
                 client=self.client,
                 status="unavailable",
-                warning=str(exc),
+                warning="HydraDB could not serve this evolution query.",
                 max_results=max_results,
                 max_relations=max_relations,
             )
@@ -498,10 +498,10 @@ class EvolutionService:
                     before_revision_id=metadata_filters.get("before_revision_id"),
                     after_revision_id=metadata_filters.get("after_revision_id"),
                 )
-            except (ValidationError, ValueError, json.JSONDecodeError) as exc:
+            except (ValidationError, ValueError, json.JSONDecodeError):
                 result = _degrade_record_result(
                     result,
-                    f"HydraDB evolution records were incomplete or invalid: {exc}",
+                    "HydraDB evolution records were incomplete or invalid.",
                 )
             else:
                 result["records"] = records
@@ -618,19 +618,24 @@ class EvolutionService:
                     "hydradb": self._hydradb_status(True),
                     "warnings": [str(exc)],
                 }
-            except HydraDBError as exc:
+            except HydraDBError:
                 status = "indeterminate" if attempted else "unavailable"
+                warning = (
+                    "HydraDB did not confirm the complete evolution write."
+                    if attempted
+                    else "HydraDB could not start the evolution write."
+                )
                 self._set_state(
                     EvolutionStatus.INDETERMINATE if attempted else EvolutionStatus.UNAVAILABLE,
                     operation,
-                    str(exc),
+                    warning,
                 )
                 return {
                     **base,
                     "status": status,
                     "writes_performed": attempted,
                     "hydradb": self._hydradb_status(attempted),
-                    "warnings": [str(exc)],
+                    "warnings": [warning],
                 }
             self._set_state(EvolutionStatus.READY, operation)
         return {

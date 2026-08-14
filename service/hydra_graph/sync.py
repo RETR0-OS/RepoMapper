@@ -252,7 +252,7 @@ class SyncService:
                         ),
                     )
                 deleted = removed
-        except HydraDBError as exc:
+        except HydraDBError:
             self._set_state(SyncStatus.UNAVAILABLE, indeterminate=bool(affected))
             return SyncResult(
                 status=SyncStatus.UNAVAILABLE,
@@ -265,8 +265,9 @@ class SyncService:
                 failed={},
                 current_state_indeterminate=bool(affected),
                 warning=(
-                    f"{exc}. The prior revision is only the last verified marker; "
-                    "the current collection state could not be confirmed."
+                    "HydraDB could not complete the indexing operation. The prior revision is "
+                    "only the last verified marker; the current collection state could not be "
+                    "confirmed."
                 ),
             )
         manifest = SyncManifest(

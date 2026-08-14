@@ -106,12 +106,12 @@ class QueryService:
                 max_results=request.max_results,
                 metadata_filters=metadata_filters,
             )
-        except HydraDBError as exc:
+        except HydraDBError:
             return self._unavailable(
                 request=request,
                 session_id=session_id,
                 view_id=view_id,
-                warning=str(exc),
+                warning="HydraDB could not serve this repository query.",
                 query_metadata=query_metadata,
             )
         result = normalize_query_response(

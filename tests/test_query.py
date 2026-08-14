@@ -175,7 +175,7 @@ def test_transport_failure_is_visible_and_not_replaced() -> None:
     class FailingTransport(FixtureTransport):
         def request(self, **kwargs: Any) -> dict[str, Any]:
             self.calls.append(kwargs)
-            raise HydraDBUnavailable("network sentinel")
+            raise HydraDBUnavailable("network sentinel private-database secret-api-key")
 
     transport = FailingTransport({})
     service = QueryService(client_for(transport), repository_id="hack-hydra")
@@ -184,7 +184,9 @@ def test_transport_failure_is_visible_and_not_replaced() -> None:
 
     assert result["status"] == "unavailable"
     assert result["chunks"] == []
-    assert result["warnings"] == ["network sentinel"]
+    assert result["warnings"] == ["HydraDB could not serve this repository query."]
+    assert "private-database" not in str(result)
+    assert "secret-api-key" not in str(result)
 
 
 def test_current_query_refuses_mixed_hydradb_revisions() -> None:

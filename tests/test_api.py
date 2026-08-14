@@ -248,7 +248,7 @@ def test_unavailable_query_never_returns_fixture_data() -> None:
     assert view["hydradb"]["available"] is False
     assert view["nodes"] == []
     assert view["edges"] == []
-    assert "credentials are not configured" in view["warnings"][0]
+    assert view["warnings"][0] == "HydraDB could not serve this repository query."
     assert "HYDRA_DB_API_KEY" not in view["warnings"][0]
     assert transport.calls == []
 
