@@ -39,6 +39,11 @@ Read these documents before making architectural or product changes:
 
 - Index broadly, but never render the entire symbol graph at once.
 - Use several focused graph views instead of one universal hairball.
+- The repository map contains concrete repository entities only. Do not invent abstract concept nodes.
+- Repository structure is presented in 2D at package, file, and symbol depth. Do not build a 3D graph.
+- Every edge presented as exact is deterministic. Inferred relations are separate and hidden by default.
+- Graph layout is user-controlled presentation state. Position, distance, and clustering do not imply architecture or confidence.
+- Selecting a node opens its source range. Selecting an edge opens the source range that proves the relation.
 - Repository-level flow and function-local control flow are different products. The MVP prioritizes repository-level flow.
 - Every structural relation must include evidence and provenance.
 - Exact and inferred relations must never look identical.
@@ -59,4 +64,12 @@ Read these documents before making architectural or product changes:
 
 ## Current status
 
-This is a fresh project definition. No implementation architecture should be treated as proven until the HydraDB capability spike in [roadmap.md](roadmap.md) passes.
+This is still primarily a product and architecture workspace, not an implementation repository. A standalone interactive UI mockup has established the current human-facing direction:
+
+- A VS Code-like shell with six modes: Repository, Explore, Trace, Observe, Compare, and Preserve.
+- A deterministic 2D repository map with package, file, and symbol depth.
+- Movable nodes, panning, zooming, relation filters, and resettable layouts.
+- Direct node and edge navigation to source evidence.
+- An evidence inspector that explains why an item exists, how it was derived, its stable ID, and its HydraDB revision.
+
+The mockup validates the interaction contract, not the implementation. HydraDB API behavior, source granularity, exact expansion, synchronization, and performance still require the capability spike in [roadmap.md](roadmap.md).

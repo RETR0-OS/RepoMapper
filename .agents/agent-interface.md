@@ -25,6 +25,8 @@ HydraDB already offers generic MCP plumbing. This product needs repository-speci
 - Graph revision comparison.
 - Explicit distinction between exact and inferred code relations.
 
+The VS Code UI presents agent observability in the **Observe** mode. “Agent View” may still describe the capability in prose, but it is not the toolbar label.
+
 ## Initial tool set
 
 ### `repository_query`
@@ -293,7 +295,9 @@ Not reliably observable:
 - Hidden chain-of-thought.
 - Every internal HydraDB traversal candidate.
 
-Agent View must say “returned,” “selected,” “opened,” or “edited,” not “thought about.”
+Observe must say “returned,” “selected,” “opened,” or “edited,” not “thought about.”
+
+In the UI this rule applies to Observe mode, its timeline, and its replay action.
 
 ## Codex and Claude Code
 

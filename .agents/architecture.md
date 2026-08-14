@@ -76,6 +76,8 @@ Responsibilities:
 - Assign `view_id` and `session_id` values.
 - Emit observable path events to the extension.
 - Enforce token and node budgets.
+- Build deterministic package, file, and symbol projections from HydraDB-backed repository sources for the Repository mode.
+- Return contributing relation IDs when several exact relations are aggregated into a higher-level edge.
 
 It must not reimplement HydraDB ranking or graph retrieval.
 
@@ -102,18 +104,78 @@ Responsibilities:
 - Talk to the local service.
 - Relay structured messages to the graph webview.
 - Open exact source ranges in normal VS Code editors.
+- Open directory/package selections in the native Explorer.
+- Validate webview source-navigation requests against the active workspace before opening them.
 - Subscribe to agent-session and indexing events.
 
 ### 6. Graph webview
 
 Responsibilities:
 
-- Render only bounded graph slices.
-- Support semantic zoom, focus, expansion, path animation, and graph diffs.
-- Show evidence, confidence, HydraDB origin, and retrieval mode.
+- Render only bounded graph slices or progressively aggregated repository projections.
+- Support a deterministic 2D repository map at package, file, and symbol depth.
+- Support node dragging, canvas panning, pointer-centered zoom, layout reset, focus, expansion, path animation, and graph diffs.
+- Keep edges attached while a node is moved.
+- Send node and edge selections to the extension host for source navigation.
+- Show why an item is visible, its resolver, stable ID, evidence, quality, HydraDB origin, revision, and retrieval mode.
 - Maintain accessible alternatives to color-only encoding.
 
+The webview must not create structural facts. Node positions, pan, zoom, collapsed groups, and relation filters are presentation state only.
+
 The webview receives data from the extension host. It does not hold HydraDB credentials or call HydraDB directly.
+
+## Product view contracts
+
+The service-to-extension response should separate graph truth from display state.
+
+```text
+view_id
+revision_id
+mode                    repository | explore | trace | observe | compare | preserve
+depth                   package | file | symbol, when applicable
+nodes[]                 concrete entities with stable IDs and source locations
+edges[]                 predicates with quality, resolver, and evidence IDs
+aggregates[]            counts plus contributing exact node/edge IDs
+hydradb                  database, collection, query mode, path IDs, origin
+warnings[]              gaps, truncation, unresolved targets, degraded state
+budget                   requested and returned node/edge counts
+```
+
+Display state is maintained separately:
+
+```text
+view_id
+node_positions
+pan
+zoom
+hidden_relation_kinds
+inferred_visible
+selected_item_id
+```
+
+Display state may be kept in VS Code workspace state or user state. It must not be written into Graph IR or treated as a HydraDB structural relation.
+
+Repository projections still pass through HydraDB. If the capability spike shows that API v2 cannot enumerate the needed neighbors directly, ingest deterministic package/file projection summaries as HydraDB Knowledge and retrieve those bounded summaries. Do not bypass HydraDB by serving the temporary local Graph IR directly to the production UI.
+
+## Source navigation flow
+
+```text
+User selects graph node or edge
+        │
+        ▼
+Webview emits stable ID + evidence range
+        │
+        ▼
+Extension validates workspace path and revision
+        │
+        ├── node: open declaration or concrete repository location
+        └── edge: open the source range that proves the predicate
+        │
+        ▼
+VS Code reveals and selects the exact range
+```
+
+The standalone UI mockup uses an embedded source drawer to demonstrate this flow. The production extension uses `openTextDocument` and `showTextDocument` through the extension host.
 
 ## Storage ownership
 

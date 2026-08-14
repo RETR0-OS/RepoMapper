@@ -18,7 +18,7 @@ For the same answer quality, HydraDB graph-backed context uses fewer irrelevant 
 
 ### H3: Shared visualization improves comprehension
 
-A programmer can identify what context the agent received and why each source was relevant.
+A programmer can identify what context the agent received, why each node or edge is shown, and which exact source range supports it.
 
 ### H4: Graph diff improves change understanding
 
@@ -78,6 +78,9 @@ Every question needs a hand-checked gold set of required symbols, relations, and
 - Context precision: useful retrieved chunks divided by total retrieved chunks.
 - Path correctness: correct edges divided by displayed edges.
 - Unsupported-edge count.
+- Unsupported concept-node count; the target is zero in Repository mode.
+- Source-navigation accuracy for nodes and edges.
+- Aggregate-edge traceability: percentage with complete contributing edge and evidence IDs.
 - Token count.
 - Useful evidence per 1,000 tokens.
 - Query latency.
@@ -109,13 +112,22 @@ Even a small structured study is useful. Give participants an unfamiliar demo re
 2. Identify which context the agent used.
 3. Identify what changed after the task.
 4. Find the evidence for one relation.
+5. Move from a package-level repository view to a concrete symbol and open its source.
 
 Compare:
 
 - VS Code diff and file list only.
-- Product graph path and Change Map.
+- Product Repository, Observe, and Compare modes with the evidence inspector.
 
 Measure completion time and answer accuracy. Record qualitative confusion points.
+
+Also record:
+
+- Time from selecting a graph node to reaching the correct source range.
+- Time from selecting an edge to explaining how it was derived.
+- Whether participants mistake node position or distance for architectural meaning.
+- Whether participants can distinguish exact and inferred relations without help.
+- Whether package/file/symbol depth controls prevent whole-repository overload.
 
 ## Graph extraction metrics
 
@@ -135,10 +147,14 @@ The demo is ready only when:
 - Returned paths visibly contain `origin: "byog"` relations.
 - A conceptual question returns a useful multi-hop path.
 - The path can be opened to exact source evidence.
+- Repository mode contains only concrete source-backed entities and deterministic aggregate edges.
+- Node dragging keeps edges attached and does not change evidence or stable IDs.
+- Node and edge selection opens the correct source location.
+- The inspector exposes derivation method, quality, stable ID, revision, and HydraDB origin.
 - An agent uses the custom MCP interface against HydraDB.
-- Agent View highlights the returned path and context.
+- Observe highlights the returned path and context.
 - A code edit produces a verified HydraDB revision.
-- Change Map shows at least one meaningful edge delta.
+- Compare shows at least one meaningful edge delta.
 - A saved System Lens reports a truthful change or remains explicitly unchanged.
 - The HydraDB graph-enabled condition beats graph-disabled HydraDB on at least the relational anchor questions.
 
@@ -151,7 +167,7 @@ Show these artifacts:
 - Raw-to-product mapping of one `query_paths` response.
 - BYOG origin and deterministic evidence for one edge.
 - Side-by-side graph-disabled versus graph-enabled retrieval.
-- Agent View replay.
+- Observe replay.
 - Before/after graph delta.
 - A small metric table, even if the dataset is modest.
 

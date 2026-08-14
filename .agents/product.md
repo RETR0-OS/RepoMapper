@@ -47,35 +47,60 @@ This has a literal meaning. When an agent queries HydraDB, the extension can ren
 
 ## Core product modes
 
-### 1. Explore
+### 1. Repository
+
+Orient to the repository through a deterministic 2D structure map. Move progressively between real packages/directories, files, and symbols. Relations are parser- or resolver-derived. The default view shows exact relations only and never invents abstract concept nodes.
+
+### 2. Explore
 
 Select a file, symbol, test, configuration block, or module. See a focused neighborhood with callers, callees, definitions, references, tests, types, and runtime/configuration links.
 
-### 2. Trace
+### 3. Trace
 
 Ask a question such as “How does an API request become a database write?” HydraDB performs hybrid retrieval with graph context. The result is shown as a readable path with exact source evidence.
 
-### 3. Agent View
+### 4. Observe
 
 Highlight the paths and source chunks returned to the agent. Show the agent's explicit graph queries, selected context, opened evidence, and observed edits. Allow the user to replay the traversal.
 
-### 4. Change Map
+This is the product mode previously described as Agent View. **Observe** is the UI label.
+
+### 5. Compare
 
 Compare the graph before and after an edit. Show added, removed, and changed entities and relations. Explain which saved system flows changed.
 
-### 5. Living System Lenses
+This is the product mode previously described as Change Map. **Compare** is the UI label.
+
+### 6. Preserve
 
 Let a developer save an important path such as authentication, checkout, job processing, or deployment. Ground the lens in graph entity IDs and relations. When the code changes, show drift instead of leaving behind a stale diagram.
 
+This is the UI for Living System Lenses. **Preserve** is the UI label.
+
 ## Product verbs
 
-The interface should be organized around five verbs:
+The interface should be organized around one orientation mode and five verbs:
 
+- **Repository** — orient to what concretely exists.
 - **Explore** what exists.
 - **Trace** how it works.
 - **Observe** what the agent retrieved.
 - **Compare** what changed.
 - **Preserve** important system knowledge as a living lens.
+
+## Interaction and explainability contract
+
+The graph is useful only when it leads back to code and explains its own claims.
+
+- Nodes represent concrete repository entities with stable IDs and source locations.
+- Edges represent explicit predicates produced by a named parser, compiler service, framework adapter, or deterministic resolver.
+- Clicking a node opens the corresponding file and selects its stored line range.
+- Clicking an edge opens the source range that proves the relation.
+- The evidence inspector shows: why the item is shown, derivation method, exact/inferred quality, stable ID, source range, revision, and HydraDB origin.
+- Users may drag nodes, pan, zoom, filter relations, and reset the layout. These actions change presentation only.
+- Edge endpoints remain attached while nodes move.
+- Inferred relations are visually distinct and hidden by default in the repository map.
+- The UI never treats spatial proximity as evidence.
 
 ## What makes this different
 
@@ -97,6 +122,9 @@ Many Track B submissions may create a code graph and expose a retrieval tool. Th
 - It does not claim perfect static knowledge of reflection, dynamic dispatch, generated code, or runtime state.
 - It does not expose private model chain-of-thought.
 - It does not render every repository node at once.
+- It does not generate abstract “concept” nodes for the repository map.
+- It does not use a 3D graph.
+- It does not assign architectural meaning to node position or graph distance.
 
 ## HydraDB must be visible in the product
 
@@ -108,23 +136,23 @@ The UI should include:
 - A HydraDB retrieval mode indicator: hybrid, text, fast, or thinking.
 - A result inspector showing HydraDB relevance, relation evidence, and BYOG origin when available.
 - A HydraDB Graph Path label on returned path views.
-- A HydraDB activity section in Agent View.
+- A HydraDB activity section in Observe.
 - A clear degraded state when HydraDB is unavailable or indexing is incomplete.
 
 Do not put the HydraDB name on local-only actions such as opening a file. Use the name when HydraDB actually stores, retrieves, filters, ranks, or traverses the relevant information.
 
 ## Five-minute demo story
 
-1. Open an unfamiliar repository in VS Code.
-2. Ask: “How does an incoming request become a database write?”
-3. Show **HydraDB hybrid retrieval and context-graph traversal** returning a multi-hop path.
-4. Animate that path and open source evidence for each hop.
-5. Give Codex or Claude Code a change request.
-6. Turn on Agent View and show each HydraDB result returned to the agent.
-7. Let the agent make the change.
-8. Re-index the changed symbols into HydraDB.
-9. Show the before/after graph and a saved System Lens that drifted.
-10. Ask the agent about the updated flow and show it using the updated HydraDB graph.
+1. Open an unfamiliar repository in VS Code and orient with the Repository map.
+2. Move from package to file to symbol depth and open one concrete symbol from the graph.
+3. Ask: “How does an incoming request become a database write?”
+4. Show **HydraDB hybrid retrieval and context-graph traversal** returning a multi-hop path.
+5. Animate that path and open source evidence for a node and an edge.
+6. Give Codex or Claude Code a change request.
+7. Open Observe and show each HydraDB result returned to the agent.
+8. Let the agent make the change and re-index the changed symbols into HydraDB.
+9. Open Compare to review the structural delta.
+10. Open Preserve to review and explicitly accept or reject drift in a saved System Lens.
 
 The story is:
 

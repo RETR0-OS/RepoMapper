@@ -32,7 +32,7 @@ This is directly aligned with Track B: similarity is a weak proxy for code relev
 |---|---|
 | Bring Your Own Graph | Store deterministic code entities and exact parser-proven relations. |
 | Knowledge | Store shared repository symbols, evidence cards, file summaries, change events, and team lenses. |
-| Memory | Store personal lenses, display preferences, prior navigation, and user corrections that should not change structural facts. |
+| Memory | Store personal lenses and, later if proven useful, cross-device display preferences or user corrections that do not change structural facts. |
 | Hybrid query | Resolve both literal symbol searches and conceptual questions. |
 | Thinking mode | Retrieve richer multi-hop paths for system-flow questions. |
 | `graph_context.query_paths` | Render the highlighted HydraDB path from a question to relevant code. |
@@ -78,6 +78,17 @@ HydraDB stores, links, filters, ranks, traverses, and returns it.
 ```
 
 Do not ask an LLM to infer relations already known by the parser. Use automatic extraction only for prose-like material where deterministic parsers do not know the relation.
+
+## Boundary with the repository UI
+
+HydraDB stores and returns repository knowledge; the webview renders a bounded 2D projection.
+
+- Repository nodes remain concrete source-backed entities.
+- Exact structural edges come from deterministic BYOG payloads.
+- Package/file aggregate edges retain the exact contributing relations.
+- HydraDB retrieval rank may choose which bounded slice is shown, but it does not turn semantic similarity into an exact code relation.
+- Dragged positions, pan, zoom, filters, and collapsed state are UI state, not HydraDB graph facts.
+- The UI may show semantic results around a user question, but it must not present LLM-created concepts as repository structure nodes.
 
 ## Source granularity
 

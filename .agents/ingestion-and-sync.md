@@ -32,6 +32,7 @@ Discover
 → normalize symbols
 → resolve deterministic relations
 → emit Graph IR
+→ build package/file/symbol projection records
 → build source cards
 → build per-source BYOG payloads
 → calculate source lifecycle changes
@@ -59,6 +60,8 @@ Each parser emits:
 - Parser name and version.
 - Diagnostics for incomplete parsing.
 - A declared capability set.
+- A stable source locator for every visible entity.
+- A named derivation method for every edge.
 
 Resolution stages should be separate:
 
@@ -69,6 +72,33 @@ Resolution stages should be separate:
 5. Explicit heuristics, labeled inferred.
 
 Never silently promote a heuristic to exact.
+
+The pipeline does not ask an LLM to create repository nodes or exact edges. Semantic enrichment, if later added, must be stored and displayed separately from deterministic structure.
+
+## UI projection inputs
+
+The analyzer and synchronization layer must provide enough grounded data for the settled Repository UI without becoming a second query engine.
+
+### Package depth
+
+- Emit real repository directories, language packages, or modules.
+- Aggregate exact lower-level edges by predicate and group pair.
+- Retain every contributing edge ID and evidence ID.
+
+### File depth
+
+- Emit real files with language, generated/test/config flags, and revision.
+- Emit exact file-to-file relations derived from owned symbol relations or explicit file-level relations.
+
+### Symbol depth
+
+- Emit concrete declarations and source-anchored framework/configuration resources.
+- Include exact declaration spans and resolver provenance.
+- Apply node and edge budgets before returning a view.
+
+Projection records are uploaded or represented through HydraDB-backed repository summary sources. The UI may cache only the bounded current view. Temporary Graph IR is not a production UI database.
+
+Every item needed for source navigation carries a normalized workspace-relative path and range. Directory nodes carry a concrete directory path. Aggregated edges carry a list of contributing evidence records rather than a fabricated single location.
 
 ## HydraDB source generation
 

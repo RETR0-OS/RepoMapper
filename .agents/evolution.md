@@ -145,11 +145,27 @@ Avoid unsupported warnings such as “security weakened” unless a specific rul
 ## Visual comparison
 
 - Keep stable nodes in stable positions.
+- Reuse the user's prior 2D layout where possible; layout remains presentation state rather than graph truth.
 - Green for added, red for removed, amber for modified, with non-color labels.
 - Let the user focus on one lens or path.
 - Show a plain text summary beside the graph.
 - Let the user open before and after evidence.
 - Allow replay of the agent retrieval path before the edit and the updated HydraDB path after indexing.
+
+The UI label for this experience is **Compare**. Its primary action advances through concrete changed nodes and edges while keeping the evidence inspector synchronized.
+
+## Preserve interaction
+
+The UI label for Living System Lenses is **Preserve**.
+
+When drift is detected, the user can:
+
+- Open the changed path and its source evidence.
+- Compare the saved revision with the current verified revision.
+- Accept the drift, which updates the grounded saved baseline to the current revision.
+- Leave the drift unresolved for later review.
+
+“Accept drift” does not declare the change good and does not alter repository graph facts. It records that the user has reviewed the current grounded path and chosen it as the lens's new baseline.
 
 ## Success condition
 

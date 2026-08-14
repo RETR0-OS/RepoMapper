@@ -36,8 +36,10 @@ Deliverables:
 - Adapters for every verified parser available to the project.
 - Stable node and edge identifiers.
 - Exact/inferred provenance.
+- Concrete-node eligibility checks that reject ungrounded concept nodes.
 - Symbol and file summary cards.
 - Canonical relation ownership.
+- Deterministic package/file aggregation with contributing evidence IDs.
 - Multilingual fixtures.
 
 Exit criteria:
@@ -45,6 +47,7 @@ Exit criteria:
 - Capability matrix is measured.
 - No duplicate owned relations.
 - Every displayed exact edge opens valid source evidence.
+- Every visible repository node has a concrete path or source-owned location.
 
 ## Phase 2: reliable HydraDB synchronization
 
@@ -88,20 +91,27 @@ Exit criteria:
 Deliverables:
 
 - Activity Bar container and Tree Views.
-- Interactive graph webview.
+- Six-mode shell: Repository, Explore, Trace, Observe, Compare, and Preserve.
+- Interactive 2D graph webview with package, file, and symbol depth.
+- Node dragging with attached edges, canvas panning, wheel zoom, and layout reset.
+- Relation filters with inferred edges hidden by default.
 - Current-symbol focus.
 - HydraDB question/trace view.
-- Evidence inspector.
-- Source navigation.
+- Evidence inspector with Why shown, Method, Stable ID, Revision, and HydraDB origin.
+- Node and edge source navigation through the extension host.
 - HydraDB status and result badges.
 - Accessible textual path list.
 
 Exit criteria:
 
 - A user can move from a conceptual question to an exact code range through a HydraDB path.
+- A user can move from repository package scope to a real file or symbol without encountering an invented concept node.
+- Clicking a node opens its declaration or concrete location; clicking an edge opens proving evidence.
+- Moving a node changes only the layout and keeps its edges attached.
+- Every visible control has a working result, disabled state, or honest error.
 - Default views remain readable on the demo repository.
 
-## Phase 5: Agent View
+## Phase 5: Observe
 
 Deliverables:
 
@@ -117,16 +127,17 @@ Exit criteria:
 - The UI accurately distinguishes returned, selected, opened, and edited states.
 - No UI text claims hidden reasoning or internal traversal access.
 
-## Phase 6: evolution and System Lenses
+## Phase 6: Compare and Preserve
 
 Deliverables:
 
 - Before/after task checkpoints.
 - Deterministic Graph IR diff.
 - HydraDB change-event Knowledge.
-- Change Map with stable layout.
+- Compare view with stable layout.
 - One saved System Lens.
 - Lens drift classification.
+- Explicit Accept drift action that updates the saved baseline only after review.
 - `compare_repository_graph` and `open_system_lens` tools.
 
 Exit criteria:
@@ -162,6 +173,7 @@ Cut in this order:
 4. Automatic structural warnings beyond one or two examples.
 5. Exact live node expansion if the HydraDB API does not expose it.
 6. Multiple graph layout families.
+7. Durable cross-device layout synchronization.
 
 Do not cut:
 
@@ -172,6 +184,9 @@ Do not cut:
 - Agent MCP access.
 - One before/after graph change.
 - HydraDB ablation.
+- Deterministic 2D repository navigation and exact source evidence.
+
+Do not spend time on a 3D graph or LLM-generated concept map. Neither is part of the product direction.
 
 ## Key sequencing risk
 
