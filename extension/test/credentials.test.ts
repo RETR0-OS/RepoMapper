@@ -69,6 +69,25 @@ describe("CredentialVault", () => {
     expect((await vault.acquire("git:two:1234567890abcdef1234")).database).toBe("database-two");
   });
 
+  it("copies a project binding for an identity migration without exposing it", async () => {
+    const secrets = new MemorySecrets();
+    const state = new MemoryState();
+    const vault = new CredentialVault(secrets, state);
+    const oldId = "local:repo:123e4567-e89b-42d3-a456-426614174000";
+    const newId = "git:repo:1234567890abcdef1234";
+    const profile = await vault.createProfile("Default", "migration-secret-key");
+    await vault.bindProject(oldId, profile.id, "migration-database");
+
+    expect(await vault.copyProjectBinding(oldId, newId)).toBe(true);
+    expect(await vault.acquire(newId)).toMatchObject({
+      apiKey: "migration-secret-key",
+      database: "migration-database"
+    });
+    expect(JSON.stringify([...state.values])).not.toContain("migration-database");
+    await vault.removeProjectBinding(oldId);
+    await expect(vault.acquire(oldId)).rejects.toThrow(/not configured/i);
+  });
+
   it("fails closed for corrupt or missing secret records", async () => {
     const secrets = new MemorySecrets();
     const state = new MemoryState();

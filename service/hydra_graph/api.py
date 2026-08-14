@@ -506,6 +506,7 @@ def create_app(
             ),
             "credentials_configured": services.client.configured,
             "collection": services.config.collection,
+            "source_count": sync_status["source_count"],
             "repository_id": services.sync.repository_id,
             "repository_root_fingerprint": repository_root_fingerprint(services.repository_root),
             "mcp_endpoint": "/mcp",

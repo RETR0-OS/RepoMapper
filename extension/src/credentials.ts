@@ -123,6 +123,24 @@ export class CredentialVault {
     );
   }
 
+  public async copyProjectBinding(fromRepositoryId: string, toRepositoryId: string): Promise<boolean> {
+    requireRepositoryId(fromRepositoryId);
+    requireRepositoryId(toRepositoryId);
+    const rawBinding = await this.secrets.get(bindingKey(fromRepositoryId));
+    const binding = parseBinding(rawBinding);
+    if (!binding) return false;
+    await this.secrets.store(bindingKey(toRepositoryId), JSON.stringify(binding));
+    const bindings = this.listBindings().filter((item) => (
+      item.repositoryId !== fromRepositoryId && item.repositoryId !== toRepositoryId
+    ));
+    await this.state.update(BINDING_INDEX_KEY, [
+      ...bindings,
+      { repositoryId: fromRepositoryId, profileId: binding.profile_id },
+      { repositoryId: toRepositoryId, profileId: binding.profile_id }
+    ]);
+    return true;
+  }
+
   public hasProjectBinding(repositoryId: string): boolean {
     return this.listBindings().some((binding) => binding.repositoryId === repositoryId);
   }

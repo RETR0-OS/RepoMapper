@@ -96,6 +96,9 @@ export interface ServiceHealth {
   state: ServiceState;
   revision?: string;
   collection?: string;
+  sourceCount?: number;
+  repositoryId?: string;
+  repositoryRootFingerprint?: string;
   message?: string;
 }
 

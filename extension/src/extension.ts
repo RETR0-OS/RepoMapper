@@ -25,6 +25,7 @@ import {
   type LensDraft
 } from "./evolution.js";
 import { GraphPanel } from "./graphPanel.js";
+import { formatIdentityMigration, previewIdentityMigration } from "./identityMigration.js";
 import { ManagedRuntime } from "./managedRuntime.js";
 import {
   failedIndexSummary,
@@ -35,7 +36,7 @@ import {
 } from "./indexing.js";
 import { RepositorySidebar } from "./sidebar.js";
 import { resolveCurrentProject } from "./projectResolver.js";
-import type { ResolvedProject } from "./projectIdentity.js";
+import { writeProjectIdentity, type ResolvedProject } from "./projectIdentity.js";
 import { removeProjectCredentials, replaceProfileKey, runCredentialSetup } from "./setupWizard.js";
 import type { ServiceHealth, ViewMode } from "./types.js";
 import { pendingCompareContext, preserveViewContext } from "./viewContext.js";
@@ -54,6 +55,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const repositoryScope = project;
   const credentialVault = new CredentialVault(context.secrets, context.globalState);
   const runtime = project ? new ManagedRuntime(context, credentialVault, project) : undefined;
+  if (project) {
+    await context.workspaceState.update("hydra.project.binding.v1", {
+      version: 1,
+      repositoryId: project.repositoryId
+    });
+  }
   activeRuntime = runtime;
   const repositoryStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 90);
   repositoryStatus.name = "Repository Map";
@@ -366,6 +373,62 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
     }
   };
+  const reviewIdentityMigration = async (prompt = false): Promise<void> => {
+    if (!runtime || !project?.candidateIdentity) return;
+    const decisionKey = `hydra.identity.keep.${project.candidateIdentity.repository_id}`;
+    if (!prompt && context.workspaceState.get<boolean>(decisionKey, false)) return;
+    const choice = await vscode.window.showInformationMessage(
+      `${project.projectName} now has a canonical Git identity. Review it before changing the existing Repository Map identity.`,
+      "Review migration",
+      "Keep existing identity"
+    );
+    if (choice === "Keep existing identity") {
+      await context.workspaceState.update(decisionKey, true);
+      return;
+    }
+    if (choice !== "Review migration") return;
+    try {
+      const health = await runtime.client(5_000).health();
+      const preview = previewIdentityMigration(project.identity, project.candidateIdentity, health);
+      if (!preview.canMigrateWithoutOrphans) {
+        await vscode.window.showWarningMessage(
+          "Repository identity was not changed.",
+          { modal: true, detail: formatIdentityMigration(preview) }
+        );
+        return;
+      }
+      const confirmed = await vscode.window.showInformationMessage(
+        "Adopt the canonical Git repository identity?",
+        { modal: true, detail: formatIdentityMigration(preview) },
+        "Migrate identity"
+      );
+      if (confirmed !== "Migrate identity") return;
+      const previousId = project.identity.repository_id;
+      const candidate = project.candidateIdentity;
+      const copied = await credentialVault.copyProjectBinding(previousId, candidate.repository_id);
+      try {
+        await writeProjectIdentity(project.repositoryRoot, candidate);
+      } catch (error) {
+        if (copied) await credentialVault.removeProjectBinding(candidate.repository_id);
+        throw error;
+      }
+      await context.workspaceState.update("hydra.project.binding.v1", {
+        version: 1,
+        repositoryId: candidate.repository_id
+      });
+      if (copied) await credentialVault.removeProjectBinding(previousId);
+      await context.workspaceState.update(decisionKey, undefined);
+      const reload = await vscode.window.showInformationMessage(
+        "Repository identity migrated safely. Reload VS Code to restart the managed service with the Git identity.",
+        "Reload now"
+      );
+      if (reload === "Reload now") await vscode.commands.executeCommand("workbench.action.reloadWindow");
+    } catch (error) {
+      void vscode.window.showErrorMessage(
+        `Repository identity could not be migrated. ${error instanceof Error ? error.message : "Unknown migration error."}`
+      );
+    }
+  };
   const showFocused = async (action: FocusAction): Promise<void> => {
     const editor = vscode.window.activeTextEditor;
     const focus = captureEditorFocus(editor ? {
@@ -450,6 +513,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ["hydra.configureAgents", async () => {
       await configureAgents();
     }],
+    ["hydra.reviewIdentity", async () => {
+      await reviewIdentityMigration(true);
+    }],
     ["hydra.replaceApiKey", async () => {
       await replaceProfileKey(credentialVault);
       await panel.refresh();
@@ -478,6 +544,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     );
     if (action === "Start setup") await vscode.commands.executeCommand("hydra.setup");
   }
+  await reviewIdentityMigration();
   void panel.refresh();
 }
 

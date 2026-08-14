@@ -177,6 +177,11 @@ export function normalizeHealth(value: unknown): ServiceHealth {
     state,
     revision,
     collection: textValue(health.collection) || stringArray(health.collections)[0],
+    sourceCount: Number.isSafeInteger(health.source_count) && Number(health.source_count) >= 0
+      ? Number(health.source_count) : undefined,
+    repositoryId: textValue(health.repository_id) || undefined,
+    repositoryRootFingerprint: /^[a-f0-9]{64}$/.test(textValue(health.repository_root_fingerprint))
+      ? textValue(health.repository_root_fingerprint) : undefined,
     message: textValue(health.message) || undefined
   };
 }
