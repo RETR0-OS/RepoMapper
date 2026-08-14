@@ -3,9 +3,9 @@
   "$id": "https://hack-hydra.local/schemas/graph-ir.schema.json",
   "title": "Hack Hydra Graph IR",
   "type": "object",
-  "required": ["version", "repository_id", "revision_id", "nodes", "edges", "diagnostics"],
+  "required": ["graph_ir_version", "repository_id", "revision_id", "nodes", "edges", "diagnostics"],
   "properties": {
-    "version": { "const": "1.0" },
+    "graph_ir_version": { "const": "1.0" },
     "repository_id": { "type": "string", "minLength": 1 },
     "revision_id": { "type": "string", "minLength": 1 },
     "nodes": {
@@ -36,11 +36,14 @@
     },
     "evidence": {
       "type": "object",
-      "required": ["id", "path", "span", "excerpt_hash", "explanation"],
+      "required": ["id", "path", "excerpt_hash", "explanation"],
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "path": { "type": "string", "minLength": 1 },
-        "span": { "$ref": "#/$defs/span" },
+        "start_line": { "type": ["integer", "null"], "minimum": 1 },
+        "start_column": { "type": ["integer", "null"], "minimum": 0 },
+        "end_line": { "type": ["integer", "null"], "minimum": 1 },
+        "end_column": { "type": ["integer", "null"], "minimum": 0 },
         "excerpt_hash": { "type": "string", "minLength": 1 },
         "explanation": { "type": "string", "minLength": 1, "maxLength": 2000 }
       },
@@ -48,9 +51,10 @@
     },
     "node": {
       "type": "object",
-      "required": ["id", "kind", "display_name", "qualified_name", "path", "revision_id", "parser", "parser_version", "is_generated", "attributes"],
+      "required": ["id", "logical_id", "kind", "display_name", "qualified_name", "path", "revision_id", "content_hash", "parser", "parser_version", "is_generated", "attributes"],
       "properties": {
         "id": { "type": "string", "minLength": 1 },
+        "logical_id": { "type": "string", "minLength": 1 },
         "kind": { "type": "string", "minLength": 1 },
         "display_name": { "type": "string", "minLength": 1 },
         "qualified_name": { "type": "string", "minLength": 1 },
@@ -59,7 +63,7 @@
         "span": { "anyOf": [{ "$ref": "#/$defs/span" }, { "type": "null" }] },
         "signature": { "type": ["string", "null"] },
         "revision_id": { "type": "string", "minLength": 1 },
-        "content_hash": { "type": ["string", "null"] },
+        "content_hash": { "type": "string", "minLength": 64, "maxLength": 64 },
         "parser": { "type": "string", "minLength": 1 },
         "parser_version": { "type": "string", "minLength": 1 },
         "is_generated": { "type": "boolean" },
@@ -69,9 +73,10 @@
     },
     "edge": {
       "type": "object",
-      "required": ["id", "source_id", "predicate", "target_id", "quality", "evidence", "revision_id", "extractor", "extractor_version", "attributes"],
+      "required": ["id", "logical_id", "source_id", "predicate", "target_id", "quality", "evidence", "revision_id", "extractor", "extractor_version", "owner_source_id", "attributes"],
       "properties": {
         "id": { "type": "string", "minLength": 1 },
+        "logical_id": { "type": "string", "minLength": 1 },
         "source_id": { "type": "string", "minLength": 1 },
         "predicate": { "type": "string", "minLength": 1, "maxLength": 256 },
         "target_id": { "type": "string", "minLength": 1 },
@@ -81,6 +86,7 @@
         "revision_id": { "type": "string", "minLength": 1 },
         "extractor": { "type": "string", "minLength": 1 },
         "extractor_version": { "type": "string", "minLength": 1 },
+        "owner_source_id": { "type": "string", "minLength": 1 },
         "attributes": { "type": "object" }
       },
       "additionalProperties": false

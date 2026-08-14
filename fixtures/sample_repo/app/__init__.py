@@ -1,0 +1,2 @@
+"""Sample application package."""
+

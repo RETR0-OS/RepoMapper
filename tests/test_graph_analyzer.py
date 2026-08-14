@@ -1,0 +1,102 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from hydra_graph.analyzer import analyze_repository
+from hydra_graph.models import NodeKind, RelationPredicate, RelationQuality
+
+
+FIXTURE = Path(__file__).parents[1] / "fixtures" / "sample_repo"
+
+
+def _relation_names(graph):
+    nodes = graph.node_map()
+    return {
+        (nodes[edge.source_id].qualified_name, edge.predicate, nodes[edge.target_id].qualified_name)
+        for edge in graph.edges
+    }
+
+
+def test_analyzer_emits_concrete_nodes_and_resolved_exact_relations() -> None:
+    graph = analyze_repository(FIXTURE, repository_id="sample", revision_id="r1")
+    names = {node.qualified_name for node in graph.nodes}
+    relations = _relation_names(graph)
+
+    assert "app.service.Greeter.greet" in names
+    assert "tests.test_service.test_format_greeting" in names
+    assert "ignored.ignored_function" not in names
+    assert "generated.generated_function" not in names
+    assert not graph.diagnostics
+    assert (
+        "app.service.Greeter.greet",
+        RelationPredicate.CALLS,
+        "app.helpers.normalize_name",
+    ) in relations
+    assert (
+        "tests.test_service.test_format_greeting",
+        RelationPredicate.TESTS,
+        "app.service.format_greeting",
+    ) in relations
+    assert all(edge.quality is RelationQuality.EXACT for edge in graph.edges)
+    assert all(edge.confidence is None for edge in graph.edges)
+    assert all(edge.evidence for edge in graph.edges)
+
+
+def test_analyzer_does_not_promote_unresolved_dynamic_calls() -> None:
+    graph = analyze_repository(FIXTURE, repository_id="sample", revision_id="r1")
+    relations = _relation_names(graph)
+    # `greeter.greet()` needs data-flow resolution which this AST adapter does not
+    # claim. Omitting it is more truthful than manufacturing an exact edge.
+    assert (
+        "app.api.handle_request",
+        RelationPredicate.CALLS,
+        "app.service.Greeter.greet",
+    ) not in relations
+    assert not any(edge.predicate is RelationPredicate.MAY_CALL for edge in graph.edges)
+
+
+def test_declaration_and_call_evidence_points_to_real_source() -> None:
+    graph = analyze_repository(FIXTURE, repository_id="sample", revision_id="r1")
+    for edge in graph.edges:
+        for evidence in edge.evidence:
+            source_path = FIXTURE / evidence.path
+            assert source_path.exists()
+            if evidence.span is None:
+                assert edge.predicate is RelationPredicate.CONTAINS
+                continue
+            lines = source_path.read_text(encoding="utf-8").splitlines()
+            assert 1 <= evidence.start_line <= evidence.end_line <= len(lines)
+            assert evidence.excerpt_hash != "0" * 64
+
+
+def test_node_ids_survive_unrelated_line_movement(tmp_path: Path) -> None:
+    source = tmp_path / "module.py"
+    source.write_text("def stable(value):\n    return value\n", encoding="utf-8")
+    before = analyze_repository(tmp_path, repository_id="stable", revision_id="before")
+    source.write_text("# a new unrelated line\n\ndef stable(value):\n    return value\n", encoding="utf-8")
+    after = analyze_repository(tmp_path, repository_id="stable", revision_id="after")
+
+    before_symbol = next(node for node in before.nodes if node.display_name == "stable")
+    after_symbol = next(node for node in after.nodes if node.display_name == "stable")
+    assert before_symbol.id == after_symbol.id
+    assert before_symbol.logical_id == after_symbol.logical_id
+    assert before_symbol.span != after_symbol.span
+
+
+def test_node_ids_change_when_semantic_identity_changes(tmp_path: Path) -> None:
+    source = tmp_path / "module.py"
+    source.write_text("def old_name():\n    return 1\n", encoding="utf-8")
+    before = analyze_repository(tmp_path, repository_id="stable", revision_id="before")
+    source.write_text("def new_name():\n    return 1\n", encoding="utf-8")
+    after = analyze_repository(tmp_path, repository_id="stable", revision_id="after")
+    old = next(node for node in before.nodes if node.kind is NodeKind.FUNCTION)
+    new = next(node for node in after.nodes if node.kind is NodeKind.FUNCTION)
+    assert old.id != new.id
+
+
+def test_parser_errors_are_diagnostic_not_invented_symbols(tmp_path: Path) -> None:
+    (tmp_path / "broken.py").write_text("def broken(:\n", encoding="utf-8")
+    graph = analyze_repository(tmp_path, repository_id="broken", revision_id="r1")
+    assert any("syntax error" in diagnostic for diagnostic in graph.diagnostics)
+    assert not any(node.kind is NodeKind.FUNCTION for node in graph.nodes)
+
