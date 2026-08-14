@@ -180,7 +180,7 @@ Serialize every deterministic BYOG relation context as the bounded, versioned `h
 
 Status: accepted for the MVP.
 
-Index only the service-configured repository root. Require an explicit revision ID, show the discovered files and complete source-card upload scope, and require confirmation before contacting HydraDB. A manual `Index now` flow is the MVP editing loop; automatic file watching remains future work.
+Index only the request-selected repository scope. Require an explicit revision ID, show the discovered files and complete source-card upload scope, and require confirmation before contacting HydraDB. A manual `Index now` flow is the MVP editing loop; automatic file watching remains future work.
 
 Stable source replacement in the `current` collection is not transactional. If an upsert or deletion fails after HydraDB accepts part of a candidate, report the current collection as indeterminate. The prior revision is only the last verified marker, not a promise that every prior source is still queryable. Immutable revision collections remain provisional until live collection semantics are proven.
 
@@ -209,3 +209,19 @@ Status: accepted for the MVP.
 Keep the deterministic TF-IDF baseline inside the evaluation-only package. Product service code must never import or use it as retrieval fallback.
 
 Evaluation conditions are A: local TF-IDF, B: HydraDB with `graph_context=false`, and C: the same HydraDB request with `graph_context=true`. Score returned stable IDs, complete relation facts, and exact evidence against a checked gold Graph IR. Keep exact and inferred denominators separate. Offline fixtures may rehearse the pipeline but may not support comparative claims; those require one complete live run for every question and condition.
+
+## D-030 — Extension-owned repository scope
+
+Status: accepted for the MVP.
+
+VS Code users do not configure `HYDRA_REPOSITORY_ROOT` or
+`HYDRA_REPOSITORY_ID`. The extension selects the first open local workspace
+folder and derives an ASCII-safe repository ID from its name and a short hash
+of its canonical path. Every extension request sends the paired scope to the
+loopback service.
+
+The service validates the pair and keeps independent sync, query, view,
+evolution, checkpoint, and Observe state for each workspace. Direct CLI and
+standalone MCP workflows may still use the process environment because they do
+not have VS Code workspace context. Index preview and explicit confirmation
+remain required before an extension-triggered HydraDB upload.

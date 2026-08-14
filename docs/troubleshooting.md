@@ -177,7 +177,7 @@ the processes do not share events or views. See [MCP and agents](mcp-and-agents.
   `409`.
 - Too many active sessions return `429`.
 - Unknown/expired views, unshown items, path traversal, paths outside the
-  configured root, and workspace-root fingerprint mismatches are rejected.
+  selected root, and workspace-root fingerprint mismatches are rejected.
 - A history-gap response means the bounded event buffer no longer contains the
   supplied cursor. Start a new Observe session rather than silently treating a
   partial timeline as complete.

@@ -32,15 +32,13 @@ If PowerShell blocks the activation script, see
 
 ## Configure this PowerShell session
 
-Replace the first two values and choose a stable repository ID:
+Replace the first two values:
 
 ```powershell
 $env:HYDRA_DB_API_KEY = "your-key"
 $env:HYDRA_DB_DATABASE = "your-database"
 $env:HYDRA_DB_COLLECTION = "current"
 $env:HYDRA_DB_EVOLUTION_COLLECTION = "evolution"
-$env:HYDRA_REPOSITORY_ID = "your-repository"
-$env:HYDRA_REPOSITORY_ROOT = (Get-Location).Path
 ```
 
 The service reads its process environment. It does not load `.env` files
@@ -57,7 +55,7 @@ HydraDB.
 python -m hydra_graph index --revision "demo-before-change" --preview
 ```
 
-Review the configured root, discovered files, source count, and exact relation
+Review the selected workspace root, discovered files, source count, and exact relation
 count. Then run the write:
 
 ```powershell
@@ -102,8 +100,9 @@ In the Extension Development Host, open the Repository Map activity item or run
 `http://127.0.0.1:8765`.
 
 The command `Repository Map: Index Workspace with HydraDB` runs the same local
-preview, asks for confirmation, and then indexes. The caller cannot choose a
-different filesystem root; the service always uses `HYDRA_REPOSITORY_ROOT`.
+preview, asks for confirmation, and then indexes. The extension automatically
+uses the first open local workspace folder and sends its scope only to the
+loopback service. The user does not configure repository root or ID in `.env`.
 
 ## Connect an agent
 

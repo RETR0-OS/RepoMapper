@@ -19,7 +19,7 @@ If you first want the product mental model, read [Core concepts](concepts.md) an
 
 ```mermaid
 flowchart LR
-    Repo["Configured repository root"] --> Analyzer["Deterministic Python analysis"]
+    Repo["Selected repository root"] --> Analyzer["Deterministic Python analysis"]
     Analyzer --> Cards["Source cards and exact BYOG relations"]
     Cards --> HydraDB["HydraDB Knowledge"]
     HydraDB --> Service["Loopback Python service and MCP"]

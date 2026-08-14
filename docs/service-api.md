@@ -164,8 +164,14 @@ Stored views are bounded in-memory state and can expire.
 
 ## Safe indexing
 
-Indexing always analyzes the configured `HYDRA_REPOSITORY_ROOT`. A caller cannot
-supply a different filesystem root.
+Extension requests provide `X-Hydra-Repository-Root` and
+`X-Hydra-Repository-Id` together. The root header is URI-component encoded so
+Windows and Unicode paths remain valid HTTP header values. The service resolves
+the root, requires an existing directory, validates the ID, and keeps sync,
+query, view, evolution, and Observe state isolated by repository scope.
+
+Requests without these headers use the service process scope for direct CLI and
+standalone MCP compatibility. Supplying only one header returns HTTP `422`.
 
 ### `POST /api/index/preview`
 
@@ -352,7 +358,7 @@ Selection and evidence-opened use the same exact body:
 | --- | --- |
 | `POST /api/views/{view_id}/selection` | Item must be shown in the active session's stored view; emits `context_selected`. |
 | `POST /api/views/{view_id}/evidence-opened` | Item must be shown and have grounded source evidence; emits `evidence_opened`. |
-| `POST /api/views/{view_id}/workspace-change` | Exact body `{ "path": "relative/path.py" }`; path max 1024, inside the configured root, and shown by visible nodes; emits `workspace_entity_changed` for matching entities only. |
+| `POST /api/views/{view_id}/workspace-change` | Exact body `{ "path": "relative/path.py" }`; path max 1024, inside the selected root, and shown by visible nodes; emits `workspace_entity_changed` for matching entities only. |
 
 Success returns:
 
@@ -440,10 +446,11 @@ events:
 - `GET /api/status` — removed; returns `404`.
 - `POST /api/events` — no event-write handler; returns `405`.
 
-Use safe configured-root indexing, server-derived Observe interactions, and the
-adapter's internal status/delete operations instead. There is no public request
-that accepts arbitrary filesystem roots, raw Graph IR ingestion, delete IDs, or
-event envelopes.
+Use safe scoped indexing, server-derived Observe interactions, and the
+adapter's internal status/delete operations instead. Repository roots are
+accepted only through the paired, validated extension scope headers; indexing
+bodies cannot replace that scope. No route accepts raw Graph IR ingestion,
+delete IDs, or event envelopes.
 
 Related guides: [Getting started](getting-started.md) ·
 [Configuration](configuration.md) · [Indexing and sync](indexing-and-sync.md) ·

@@ -133,7 +133,7 @@ Happy-path fixtures are not enough. Tests should prove that the implementation r
 - partial ingest or delete acknowledgements;
 - ignored metadata filters;
 - cursor gaps and wrong Observe revisions;
-- paths outside the configured repository root;
+- paths outside the selected repository root;
 - fabricated evaluation metrics or stale artifacts;
 - B/C evaluation requests that differ by more than `graph_context`.
 
@@ -171,4 +171,3 @@ Human product documentation belongs in `docs/`. Internal design history remains 
 - Add material architecture decisions to `.agents/decisions.md`.
 - Add newly verified HydraDB behavior to `.agents/research/sources.md` with a verification date.
 - Keep provisional live behavior labeled as provisional.
-

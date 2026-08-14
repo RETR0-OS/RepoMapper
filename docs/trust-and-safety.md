@@ -46,10 +46,18 @@ key. Use normal operating-system account and secret-management boundaries.
 
 ## Repository boundary
 
-`HYDRA_REPOSITORY_ROOT` is resolved once when the service container is created.
-Public requests cannot provide a replacement root. Discovery, analysis, index
-preview, checkpoint capture, and workspace-change validation stay within that
-root.
+The extension sends an encoded canonical workspace root and generated
+repository ID in paired request headers. The loopback service resolves and
+validates that root, then selects an isolated repository-scoped container.
+Requests without these headers retain the process scope used by direct CLI and
+MCP workflows. A request cannot provide only one half of the scope.
+
+Discovery, analysis, index preview, checkpoint capture, and workspace-change
+validation stay within the selected root. The local upload confirmation shows
+that exact root. Any process running as the same operating-system user that can
+call the loopback service should therefore be treated as able to request local
+analysis; the HydraDB write still requires the explicit preview and confirmation
+flow in the extension.
 
 The service checks resolved manifest and checkpoint locations for containment,
 including symlink escapes. It exposes only a deterministic SHA-256 root

@@ -15,7 +15,7 @@ The central rule is strict: production retrieval comes from HydraDB. The analyze
 - A repository-specific MCP server for query, focus, trace, relationship explanation, comparison, lenses, and pinned context.
 - A TypeScript VS Code extension with Repository, Explore, Trace, Observe, Compare, and Preserve modes.
 - An interactive 2D graph with depth controls, filters, drag, pan, zoom, evidence inspection, source navigation, a textual path view, and responsive keyboard-accessible UI.
-- A confirmed `Index Workspace with HydraDB` flow that previews the configured root and exact upload scope before it writes.
+- A confirmed `Index Workspace with HydraDB` flow that previews the selected workspace and exact upload scope before it writes.
 - A three-condition evaluation harness with an isolated TF-IDF baseline, HydraDB graph-context ablation, checked gold facts, raw artifacts, and fail-closed claim guards.
 
 ```mermaid
@@ -59,11 +59,12 @@ $env:HYDRA_DB_API_KEY = "your-key"
 $env:HYDRA_DB_DATABASE = "your-database"
 $env:HYDRA_DB_COLLECTION = "current"
 $env:HYDRA_DB_EVOLUTION_COLLECTION = "evolution"
-$env:HYDRA_REPOSITORY_ID = "your-repository"
-$env:HYDRA_REPOSITORY_ROOT = (Get-Location).Path
 ```
 
 Credentials remain in the Python process. They are not sent to the extension webview.
+The extension automatically uses the first open local workspace folder as the
+repository root and creates a safe repository ID from its folder name and
+canonical path. Users do not configure repository scope in `.env`.
 
 ## Preview and index
 
@@ -79,7 +80,7 @@ After reviewing the exact files and source cards, run the upload:
 hydra-graph index --revision "demo-before-change"
 ```
 
-The VS Code command `Repository Map: Index Workspace with HydraDB` performs the same preview and adds a modal confirmation before upload. The service always analyzes `HYDRA_REPOSITORY_ROOT`; callers cannot supply another filesystem root.
+The VS Code command `Repository Map: Index Workspace with HydraDB` performs the same preview and adds a modal confirmation before upload. The extension sends the open workspace scope to the loopback service; the preview shows the exact root and generated repository ID before upload.
 
 ## Run the service and extension
 

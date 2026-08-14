@@ -1,6 +1,6 @@
 # Indexing and sync
 
-Indexing is an explicit two-step operation: preview the configured repository,
+Indexing is an explicit two-step operation: preview the selected repository,
 then confirm the HydraDB write. There is no background watcher that silently
 uploads file changes.
 
@@ -19,7 +19,9 @@ boundary, not a free-form description.
 
 Preview performs these local operations:
 
-1. Resolve and inspect only `HYDRA_REPOSITORY_ROOT`.
+1. Resolve and inspect only the selected repository root. The extension selects
+   its open workspace; direct CLI use falls back to `HYDRA_REPOSITORY_ROOT` or
+   the process working directory.
 2. Discover supported source files.
 3. Build deterministic Graph IR.
 4. Build source cards and exact BYOG relations.
@@ -105,8 +107,9 @@ again. Confirm `ready` before relying on current queries.
 
 Run `Repository Map: Index Workspace with HydraDB`. The extension requests a
 revision, calls the local preview endpoint, shows the upload scope in a modal,
-and writes only after confirmation. API bodies contain only the revision ID;
-callers cannot supply an arbitrary repository path.
+and writes only after confirmation. API bodies contain only the revision ID.
+The extension host supplies the paired workspace scope headers; the webview
+cannot supply or change them.
 
 ## Change history and lenses
 

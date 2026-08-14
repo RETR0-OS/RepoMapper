@@ -39,7 +39,7 @@ Compare and Preserve queries
 
 ## Local analysis
 
-The Python discovery layer walks one configured repository root. It respects
+The Python discovery layer walks one validated repository scope at a time. It respects
 `.gitignore`, `.hydraignore`, explicit deny globs, common secret filenames and
 content signatures, binary detection, file-size limits, and symlink exclusion.
 It returns both eligible files and reasons for ignored paths.
@@ -160,8 +160,8 @@ does not claim success and retains local diff checkpoints where possible.
 
 - HydraDB credentials stay in the Python process and are never sent to the
   webview.
-- The service analyzes only the configured repository root; clients cannot
-  choose an arbitrary filesystem root for indexing.
+- The service analyzes only the selected, resolved repository root. Extension
+  scope comes from the extension host, never from the webview.
 - Repository paths in Graph IR are normalized, relative paths. Absolute paths
   and parent traversal are rejected.
 - Discovery excludes symlinks and common secret material before analysis.

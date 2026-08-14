@@ -23,12 +23,21 @@ The adapter retries network failures and HTTP `429`, `500`, `502`, and `503`.
 It does not retry request/authentication errors such as `400`, `401`, `403`,
 `404`, `409`, or `413`.
 
-## Repository settings
+## Repository scope
+
+The VS Code extension configures repository scope automatically. It uses the
+first open local workspace folder as the root and creates an ASCII-safe ID from
+the folder name plus a short hash of its canonical path. It sends both values
+to the loopback service on every request. They are not VS Code settings and do
+not belong in `.env`.
+
+The environment variables below remain optional for direct CLI and standalone
+MCP use, where there is no VS Code workspace to supply the scope.
 
 | Variable | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `HYDRA_REPOSITORY_ID` | Recommended | database name, or `unconfigured-repository` without one | Stable logical repository identity stored in cards, manifests, checkpoints, and views. The example file suggests `hack-hydra`; that is not a hard-coded runtime default. |
-| `HYDRA_REPOSITORY_ROOT` | Recommended | process working directory | The only directory the analyzer and indexing API may inspect. Prefer an absolute path. |
+| `HYDRA_REPOSITORY_ID` | Optional outside the extension | database name, or `unconfigured-repository` without one | Repository identity for direct CLI and standalone MCP requests. |
+| `HYDRA_REPOSITORY_ROOT` | Optional outside the extension | process working directory | Repository root for direct CLI and standalone MCP requests. Prefer an absolute path. |
 
 Set an absolute root before starting the service from another directory:
 
@@ -58,8 +67,6 @@ $env:HYDRA_DB_API_KEY = "your-key"
 $env:HYDRA_DB_DATABASE = "your-database"
 $env:HYDRA_DB_COLLECTION = "current"
 $env:HYDRA_DB_EVOLUTION_COLLECTION = "evolution"
-$env:HYDRA_REPOSITORY_ID = "my-repository"
-$env:HYDRA_REPOSITORY_ROOT = (Resolve-Path ".").Path
 $env:HYDRA_DB_TIMEOUT_SECONDS = "20"
 $env:HYDRA_DB_POLL_TIMEOUT_SECONDS = "120"
 
