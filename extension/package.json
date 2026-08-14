@@ -82,6 +82,12 @@
         "command": "hydra.configureService",
         "title": "Configure Service URL",
         "category": "Repository Map"
+      },
+      {
+        "command": "hydra.indexRepository",
+        "title": "Index Workspace with HydraDB",
+        "category": "Repository Map",
+        "icon": "$(cloud-upload)"
       }
     ],
     "menus": {
@@ -104,6 +110,11 @@
           "command": "hydra.refresh",
           "when": "view =~ /hydra\\./",
           "group": "navigation"
+        },
+        {
+          "command": "hydra.indexRepository",
+          "when": "view =~ /hydra\\./",
+          "group": "navigation@2"
         }
       ]
     },
@@ -158,6 +169,13 @@
           "minimum": 500,
           "maximum": 30000,
           "description": "Timeout for local service requests."
+        },
+        "hydra.indexTimeoutMs": {
+          "type": "number",
+          "default": 120000,
+          "minimum": 5000,
+          "maximum": 600000,
+          "description": "Timeout for repository analysis and HydraDB indexing requests."
         }
       }
     }

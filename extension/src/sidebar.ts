@@ -48,21 +48,37 @@ class SummaryProvider implements vscode.TreeDataProvider<SummaryItem> {
       return [new SummaryItem(path.basename(editor.document.fileName), "Active editor", "symbol-file", open("explore"))];
     }
     if (this.section === "status") {
+      const indexItem = new SummaryItem("Index this workspace", "Preview scope before uploading", "cloud-upload", {
+        command: "hydra.indexRepository", title: "Index workspace"
+      });
       if (health.state === "ready") {
         return [
           new SummaryItem("Current revision ready", health.revision ?? "Revision unavailable", "pass", open("repository")),
-          new SummaryItem(health.database ?? "HydraDB", health.collection ?? "Default collection", "database", open("repository"))
+          new SummaryItem(health.database ?? "HydraDB", health.collection ?? "Default collection", "database", open("repository")),
+          indexItem
         ];
       }
       if (health.state === "indexing") {
         return [new SummaryItem("Indexing", health.message ?? "Last verified revision remains active", "sync~spin", open("repository"))];
       }
       if (health.state === "unverified") {
-        return [new SummaryItem("Revision not verified", health.message ?? "HydraDB is configured, but no verified revision is ready", "question", open("repository"))];
+        return [
+          new SummaryItem("Revision not verified", health.message ?? "HydraDB is configured, but no verified revision is ready", "question", open("repository")),
+          indexItem
+        ];
       }
-      return [new SummaryItem("HydraDB unavailable", "Open preview or configure service", "warning", {
-        command: "hydra.configureService", title: "Configure service"
-      })];
+      if (health.state === "failed") {
+        return [
+          new SummaryItem("Latest indexing failed", health.message ?? "The prior verified revision remains active", "error", open("repository")),
+          indexItem
+        ];
+      }
+      return [
+        new SummaryItem("HydraDB unavailable", "Open preview or configure service", "warning", {
+          command: "hydra.configureService", title: "Configure service"
+        }),
+        indexItem
+      ];
     }
     const copy: Record<Exclude<Section, "current" | "status">, [string, string, string, string]> = {
       entrypoints: ["Open repository map", health.state === "ready" ? "Load verified entrypoints" : "Requires a verified revision", "symbol-event", "repository"],

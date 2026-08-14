@@ -1,4 +1,5 @@
 import type { GraphDepth, GraphView, ServiceHealth, ViewMode } from "./types.js";
+import { normalizeIndexPreview, normalizeIndexResult, type IndexPreview, type IndexResult } from "./indexing.js";
 import { normalizeGraphView, normalizeHealth } from "./viewAdapter.js";
 
 export class ServiceError extends Error {
@@ -59,6 +60,24 @@ export class RepositoryServiceClient {
 
   public async sidebar(): Promise<unknown> {
     return this.request<unknown>("/api/sidebar", { method: "GET" });
+  }
+
+  public async previewIndex(revisionId: string): Promise<IndexPreview> {
+    const response = await this.request<unknown>("/api/index/preview", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ revision_id: revisionId })
+    });
+    return normalizeIndexPreview(response);
+  }
+
+  public async indexRepository(revisionId: string): Promise<IndexResult> {
+    const response = await this.request<unknown>("/api/index", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ revision_id: revisionId })
+    });
+    return normalizeIndexResult(response);
   }
 
   private async request<T>(path: string, init: RequestInit): Promise<T> {
