@@ -34,6 +34,8 @@ export class ServiceError extends Error {
 
 export interface ServiceClientOptions {
   baseUrl: string;
+  baseUrlProvider?: () => Promise<string>;
+  authorizationProvider?: () => Promise<string>;
   timeoutMs: number;
   repositoryScope?: RepositoryScope;
   fetchImpl?: typeof fetch;
@@ -209,6 +211,9 @@ export class RepositoryServiceClient {
     const timeout = setTimeout(() => controller.abort(), this.options.timeoutMs);
     try {
       const headers = new Headers(init.headers);
+      if (this.options.authorizationProvider) {
+        headers.set("Authorization", await this.options.authorizationProvider());
+      }
       if (this.options.repositoryScope) {
         headers.set(
           "X-Hydra-Repository-Root",
@@ -216,7 +221,10 @@ export class RepositoryServiceClient {
         );
         headers.set("X-Hydra-Repository-Id", this.options.repositoryScope.repositoryId);
       }
-      const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
+      const configuredBaseUrl = this.options.baseUrlProvider
+        ? requireLoopbackServiceUrl(await this.options.baseUrlProvider())
+        : this.baseUrl;
+      const response = await this.fetchImpl(`${configuredBaseUrl}${path}`, {
         ...init,
         headers,
         signal: controller.signal

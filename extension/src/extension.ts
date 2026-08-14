@@ -19,6 +19,7 @@ import {
   type LensDraft
 } from "./evolution.js";
 import { GraphPanel } from "./graphPanel.js";
+import { ManagedRuntime } from "./managedRuntime.js";
 import {
   failedIndexSummary,
   formatIndexPreview,
@@ -27,13 +28,14 @@ import {
   validateRevisionId,
   type IndexingClient
 } from "./indexing.js";
-import { RepositoryServiceClient } from "./serviceClient.js";
 import { RepositorySidebar } from "./sidebar.js";
 import { resolveCurrentProject } from "./projectResolver.js";
 import type { ResolvedProject } from "./projectIdentity.js";
 import { removeProjectCredentials, replaceProfileKey, runCredentialSetup } from "./setupWizard.js";
 import type { ServiceHealth, ViewMode } from "./types.js";
 import { pendingCompareContext, preserveViewContext } from "./viewContext.js";
+
+let activeRuntime: ManagedRuntime | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   let project: ResolvedProject | undefined;
@@ -46,6 +48,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
   const repositoryScope = project;
   const credentialVault = new CredentialVault(context.secrets, context.globalState);
+  const runtime = project ? new ManagedRuntime(context, credentialVault, project) : undefined;
+  activeRuntime = runtime;
   const repositoryStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 90);
   repositoryStatus.name = "Repository Map";
   repositoryStatus.text = "$(type-hierarchy) Repository Map";
@@ -82,18 +86,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
 
-  const panel = new GraphPanel(context, updateHealth, repositoryScope);
-  const configuredClient = (): RepositoryServiceClient => {
-    if (!repositoryScope) {
+  const configuredClient = () => {
+    if (!runtime) {
       throw new Error("Open a local workspace folder to use Repository Map.");
     }
     const configuration = vscode.workspace.getConfiguration("hydra");
-    return new RepositoryServiceClient({
-      baseUrl: configuration.get<string>("serviceUrl", "http://127.0.0.1:8765"),
-      repositoryScope,
-      timeoutMs: configuration.get<number>("indexTimeoutMs", 120000)
-    });
+    return runtime.client(configuration.get<number>("indexTimeoutMs", 120000));
   };
+  const panel = new GraphPanel(context, updateHealth, repositoryScope, (forWrite) => {
+    if (!runtime) throw new Error("Open a local workspace folder to use Repository Map.");
+    const configuration = vscode.workspace.getConfiguration("hydra");
+    return runtime.client(forWrite
+      ? configuration.get<number>("indexTimeoutMs", 120000)
+      : configuration.get<number>("requestTimeoutMs", 5000));
+  });
   const promptRevision = async (title: string, prompt: string): Promise<string | undefined> => {
     const value = await vscode.window.showInputBox({
       title,
@@ -401,6 +407,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     hydraStatus,
     sidebar,
     panel,
+    ...(runtime ? [runtime] : []),
     vscode.languages.registerCodeLensProvider({ scheme: "file" }, new RepositoryMapCodeLensProvider())
   );
   if (project && !credentialVault.hasProjectBinding(project.repositoryId)) {
@@ -413,7 +420,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   void panel.refresh();
 }
 
-export function deactivate(): void {}
+export function deactivate(): void {
+  activeRuntime?.dispose();
+  activeRuntime = undefined;
+}
 
 function isMode(value: unknown): value is ViewMode {
   return typeof value === "string" && ["repository", "explore", "trace", "observe", "compare", "preserve"].includes(value);

@@ -57,7 +57,8 @@ export class GraphPanel implements vscode.Disposable {
   public constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly onHealthChanged: (health: ServiceHealth) => void,
-    private readonly repositoryScope: RepositoryScope | undefined
+    private readonly repositoryScope: RepositoryScope | undefined,
+    private readonly clientFactory: (forWrite: boolean) => RepositoryServiceClient
   ) {
     const watcher = vscode.workspace.createFileSystemWatcher("**/*");
     this.disposables.push(
@@ -173,14 +174,7 @@ export class GraphPanel implements vscode.Disposable {
     if (!this.repositoryScope) {
       throw new ServiceError("Open a local workspace folder to use Repository Map.");
     }
-    const configuration = vscode.workspace.getConfiguration("hydra");
-    return new RepositoryServiceClient({
-      baseUrl: configuration.get<string>("serviceUrl", "http://127.0.0.1:8765"),
-      repositoryScope: this.repositoryScope,
-      timeoutMs: forWrite
-        ? configuration.get<number>("indexTimeoutMs", 120000)
-        : configuration.get<number>("requestTimeoutMs", 5000)
-    });
+    return this.clientFactory(forWrite);
   }
 
   private async handleMessage(message: WebviewToHostMessage): Promise<void> {

@@ -108,6 +108,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         from .api import create_app, create_container
         from .config import HydraDBConfig
         from .managed import ManagedCredentialProvider, ManagedIpc
+        from .security import ManagedSecurity
 
         channel, start = ManagedIpc.bootstrap(sys.stdin, sys.stdout)
         config = HydraDBConfig(
@@ -124,7 +125,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             repository_root=start.repository_root,
             credential_provider=provider,
         )
-        managed_app = create_app(container)
+        managed_app = create_app(
+            container,
+            managed_security=ManagedSecurity(start.control_key),
+        )
         channel.notify(
             "service_ready",
             port=getattr(args, "port", 8765),

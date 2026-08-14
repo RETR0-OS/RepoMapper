@@ -36,6 +36,7 @@ from .hydradb import CredentialProvider, HydraDBClient
 from .ids import normalize_relative_path, normalize_repository_id
 from .models import GraphNode
 from .query import QUERY_RESPONSE_SCHEMA, QueryService
+from .security import MANAGED_SERVICE_PROTOCOL, MAX_REQUEST_BYTES, ManagedSecurity
 from .sync import SyncService
 from .views import ViewDepth, ViewMode, ViewRequest, ViewService, build_product_view
 
@@ -102,6 +103,14 @@ class ViewItemBody(APIModel):
 
 class WorkspaceChangeBody(APIModel):
     path: str = Field(min_length=1, max_length=1_024)
+
+
+class AttachProjectBody(APIModel):
+    repository_root: str = Field(min_length=1, max_length=4_096)
+    repository_id: str = Field(min_length=1, max_length=128)
+    timestamp: int
+    nonce: str = Field(min_length=16, max_length=128)
+    signature: str = Field(min_length=43, max_length=128)
 
 
 @dataclass(slots=True)
@@ -293,7 +302,11 @@ def _build_container(
     )
 
 
-def create_app(container: ServiceContainer | None = None) -> FastAPI:
+def create_app(
+    container: ServiceContainer | None = None,
+    *,
+    managed_security: ManagedSecurity | None = None,
+) -> FastAPI:
     services = container or create_container()
     if services.observe_sessions is None:
         services.observe_sessions = ObserveSessions(services.events)
@@ -326,6 +339,37 @@ def create_app(container: ServiceContainer | None = None) -> FastAPI:
 
     @app.middleware("http")
     async def select_repository_scope(request: Request, call_next: Any) -> Any:
+        if managed_security is not None:
+            if not managed_security.host_is_allowed(request.headers.get("host")):
+                return JSONResponse(status_code=421, content={"detail": "Loopback host required."})
+            content_length = request.headers.get("content-length")
+            if content_length is not None:
+                try:
+                    if int(content_length) > MAX_REQUEST_BYTES:
+                        return JSONResponse(
+                            status_code=413, content={"detail": "Request body is too large."}
+                        )
+                except ValueError:
+                    return JSONResponse(
+                        status_code=400, content={"detail": "Content-Length is invalid."}
+                    )
+            if request.url.path in {"/version", "/managed/challenge"}:
+                return await call_next(request)
+            try:
+                grant = managed_security.authorize(request.headers.get("authorization"))
+                scoped = repository_scopes.get(
+                    str(grant.repository_root), grant.repository_id
+                )
+            except RuntimeError as exc:
+                return JSONResponse(status_code=429, content={"detail": str(exc)})
+            except (HTTPException, ValueError) as exc:
+                detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
+                return JSONResponse(status_code=401, content={"detail": detail})
+            token = current_services.set(scoped)
+            try:
+                return await call_next(request)
+            finally:
+                current_services.reset(token)
         repository_root = request.headers.get("X-Hydra-Repository-Root")
         repository_id = request.headers.get("X-Hydra-Repository-Id")
         if repository_root is None and repository_id is None:
@@ -348,6 +392,36 @@ def create_app(container: ServiceContainer | None = None) -> FastAPI:
             current_services.reset(token)
 
     services = ScopedServiceProxy(current_services)  # type: ignore[assignment]
+
+    @app.get("/version")
+    def version() -> dict[str, Any]:
+        return {
+            "service": "repository-map",
+            "protocol": MANAGED_SERVICE_PROTOCOL,
+            "version": "0.2.0",
+        }
+
+    @app.post("/managed/challenge")
+    def attach_project(body: AttachProjectBody) -> dict[str, Any]:
+        if managed_security is None:
+            raise HTTPException(status_code=404, detail="Managed attachment is unavailable.")
+        try:
+            repository_id = normalize_repository_id(body.repository_id)
+            token, grant = managed_security.attach(
+                repository_root=body.repository_root,
+                repository_id=repository_id,
+                timestamp=body.timestamp,
+                nonce=body.nonce,
+                signature=body.signature,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=401, detail=str(exc)) from exc
+        return {
+            "protocol": MANAGED_SERVICE_PROTOCOL,
+            "access_token": token,
+            "expires_at": grant.expires_at,
+            "repository_id": grant.repository_id,
+        }
 
     @app.get("/health")
     def health() -> dict[str, Any]:

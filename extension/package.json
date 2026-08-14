@@ -181,10 +181,15 @@
     "configuration": {
       "title": "Repository Map",
       "properties": {
-        "hydra.serviceUrl": {
+        "hydra.developerMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use a separately started development service instead of the bundled managed service. Not intended for normal use."
+        },
+        "hydra.developerServiceUrl": {
           "type": "string",
           "default": "http://127.0.0.1:8765",
-          "description": "Local repository query service URL. Credentials remain in the service and are never sent to the webview."
+          "description": "Loopback service URL used only when Repository Map developer mode is enabled."
         },
         "hydra.requestTimeoutMs": {
           "type": "number",
