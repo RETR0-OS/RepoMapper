@@ -97,12 +97,20 @@
           "group": "navigation@90"
         },
         {
-          "command": "hydra.traceFlowFromHere",
+          "command": "hydra.showCallersAndCallees",
           "group": "navigation@91"
         },
         {
-          "command": "hydra.askAboutCode",
+          "command": "hydra.traceFlowFromHere",
           "group": "navigation@92"
+        },
+        {
+          "command": "hydra.findTests",
+          "group": "navigation@93"
+        },
+        {
+          "command": "hydra.askAboutCode",
+          "group": "navigation@94"
         }
       ],
       "view/title": [

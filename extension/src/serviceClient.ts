@@ -32,8 +32,11 @@ export class RepositoryServiceClient {
     return normalizeHealth(await this.request<unknown>("/health", { method: "GET" }));
   }
 
-  public async getView(mode: ViewMode, depth: GraphDepth): Promise<GraphView> {
+  public async getView(mode: ViewMode, depth: GraphDepth, question?: string): Promise<GraphView> {
     const query = new URLSearchParams({ depth });
+    if (question) {
+      query.set("question", question);
+    }
     return normalizeGraphView(await this.request<unknown>(`/api/views/${mode}?${query.toString()}`, { method: "GET" }), mode);
   }
 

@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { RepositoryMapCodeLensProvider } from "./codeLensProvider.js";
+import { captureEditorFocus, focusedViewRequest, type FocusAction } from "./editorFocus.js";
 import { GraphPanel } from "./graphPanel.js";
 import {
   failedIndexSummary,
@@ -59,12 +60,26 @@ export function activate(context: vscode.ExtensionContext): void {
     });
   };
   const show = (mode: ViewMode) => panel.show(mode);
+  const showFocused = async (action: FocusAction): Promise<void> => {
+    const editor = vscode.window.activeTextEditor;
+    const focus = captureEditorFocus(editor ? {
+      scheme: editor.document.uri.scheme,
+      absolutePath: editor.document.uri.fsPath,
+      activeLine: editor.selection.active.line
+    } : undefined, vscode.workspace.workspaceFolders?.map((folder) => folder.uri.fsPath) ?? []);
+    if (!focus) {
+      void vscode.window.showWarningMessage("Open a source file inside the active workspace before requesting a focused repository view.");
+      return;
+    }
+    const request = focusedViewRequest(action, focus);
+    await panel.showFocused(request.mode, request.question);
+  };
   const registrations: Array<[string, (...args: unknown[]) => unknown]> = [
     ["hydra.openRepositoryMap", (mode?: unknown) => show(isMode(mode) ? mode : "repository")],
-    ["hydra.showInRepositoryMap", () => show("repository")],
-    ["hydra.showCallersAndCallees", () => show("explore")],
-    ["hydra.traceFlowFromHere", () => show("trace")],
-    ["hydra.findTests", () => show("explore")],
+    ["hydra.showInRepositoryMap", () => showFocused("show")],
+    ["hydra.showCallersAndCallees", () => showFocused("callers")],
+    ["hydra.traceFlowFromHere", () => showFocused("trace")],
+    ["hydra.findTests", () => showFocused("tests")],
     ["hydra.compareGraph", () => show("compare")],
     ["hydra.saveSystemLens", () => show("preserve")],
     ["hydra.followAgent", () => show("observe")],

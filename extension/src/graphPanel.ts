@@ -19,6 +19,8 @@ export class GraphPanel implements vscode.Disposable {
   private mode: ViewMode = "repository";
   private depth: GraphDepth = "file";
   private selectedId: string | undefined;
+  private webviewReady = false;
+  private pendingRequest: { type: "view"; question?: string } | { type: "query"; question: string } | undefined;
   private health: ServiceHealth = { state: "unavailable" };
   private readonly disposables: vscode.Disposable[] = [];
 
@@ -29,6 +31,17 @@ export class GraphPanel implements vscode.Disposable {
 
   public async show(mode: ViewMode = this.mode, question?: string): Promise<void> {
     this.mode = mode;
+    this.ensurePanel();
+    await this.runOrQueue(question ? { type: "query", question } : { type: "view" });
+  }
+
+  public async showFocused(mode: ViewMode, question: string): Promise<void> {
+    this.mode = mode;
+    this.ensurePanel();
+    await this.runOrQueue({ type: "view", question });
+  }
+
+  private ensurePanel(): void {
     if (!this.panel) {
       this.panel = vscode.window.createWebviewPanel(
         "hydra.repositoryMap",
@@ -41,7 +54,12 @@ export class GraphPanel implements vscode.Disposable {
         }
       );
       this.panel.webview.html = this.html(this.panel.webview);
-      this.disposables.push(this.panel.onDidDispose(() => { this.panel = undefined; }));
+      this.webviewReady = false;
+      this.disposables.push(this.panel.onDidDispose(() => {
+        this.panel = undefined;
+        this.webviewReady = false;
+        this.pendingRequest = undefined;
+      }));
       this.disposables.push(this.panel.webview.onDidReceiveMessage((rawMessage: unknown) => {
         const message = parseWebviewMessage(rawMessage);
         if (!message) {
@@ -53,10 +71,17 @@ export class GraphPanel implements vscode.Disposable {
     } else {
       this.panel.reveal(vscode.ViewColumn.Active, true);
     }
-    if (question) {
-      await this.ask(question);
+  }
+
+  private async runOrQueue(request: { type: "view"; question?: string } | { type: "query"; question: string }): Promise<void> {
+    if (!this.webviewReady) {
+      this.pendingRequest = request;
+      return;
+    }
+    if (request.type === "query") {
+      await this.ask(request.question);
     } else {
-      await this.loadView();
+      await this.loadView(request.question);
     }
   }
 
@@ -84,7 +109,14 @@ export class GraphPanel implements vscode.Disposable {
   private async handleMessage(message: WebviewToHostMessage): Promise<void> {
     switch (message.type) {
       case "ready":
-        await this.loadView();
+        this.webviewReady = true;
+        if (this.pendingRequest) {
+          const pending = this.pendingRequest;
+          this.pendingRequest = undefined;
+          await this.runOrQueue(pending);
+        } else {
+          await this.loadView();
+        }
         break;
       case "changeMode":
         this.mode = message.mode;
@@ -116,10 +148,10 @@ export class GraphPanel implements vscode.Disposable {
     }
   }
 
-  private async loadView(): Promise<void> {
+  private async loadView(question?: string): Promise<void> {
     this.post({ type: "loading", mode: this.mode, message: `Loading ${this.mode} view…` });
     try {
-      const [health, view] = await Promise.all([this.client().health(), this.client().getView(this.mode, this.depth)]);
+      const [health, view] = await Promise.all([this.client().health(), this.client().getView(this.mode, this.depth, question)]);
       const effectiveHealth = reconcileHealthWithView(health, view);
       this.setHealth(effectiveHealth);
       this.post({ type: "view", view, health: effectiveHealth });
