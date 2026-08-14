@@ -4,14 +4,20 @@
   "chunks": [
     {
       "node_id": "node_20b86a1f77e991d7f9cf1f02",
+      "repository_id": "evaluation-fixture",
+      "revision": "eval-rev-1",
       "content": "handle_request checks authorization"
     },
     {
       "node_id": "node_851de3f73b36629e337e18f4",
+      "repository_id": "evaluation-fixture",
+      "revision": "eval-rev-1",
       "content": "authorize loads an access policy"
     },
     {
       "node_id": "node_9424c0b9af08602043e5dade",
+      "repository_id": "evaluation-fixture",
+      "revision": "eval-rev-1",
       "content": "load_policy reads the policy store"
     }
   ],
@@ -23,6 +29,7 @@
         "relation": {
           "id": "edge_09854ee9a3f80c9d805c034d",
           "predicate": "CALLS",
+          "origin": "byog",
           "context": "{\"schema\":\"hack-hydra.relation-evidence.v1\",\"edge_id\":\"edge_09854ee9a3f80c9d805c034d\",\"quality\":\"exact\",\"evidence\":{\"id\":\"evidence_17c19bd3dbc5c6d8bc9f1a0f\",\"path\":\"eval_app/api.py\",\"start_line\":5,\"start_column\":11,\"end_line\":5,\"end_column\":26,\"excerpt_hash\":\"2b9a9c850f627de86278279424882352339877861df1d4cfcbe924fb254ea93e\"}}"
         },
         "target": {"id": "node_851de3f73b36629e337e18f4"}
@@ -32,6 +39,7 @@
         "relation": {
           "id": "edge_52414a8d414e6fbee4c6da78",
           "predicate": "CALLS",
+          "origin": "byog",
           "context": "{\"schema\":\"hack-hydra.relation-evidence.v1\",\"edge_id\":\"edge_52414a8d414e6fbee4c6da78\",\"quality\":\"exact\",\"evidence\":{\"id\":\"evidence_785bbf2d7e96b7c824206df7\",\"path\":\"eval_app/auth.py\",\"start_line\":5,\"start_column\":11,\"end_line\":5,\"end_column\":28,\"excerpt_hash\":\"b175328aacb0100508a376b79784c6b3e093455ff1b9fbdf88066679c613d12d\"}}"
         },
         "target": {"id": "node_9424c0b9af08602043e5dade"}

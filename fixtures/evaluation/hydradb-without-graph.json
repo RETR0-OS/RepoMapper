@@ -4,10 +4,14 @@
   "chunks": [
     {
       "node_id": "node_851de3f73b36629e337e18f4",
+      "repository_id": "evaluation-fixture",
+      "revision": "eval-rev-1",
       "content": "authorize loads an access policy from the policy store"
     },
     {
       "node_id": "node_unrelated",
+      "repository_id": "evaluation-fixture",
+      "revision": "eval-rev-1",
       "content": "format a greeting for a display name"
     }
   ],

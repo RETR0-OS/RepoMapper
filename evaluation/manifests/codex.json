@@ -15,8 +15,10 @@
     "hydradb_query_calls",
     "context_characters_returned",
     "tests_passed",
+    "outcome",
     "rework_count"
   ],
   "live_hydradb_required": true,
+  "retrieval_results_path": null,
   "results_path": null
 }

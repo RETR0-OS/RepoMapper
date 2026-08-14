@@ -1,7 +1,7 @@
 # Five-minute live demo runbook
 
 This runbook is a timed script, not evidence that a live run has happened. Run
-`python demo/preflight.py --results <live-results.jsonl>` first. Do not show an
+`python -m demo.preflight --results <live-results.jsonl>` first. Do not show an
 improvement claim unless every preflight check passes.
 
 Generate the live evaluation artifacts with:
@@ -13,6 +13,11 @@ Before starting, restore `fixtures/evaluation/repo` to its checked state, config
 collection as revision `eval-rev-1`. Generate the live evaluation artifacts and
 run preflight before making the demo edit. The gold manifest does not apply to a
 different repository root or revision.
+
+Complete both files in `evaluation/manifests/` with the exact live run ID, model
+version, retrieval JSONL path, and observable agent-outcome JSONL path. The
+checked files are intentionally incomplete templates; do not fabricate results
+to make preflight pass.
 
 ## 0:00–0:35 — Establish the truth boundary
 
@@ -52,7 +57,8 @@ different repository root or revision.
 ## 4:10–5:00 — Show evaluation evidence
 
 - Show raw JSONL, the gold manifest, and the CSV/Markdown count table.
-- Confirm B and C request bodies differ only in `graph_context`.
+- Confirm B and C request plans and recorded HydraDB request bodies differ only in
+  `graph_context`.
 - Show exact and inferred relation counts separately, with denominators.
 - Make no percentage or “better” claim unless preflight reports a complete live A/B/C set.
 

@@ -137,7 +137,9 @@ The checked evaluation fixtures can rehearse the A/B/C artifact flow without mak
 python -m evaluation --offline --output .\artifacts\offline --run-id offline-rehearsal
 ```
 
-A credentialed run uses `--live` instead. It requires the evaluation fixture repository and its concrete gold revision to have been indexed in HydraDB. See [demo/five-minute-runbook.md](demo/five-minute-runbook.md) and run `python demo/preflight.py --results <live-raw.jsonl>` before interpreting a comparison.
+A credentialed run uses `--live` instead. It requires the evaluation fixture repository and its concrete gold revision to have been indexed in HydraDB. See [demo/five-minute-runbook.md](demo/five-minute-runbook.md) and run `python -m demo.preflight --results <live-raw.jsonl>` before interpreting a comparison.
+
+The checked Codex and Claude Code manifests are deliberately incomplete templates. A real run must replace the run and model placeholders, point `retrieval_results_path` at the exact live JSONL, and point `results_path` at observable `hack-hydra.agent-outcome.v1` JSONL. Preflight rejects missing, mismatched, rehearsal, or self-reported-only results.
 
 ## Important limits
 

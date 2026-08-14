@@ -27,6 +27,7 @@ class ResolvedGold:
     graph: GraphIR
     questions: tuple[ResolvedQuestion, ...]
     digest: str
+    fixture_root: Path
 
 
 def load_gold(path: str | Path) -> GoldManifest:
@@ -111,7 +112,13 @@ def load_and_resolve_gold(path: str | Path, *, verify_fixture: bool = True) -> R
     digest = hashlib.sha256(
         json.dumps(digest_payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
     ).hexdigest()
-    return ResolvedGold(manifest=manifest, graph=graph, questions=questions, digest=digest)
+    return ResolvedGold(
+        manifest=manifest,
+        graph=graph,
+        questions=questions,
+        digest=digest,
+        fixture_root=fixture_root,
+    )
 
 
 def _resolve_relation(

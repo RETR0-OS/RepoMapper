@@ -4,22 +4,33 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Protocol
 
 from hydra_graph.config import HydraDBConfig
 from hydra_graph.hydradb import HydraDBClient
 from hydra_graph.query import normalize_query_response
 
-from .baseline import BaselineDocument, BaselineEvidence, DeterministicTfidf
+from .baseline import (
+    BaselineDocument,
+    BaselineEvidence,
+    DeterministicTfidf,
+    baseline_corpus_digest,
+    validate_baseline_documents,
+)
 from .gold import ResolvedGold, ResolvedQuestion
 from .metrics import score_observation
 from .models import (
     AblationCondition,
     EvaluationRecord,
+    EvaluationTarget,
     EvidenceObservation,
+    HydraDBRequestBody,
+    HydraQueryPlan,
     RelationObservation,
     RetrievalObservation,
     RunMode,
@@ -30,6 +41,7 @@ from .models import (
 class HydraQueryResult:
     payload: Mapping[str, Any]
     latency_ms: float
+    actual_request_body: HydraDBRequestBody | None = None
 
 
 class HydraEvaluationTransport(Protocol):
@@ -55,12 +67,10 @@ class FixtureHydraTransport:
         self.calls: list[dict[str, Any]] = []
 
     def query(self, request_body: Mapping[str, Any]) -> HydraQueryResult:
-        body = dict(request_body)
-        graph_context = body.get("graph_context")
-        if not isinstance(graph_context, bool):
-            raise ValueError("evaluation HydraDB requests require a boolean graph_context")
+        plan = HydraQueryPlan.model_validate(request_body)
+        body = plan.model_dump(mode="json")
         self.calls.append(body)
-        return HydraQueryResult(self._responses[graph_context], self._latency_ms)
+        return HydraQueryResult(self._responses[plan.graph_context], self._latency_ms)
 
 
 class LiveHydraTransport:
@@ -73,18 +83,20 @@ class LiveHydraTransport:
         self,
         *,
         config: HydraDBConfig,
-        repository_id: str,
-        revision_id: str,
+        target: EvaluationTarget,
         client: HydraDBClient | None = None,
         clock: Callable[[], float] = time.perf_counter,
     ) -> None:
         if not config.configured:
             raise ValueError("live evaluation requires HydraDB API key and database")
-        if not repository_id.strip() or not revision_id.strip() or revision_id == "current":
-            raise ValueError("live evaluation requires concrete repository and revision IDs")
+        if config.database != target.database:
+            raise ValueError("live evaluation database does not match the evaluation target")
+        if config.collection != target.collection:
+            raise ValueError("live evaluation requires the configured current collection")
+        if target.revision_id == "current":
+            raise ValueError("live evaluation requires a concrete revision ID")
         self.config = config
-        self.repository_id = repository_id
-        self.revision_id = revision_id
+        self.target = target
         self._client = client or HydraDBClient(config)
         self._clock = clock
 
@@ -92,53 +104,60 @@ class LiveHydraTransport:
     def from_environment(
         cls,
         *,
-        repository_id: str,
-        revision_id: str,
+        target: EvaluationTarget,
     ) -> LiveHydraTransport:
         return cls(
             config=HydraDBConfig.from_env(),
-            repository_id=repository_id,
-            revision_id=revision_id,
+            target=target,
         )
 
     def query(self, request_body: Mapping[str, Any]) -> HydraQueryResult:
-        body = dict(request_body)
-        self._validate_body(body)
+        plan = HydraQueryPlan.model_validate(request_body)
+        self._validate_plan(plan)
+        actual_body = HydraDBRequestBody(
+            **plan.model_dump(mode="json"),
+            database=self.config.database,
+            type="knowledge",
+            query_forceful_relations=True,
+        )
         started = self._clock()
         raw = self._client.query(
-            query=body["query"],
-            collection=self.collection,
-            query_by=body["query_by"],
-            mode=body["mode"],
-            graph_context=body["graph_context"],
-            max_results=body["max_results"],
-            metadata_filters=body["metadata_filters"],
+            query=actual_body.query,
+            collection=actual_body.collection,
+            query_type=actual_body.type,
+            query_by=actual_body.query_by,
+            mode=actual_body.mode,
+            graph_context=actual_body.graph_context,
+            max_results=actual_body.max_results,
+            metadata_filters=actual_body.metadata_filters.model_dump(mode="json"),
+            query_forceful_relations=actual_body.query_forceful_relations,
         )
         elapsed_ms = max(0.0, (self._clock() - started) * 1_000)
         request_digest = hashlib.sha256(
-            json.dumps(body, separators=(",", ":"), sort_keys=True).encode("utf-8")
+            json.dumps(
+                actual_body.model_dump(mode="json"), separators=(",", ":"), sort_keys=True
+            ).encode("utf-8")
         ).hexdigest()[:20]
         normalized = normalize_query_response(
             raw,
             session_id=f"evaluation-{request_digest}",
             view_id=f"evaluation-{request_digest}",
-            revision=self.revision_id,
+            revision=self.target.revision_id,
             database=self.config.database,
             collections=(self.collection,),
-            query_by=body["query_by"],
-            mode=body["mode"],
-            graph_context=body["graph_context"],
+            query_by=actual_body.query_by,
+            mode=actual_body.mode,
+            graph_context=actual_body.graph_context,
             max_context_chars=12_000,
             max_paths=10,
             max_relations=50,
             max_hops_per_path=10,
-            expected_revision=self.revision_id,
+            expected_revision=self.target.revision_id,
         )
-        normalized_chunks = _records(normalized.get("chunks"))
-        if normalized.get("status") == "ready" and any(
-            chunk.get("repository_id") != self.repository_id
-            or chunk.get("revision") != self.revision_id
-            for chunk in normalized_chunks
+        if normalized.get("status") == "ready" and not _live_result_is_grounded(
+            normalized,
+            self.target,
+            graph_context=actual_body.graph_context,
         ):
             normalized = {
                 **normalized,
@@ -152,37 +171,15 @@ class LiveHydraTransport:
                     "Live result was not bound to the exact gold repository revision.",
                 ],
             }
-        return HydraQueryResult(normalized, elapsed_ms)
+        return HydraQueryResult(normalized, elapsed_ms, actual_body)
 
-    def _validate_body(self, body: dict[str, Any]) -> None:
-        expected = {
-            "query",
-            "query_by",
-            "mode",
-            "graph_context",
-            "max_results",
-            "collection",
-            "metadata_filters",
-        }
-        if set(body) != expected:
-            raise ValueError("live evaluation request body has an unexpected shape")
-        if (
-            not isinstance(body["query"], str)
-            or not body["query"].strip()
-            or body["query_by"] != "hybrid"
-            or body["mode"] != "thinking"
-            or not isinstance(body["graph_context"], bool)
-            or not isinstance(body["max_results"], int)
-            or not 1 <= body["max_results"] <= 50
-        ):
-            raise ValueError("live evaluation request does not match the fixed ablation contract")
-        if body["collection"] != self.collection:
+    def _validate_plan(self, plan: HydraQueryPlan) -> None:
+        if plan.collection != self.collection:
             raise ValueError("live evaluation must query only the explicit current collection")
-        filters = body["metadata_filters"]
-        if filters != {
-            "repository_id": self.repository_id,
-            "revision_id": self.revision_id,
-        }:
+        if (
+            plan.metadata_filters.repository_id != self.target.repository_id
+            or plan.metadata_filters.revision_id != self.target.revision_id
+        ):
             raise ValueError("live evaluation request is not bound to the gold repository revision")
 
 
@@ -192,16 +189,18 @@ class AblationRunner:
         *,
         mode: RunMode,
         hydra_transport: HydraEvaluationTransport,
-        repository_id: str = "evaluation-fixture",
-        revision_id: str = "eval-rev-1",
+        target: EvaluationTarget,
         clock: Callable[[], float] = time.perf_counter,
     ) -> None:
         if mode is RunMode.LIVE and hydra_transport.fixture_backed:
             raise ValueError("live evaluation refuses fixture-backed HydraDB responses")
         self.mode = mode
         self.hydra_transport = hydra_transport
-        self.repository_id = repository_id
-        self.revision_id = revision_id
+        self.target = target
+        if mode is RunMode.LIVE and (
+            not isinstance(hydra_transport, LiveHydraTransport) or hydra_transport.target != target
+        ):
+            raise ValueError("live transport and runner evaluation targets differ")
         self._clock = clock
 
     def run_question(
@@ -222,24 +221,25 @@ class AblationRunner:
                 limit=limit,
             )
         ]
-        bodies = [
+        plans = [
             self._hydra_request(question.question.prompt, graph_context=False, limit=limit),
             self._hydra_request(question.question.prompt, graph_context=True, limit=limit),
         ]
-        _assert_only_graph_context_differs(*bodies)
-        for condition, body in zip(
+        _assert_only_graph_context_differs(*plans)
+        for condition, plan in zip(
             (AblationCondition.HYDRA_NO_GRAPH, AblationCondition.HYDRA_GRAPH),
-            bodies,
+            plans,
             strict=True,
         ):
-            result = self.hydra_transport.query(body)
+            result = self.hydra_transport.query(plan.model_dump(mode="json"))
             observations.append(
                 _normalize_hydra_observation(
                     run_id=run_id,
                     question_id=question.question.id,
                     condition=condition,
                     mode=self.mode,
-                    request_body=body,
+                    target=self.target,
+                    request_plan=plan,
                     result=result,
                 )
             )
@@ -253,6 +253,15 @@ class AblationRunner:
         baseline_documents: tuple[BaselineDocument, ...],
         limit: int = 10,
     ) -> tuple[EvaluationRecord, ...]:
+        validate_baseline_documents(baseline_documents, gold)
+        if (
+            self.target.repository_id != gold.manifest.repository_id
+            or self.target.revision_id != gold.manifest.revision_id
+            or self.target.repository_root_fingerprint
+            != repository_root_fingerprint(gold.fixture_root)
+        ):
+            raise ValueError("evaluation runner target does not match the resolved gold fixture")
+        corpus_digest = baseline_corpus_digest(baseline_documents)
         records: list[EvaluationRecord] = []
         for question in gold.questions:
             observations = self.run_question(
@@ -264,6 +273,7 @@ class AblationRunner:
             records.extend(
                 EvaluationRecord(
                     gold_digest=gold.digest,
+                    baseline_corpus_digest=corpus_digest,
                     observation=observation,
                     metrics=score_observation(question, observation),
                 )
@@ -295,6 +305,7 @@ class AblationRunner:
             condition=AblationCondition.BASELINE,
             mode=self.mode,
             status="ready",
+            target=self.target,
             returned_node_ids=tuple(item.document.node_id for item in ranked),
             returned_evidence=tuple(_unique_evidence(evidence)),
             context_chars=len(content),
@@ -302,26 +313,23 @@ class AblationRunner:
             latency_ms=elapsed_ms,
         )
 
-    def _hydra_request(self, prompt: str, *, graph_context: bool, limit: int) -> dict[str, Any]:
-        return {
-            "query": prompt,
-            "query_by": "hybrid",
-            "mode": "thinking",
-            "graph_context": graph_context,
-            "max_results": limit,
-            "collection": "current",
-            "metadata_filters": {
-                "repository_id": self.repository_id,
-                "revision_id": self.revision_id,
+    def _hydra_request(self, prompt: str, *, graph_context: bool, limit: int) -> HydraQueryPlan:
+        return HydraQueryPlan(
+            query=prompt,
+            graph_context=graph_context,
+            max_results=limit,
+            metadata_filters={
+                "repository_id": self.target.repository_id,
+                "revision_id": self.target.revision_id,
             },
-        }
+        )
 
 
 def _assert_only_graph_context_differs(
-    without_graph: Mapping[str, Any], with_graph: Mapping[str, Any]
+    without_graph: HydraQueryPlan, with_graph: HydraQueryPlan
 ) -> None:
-    left = dict(without_graph)
-    right = dict(with_graph)
+    left = without_graph.model_dump(mode="json")
+    right = with_graph.model_dump(mode="json")
     if left.pop("graph_context", None) is not False:
         raise ValueError("condition B must disable graph_context")
     if right.pop("graph_context", None) is not True:
@@ -336,7 +344,8 @@ def _normalize_hydra_observation(
     question_id: str,
     condition: AblationCondition,
     mode: RunMode,
-    request_body: dict[str, Any],
+    target: EvaluationTarget,
+    request_plan: HydraQueryPlan,
     result: HydraQueryResult,
 ) -> RetrievalObservation:
     payload = result.payload
@@ -347,11 +356,57 @@ def _normalize_hydra_observation(
             condition=condition,
             mode=mode,
             status="error",
-            request_body=request_body,
+            target=target,
+            request_plan=request_plan,
+            hydradb_request_body=result.actual_request_body,
             context_chars=0,
             context_tokens=0,
             latency_ms=result.latency_ms,
             warnings=("HydraDB result did not use the stable product response schema.",),
+        )
+    status = str(payload.get("status") or "error")
+    warnings = tuple(str(item) for item in payload.get("warnings", []) if isinstance(item, str))
+    if status not in {"ready", "degraded", "unavailable", "error"}:
+        status = "error"
+        warnings = (*warnings, "HydraDB response used an unknown status.")
+    if (
+        mode is RunMode.LIVE
+        and condition is AblationCondition.HYDRA_NO_GRAPH
+        and (_records(payload.get("paths")) or _records(payload.get("relations")))
+    ):
+        status = "degraded"
+        warnings = (*warnings, "Condition B returned graph paths despite graph_context=false.")
+    if mode is RunMode.LIVE and status != "ready":
+        return RetrievalObservation(
+            run_id=run_id,
+            question_id=question_id,
+            condition=condition,
+            mode=mode,
+            status=status,
+            target=target,
+            request_plan=request_plan,
+            hydradb_request_body=result.actual_request_body,
+            context_chars=0,
+            context_tokens=0,
+            latency_ms=result.latency_ms,
+            warnings=warnings,
+        )
+    try:
+        content = _context_content(payload)
+    except ValueError as error:
+        return RetrievalObservation(
+            run_id=run_id,
+            question_id=question_id,
+            condition=condition,
+            mode=mode,
+            status="error",
+            target=target,
+            request_plan=request_plan,
+            hydradb_request_body=result.actual_request_body,
+            context_chars=0,
+            context_tokens=0,
+            latency_ms=result.latency_ms,
+            warnings=(*warnings, str(error)),
         )
     chunks = _records(payload.get("chunks"))
     paths = _records(payload.get("paths"))
@@ -365,10 +420,10 @@ def _normalize_hydra_observation(
     for path in paths:
         for hop in _records(path.get("hops")):
             source = _record(hop.get("source"))
-            target = _record(hop.get("target"))
+            target_entity = _record(hop.get("target"))
             relation = _record(hop.get("relation"))
             source_id = _concrete_string(source.get("id"))
-            target_id = _concrete_string(target.get("id"))
+            target_id = _concrete_string(target_entity.get("id"))
             if source_id:
                 node_ids.add(source_id)
             if target_id:
@@ -377,19 +432,15 @@ def _normalize_hydra_observation(
             if normalized is not None:
                 relations.append(normalized)
                 evidence.extend(normalized.evidence)
-    content = "\n".join(str(chunk.get("content") or "") for chunk in chunks)
-    warnings = tuple(str(item) for item in payload.get("warnings", []) if isinstance(item, str))
-    status = str(payload.get("status") or "error")
-    if status not in {"ready", "degraded", "unavailable", "error"}:
-        status = "error"
-        warnings = (*warnings, "HydraDB response used an unknown status.")
     return RetrievalObservation(
         run_id=run_id,
         question_id=question_id,
         condition=condition,
         mode=mode,
         status=status,
-        request_body=request_body,
+        target=target,
+        request_plan=request_plan,
+        hydradb_request_body=result.actual_request_body,
         returned_node_ids=tuple(sorted(node_ids)),
         returned_relations=tuple(sorted(relations, key=lambda item: item.edge_id)),
         returned_evidence=tuple(_unique_evidence(evidence)),
@@ -403,6 +454,7 @@ def _normalize_hydra_observation(
 def _relation_observation(
     relation: Mapping[str, Any], source_id: str | None, target_id: str | None
 ) -> RelationObservation | None:
+    origin = relation.get("origin")
     context = relation.get("context")
     envelope: Mapping[str, Any] = {}
     if isinstance(context, str):
@@ -422,7 +474,9 @@ def _relation_observation(
         return None
     raw_evidence = envelope.get("evidence")
     evidence = []
-    if isinstance(raw_evidence, Mapping):
+    if origin != "byog":
+        quality = "unknown"
+    elif isinstance(raw_evidence, Mapping):
         try:
             evidence.append(
                 EvidenceObservation.model_validate(
@@ -450,8 +504,114 @@ def _relation_observation(
         predicate=predicate,
         target_id=target_id,
         quality=quality,
+        origin=_concrete_string(origin) or "unknown",
         evidence=tuple(evidence),
     )
+
+
+def repository_root_fingerprint(root: str | Path) -> str:
+    canonical = str(Path(root).resolve()).replace("\\", "/")
+    if os.name == "nt":
+        canonical = canonical.lower()
+    canonical = canonical.rstrip("/") or "/"
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def fixture_evaluation_target(gold: ResolvedGold) -> EvaluationTarget:
+    return EvaluationTarget(
+        database="offline-fixture",
+        repository_id=gold.manifest.repository_id,
+        revision_id=gold.manifest.revision_id,
+        repository_root_fingerprint=repository_root_fingerprint(gold.fixture_root),
+    )
+
+
+def configured_evaluation_target(
+    gold: ResolvedGold, environment: Mapping[str, str]
+) -> EvaluationTarget:
+    database = environment.get("HYDRA_DB_DATABASE", "").strip()
+    repository_id = environment.get("HYDRA_REPOSITORY_ID", "").strip()
+    root_value = environment.get("HYDRA_REPOSITORY_ROOT", "").strip()
+    collection = environment.get("HYDRA_DB_COLLECTION", "current").strip() or "current"
+    if not database:
+        raise ValueError("live evaluation requires HYDRA_DB_DATABASE")
+    if repository_id != gold.manifest.repository_id:
+        raise ValueError("HYDRA_REPOSITORY_ID must equal the gold repository ID")
+    if collection != "current":
+        raise ValueError("live evaluation requires HYDRA_DB_COLLECTION=current")
+    if not root_value:
+        raise ValueError("live evaluation requires HYDRA_REPOSITORY_ROOT")
+    configured_root = Path(root_value).resolve()
+    if not configured_root.is_dir():
+        raise ValueError("HYDRA_REPOSITORY_ROOT must be an existing directory")
+    configured_fingerprint = repository_root_fingerprint(configured_root)
+    expected_fingerprint = repository_root_fingerprint(gold.fixture_root)
+    if configured_fingerprint != expected_fingerprint:
+        raise ValueError("HYDRA_REPOSITORY_ROOT must equal the gold fixture repository root")
+    return EvaluationTarget(
+        database=database,
+        collection="current",
+        repository_id=repository_id,
+        revision_id=gold.manifest.revision_id,
+        repository_root_fingerprint=configured_fingerprint,
+    )
+
+
+def _live_result_is_grounded(
+    normalized: Mapping[str, Any],
+    target: EvaluationTarget,
+    *,
+    graph_context: bool,
+) -> bool:
+    hydradb = _record(normalized.get("hydradb"))
+    if (
+        normalized.get("revision") != target.revision_id
+        or hydradb.get("database") != target.database
+        or hydradb.get("collections") != [target.collection]
+    ):
+        return False
+    chunks = _records(normalized.get("chunks"))
+    if not chunks or any(
+        chunk.get("repository_id") != target.repository_id
+        or chunk.get("revision") != target.revision_id
+        for chunk in chunks
+    ):
+        return False
+    grounded_nodes = {
+        str(chunk["node_id"])
+        for chunk in chunks
+        if isinstance(chunk.get("node_id"), str) and chunk["node_id"]
+    }
+    grounded_chunks = {
+        str(chunk["chunk_id"])
+        for chunk in chunks
+        if isinstance(chunk.get("chunk_id"), str) and chunk["chunk_id"]
+    }
+    groups = (*_records(normalized.get("paths")), *_records(normalized.get("relations")))
+    if graph_context != bool(groups):
+        return False
+    grounded_hop = False
+    for group in groups:
+        linked_chunks = {
+            str(item) for item in group.get("chunk_ids", []) if isinstance(item, str) and item
+        }
+        if not linked_chunks or not linked_chunks.issubset(grounded_chunks):
+            return False
+        for hop in _records(group.get("hops")):
+            grounded_hop = True
+            source_id = _concrete_string(_record(hop.get("source")).get("id"))
+            target_id = _concrete_string(_record(hop.get("target")).get("id"))
+            relation = _record(hop.get("relation"))
+            relation_chunk = _concrete_string(relation.get("chunk_id"))
+            if (
+                not source_id
+                or not target_id
+                or not {source_id, target_id}.issubset(grounded_nodes)
+                or relation_chunk not in grounded_chunks
+                or relation.get("origin") != "byog"
+            ):
+                return False
+    return grounded_hop if graph_context else True
 
 
 def _baseline_evidence_payload(evidence: BaselineEvidence) -> dict[str, Any]:
@@ -464,6 +624,43 @@ def _baseline_evidence_payload(evidence: BaselineEvidence) -> dict[str, Any]:
         "end_column": evidence.end_column,
         "excerpt_hash": evidence.excerpt_hash,
     }
+
+
+def _context_content(payload: Mapping[str, Any]) -> str:
+    identities: dict[str, str] = {}
+
+    def add(identifier: object, value: object) -> None:
+        if not isinstance(value, str) or not value:
+            return
+        key_id = (
+            identifier
+            if isinstance(identifier, str) and identifier
+            else hashlib.sha256(value.encode("utf-8")).hexdigest()
+        )
+        existing = identities.get(key_id)
+        if existing is not None and existing != value:
+            raise ValueError(f"HydraDB returned conflicting context for ID {key_id}.")
+        identities[key_id] = value
+
+    for chunk in _records(payload.get("chunks")):
+        add(
+            chunk.get("chunk_id") or chunk.get("source_id") or chunk.get("node_id"),
+            chunk.get("content"),
+        )
+    for chunk in _records(payload.get("additional_context")):
+        add(
+            chunk.get("chunk_id") or chunk.get("source_id") or chunk.get("node_id"),
+            chunk.get("content"),
+        )
+    for group in (*_records(payload.get("paths")), *_records(payload.get("relations"))):
+        add(group.get("path_id"), group.get("summary"))
+        for hop in _records(group.get("hops")):
+            relation = _record(hop.get("relation"))
+            predicate = _concrete_string(relation.get("predicate") or relation.get("raw_predicate"))
+            context = _concrete_string(relation.get("context"))
+            relation_text = " ".join(item for item in (predicate, context) if item)
+            add(relation.get("id"), relation_text)
+    return "\n".join(identities.values())
 
 
 def _unique_evidence(items: Sequence[EvidenceObservation]) -> list[EvidenceObservation]:

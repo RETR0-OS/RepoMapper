@@ -6,12 +6,20 @@ small, inspectable comparison baseline, not a HydraDB failure fallback.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+from hydra_graph.ids import content_hash
+from hydra_graph.models import Evidence
+
+if TYPE_CHECKING:
+    from .gold import ResolvedGold
 
 TOKEN_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
@@ -42,7 +50,12 @@ class RankedDocument:
 
 
 def _tokens(text: str) -> tuple[str, ...]:
-    return tuple(match.group(0).lower() for match in TOKEN_PATTERN.finditer(text))
+    tokens: list[str] = []
+    for match in TOKEN_PATTERN.finditer(text):
+        identifier = match.group(0).lower()
+        tokens.append(identifier)
+        tokens.extend(part for part in identifier.split("_") if part and part != identifier)
+    return tuple(tokens)
 
 
 class DeterministicTfidf:
@@ -109,6 +122,31 @@ class DeterministicTfidf:
         return dot / (left_norm * right_norm) if left_norm and right_norm else 0.0
 
 
+def baseline_corpus_digest(documents: tuple[BaselineDocument, ...]) -> str:
+    payload = [
+        {
+            "document_id": document.document_id,
+            "node_id": document.node_id,
+            "content": document.content,
+            "evidence": [
+                {
+                    "evidence_id": item.evidence_id,
+                    "path": item.path,
+                    "start_line": item.start_line,
+                    "start_column": item.start_column,
+                    "end_line": item.end_line,
+                    "end_column": item.end_column,
+                    "excerpt_hash": item.excerpt_hash,
+                }
+                for item in sorted(document.evidence, key=lambda evidence: evidence.evidence_id)
+            ],
+        }
+        for document in sorted(documents, key=lambda item: item.document_id)
+    ]
+    canonical = json.dumps(payload, separators=(",", ":"), sort_keys=True)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def load_baseline_documents(path: str | Path) -> tuple[BaselineDocument, ...]:
     try:
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -142,6 +180,90 @@ def load_baseline_documents(path: str | Path) -> tuple[BaselineDocument, ...]:
     return tuple(documents)
 
 
+def validate_baseline_documents(
+    documents: tuple[BaselineDocument, ...], gold: ResolvedGold
+) -> None:
+    nodes = gold.graph.node_map()
+    evidence: dict[str, tuple[Evidence, frozenset[str]]] = {}
+    outgoing_evidence: dict[str, set[str]] = {}
+    for edge in gold.graph.edges:
+        for item in edge.evidence:
+            evidence[item.id] = (item, frozenset((edge.source_id, edge.target_id)))
+            outgoing_evidence.setdefault(edge.source_id, set()).add(item.id)
+    document_node_ids = [document.node_id for document in documents]
+    if len(document_node_ids) != len(set(document_node_ids)):
+        raise ValueError("baseline corpus must cover every Graph IR node exactly once")
+    for document in documents:
+        node = nodes.get(document.node_id)
+        if node is None:
+            raise ValueError(f"baseline document {document.document_id} references an unknown node")
+        if document.document_id != document.node_id:
+            raise ValueError("baseline document IDs must equal their stable Graph IR node IDs")
+        if node.span is None:
+            raise ValueError(f"baseline node {document.node_id} has no source span")
+        node_source = _safe_fixture_source(gold.fixture_root, node.path).read_text(encoding="utf-8")
+        expected_content = _source_span(
+            node_source,
+            start_line=node.span.start_line,
+            start_column=node.span.start_column,
+            end_line=node.span.end_line,
+            end_column=node.span.end_column,
+        )
+        if document.content != expected_content:
+            raise ValueError(f"baseline content for {document.document_id} is not source-derived")
+        for item in document.evidence:
+            matched = evidence.get(item.evidence_id)
+            if matched is None:
+                raise ValueError(
+                    f"baseline document {document.document_id} references unknown evidence"
+                )
+            actual, endpoints = matched
+            if document.node_id not in endpoints:
+                raise ValueError(
+                    f"baseline evidence is not connected to document {document.document_id}"
+                )
+            expected = (
+                item.path,
+                item.start_line,
+                item.start_column,
+                item.end_line,
+                item.end_column,
+                item.excerpt_hash,
+            )
+            observed = (
+                actual.path,
+                actual.start_line,
+                actual.start_column,
+                actual.end_line,
+                actual.end_column,
+                actual.excerpt_hash,
+            )
+            if expected != observed:
+                raise ValueError(
+                    f"baseline evidence for {document.document_id} differs from Graph IR"
+                )
+            source = _safe_fixture_source(gold.fixture_root, item.path).read_text(encoding="utf-8")
+            excerpt = _source_span(
+                source,
+                start_line=item.start_line,
+                start_column=item.start_column,
+                end_line=item.end_line,
+                end_column=item.end_column,
+            )
+            if content_hash(excerpt) != item.excerpt_hash:
+                raise ValueError(
+                    f"baseline evidence for {document.document_id} is stale relative to source"
+                )
+        if {item.evidence_id for item in document.evidence} != outgoing_evidence.get(
+            document.node_id, set()
+        ):
+            raise ValueError(
+                f"baseline evidence for {document.document_id} is not the complete outgoing set"
+            )
+    if set(document_node_ids) != set(nodes):
+        raise ValueError("baseline corpus must cover every Graph IR node exactly once")
+
+
 def _load_evidence(value: object) -> BaselineEvidence:
     fields = {
         "evidence_id",
@@ -173,3 +295,41 @@ def _load_evidence(value: object) -> BaselineEvidence:
     if not re.fullmatch(r"[0-9a-f]{64}", evidence.excerpt_hash):
         raise ValueError("baseline evidence excerpt hash must be lowercase sha256")
     return evidence
+
+
+def _safe_fixture_source(root: Path, relative: str) -> Path:
+    candidate = (root / relative).resolve()
+    try:
+        candidate.relative_to(root.resolve())
+    except ValueError as error:
+        raise ValueError(f"baseline source path escapes the fixture root: {relative}") from error
+    if not candidate.is_file():
+        raise ValueError(f"baseline source is not a file: {relative}")
+    return candidate
+
+
+def _source_span(
+    source: str,
+    *,
+    start_line: int,
+    start_column: int,
+    end_line: int,
+    end_column: int,
+) -> str:
+    lines = source.splitlines()
+    if not 1 <= start_line <= end_line <= len(lines):
+        raise ValueError("baseline evidence line span is outside its source file")
+
+    def byte_slice(line: str, start: int, end: int | None = None) -> str:
+        encoded = line.encode("utf-8")
+        try:
+            return encoded[start:end].decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise ValueError("baseline evidence columns split a UTF-8 code point") from error
+
+    if start_line == end_line:
+        return byte_slice(lines[start_line - 1], start_column, end_column)
+    segments = [byte_slice(lines[start_line - 1], start_column)]
+    segments.extend(lines[start_line : end_line - 1])
+    segments.append(byte_slice(lines[end_line - 1], 0, end_column))
+    return "\n".join(segments)
