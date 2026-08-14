@@ -1,0 +1,170 @@
+{
+  "success": true,
+  "data": {
+    "chunks": [
+      {
+        "chunk_uuid": "chunk-authorize",
+        "id": "source-authorize",
+        "chunk_content": "authorize_user validates the bearer token, then calls TokenStore.resolve.",
+        "source_type": "code_symbol",
+        "source_title": "authorize_user",
+        "relevancy_score": 0.94,
+        "metadata": {
+          "repository_id": "hack-hydra",
+          "revision_id": "rev-abc",
+          "entity_kind": "FUNCTION",
+          "language": "python",
+          "relation_quality": "exact"
+        },
+        "additional_metadata": {
+          "node_id": "node-authorize",
+          "logical_id": "payments.auth.authorize_user",
+          "qualified_name": "payments.auth.authorize_user",
+          "path": "src/payments/auth.py",
+          "start_line": 10,
+          "start_column": 0,
+          "end_line": 18,
+          "end_column": 20,
+          "content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "parser": "python-ast",
+          "parser_version": "3.13"
+        }
+      },
+      {
+        "chunk_uuid": "chunk-store",
+        "id": "source-store",
+        "chunk_content": "TokenStore.resolve reads the indexed token and returns the matching account.",
+        "source_type": "code_symbol",
+        "source_title": "TokenStore.resolve",
+        "relevancy_score": 0.81,
+        "metadata": {
+          "repository_id": "hack-hydra",
+          "revision_id": "rev-abc",
+          "entity_kind": "METHOD",
+          "language": "python",
+          "relation_quality": "exact"
+        },
+        "additional_metadata": {
+          "node_id": "node-store",
+          "logical_id": "payments.store.TokenStore.resolve",
+          "qualified_name": "payments.store.TokenStore.resolve",
+          "path": "src/payments/store.py",
+          "start_line": 22,
+          "start_column": 4,
+          "end_line": 29,
+          "end_column": 24,
+          "content_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "parser": "python-ast",
+          "parser_version": "3.13"
+        }
+      },
+      {
+        "chunk_uuid": "chunk-decoy",
+        "id": "source-decoy",
+        "chunk_content": "This lower-ranked HydraDB result mentions authorization documentation.",
+        "source_type": "code_symbol",
+        "source_title": "authorization_notes",
+        "relevancy_score": 0.4,
+        "metadata": {
+          "repository_id": "hack-hydra",
+          "revision_id": "rev-abc",
+          "entity_kind": "FILE",
+          "language": "markdown",
+          "relation_quality": "unknown"
+        },
+        "additional_metadata": {
+          "node_id": "node-decoy",
+          "logical_id": "docs.authorization",
+          "qualified_name": "docs.authorization",
+          "path": "docs/authorization.md",
+          "content_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "parser": "markdown",
+          "parser_version": "1"
+        }
+      }
+    ],
+    "sources": [
+      {
+        "id": "source-authorize",
+        "title": "authorize_user",
+        "type": "code_symbol",
+        "metadata": {"repository_id": "hack-hydra", "revision_id": "rev-abc"},
+        "additional_metadata": {"path": "src/payments/auth.py"}
+      },
+      {
+        "id": "source-store",
+        "title": "TokenStore.resolve",
+        "type": "code_symbol",
+        "metadata": {"repository_id": "hack-hydra", "revision_id": "rev-abc"},
+        "additional_metadata": {"path": "src/payments/store.py"}
+      }
+    ],
+    "graph_context": {
+      "query_paths": [
+        {
+          "triplets": [
+            {
+              "source": {
+                "name": "payments.auth.authorize_user [function] @ src/payments/auth.py",
+                "type": "FUNCTION",
+                "namespace": "hack-hydra",
+                "entity_id": "hydra-entity-authorize",
+                "identifier": "node-authorize"
+              },
+              "relation": {
+                "canonical_predicate": "CALLS",
+                "raw_predicate": "CALLS",
+                "context": "src/payments/auth.py:14 calls TokenStore.resolve.",
+                "confidence": 1.0,
+                "relationship_id": "hydra-rel-calls",
+                "chunk_id": "chunk-authorize",
+                "source_entity_id": "hydra-entity-authorize",
+                "target_entity_id": "hydra-entity-store",
+                "origin": "byog"
+              },
+              "target": {
+                "name": "payments.store.TokenStore.resolve [method] @ src/payments/store.py",
+                "type": "METHOD",
+                "namespace": "hack-hydra",
+                "entity_id": "hydra-entity-store",
+                "identifier": "node-store"
+              }
+            }
+          ],
+          "relevancy_score": 0.91,
+          "combined_context": "authorize_user calls TokenStore.resolve.",
+          "group_id": "path-auth",
+          "source_chunk_ids": ["chunk-authorize", "chunk-store"]
+        }
+      ],
+      "chunk_relations": [
+        {
+          "triplets": [
+            {
+              "source": {"name": "authorize_user", "type": "FUNCTION", "entity_id": "hydra-entity-authorize", "identifier": "node-authorize"},
+              "relation": {"canonical_predicate": "CALLS", "context": "src/payments/auth.py:14 calls TokenStore.resolve.", "relationship_id": "hydra-rel-calls", "chunk_id": "chunk-authorize", "origin": "byog"},
+              "target": {"name": "TokenStore.resolve", "type": "METHOD", "entity_id": "hydra-entity-store", "identifier": "node-store"}
+            }
+          ],
+          "group_id": "path-auth",
+          "source_chunk_ids": ["chunk-authorize"]
+        }
+      ],
+      "chunk_id_to_group_ids": {
+        "chunk-authorize": ["path-auth"],
+        "chunk-store": ["path-auth"]
+      }
+    },
+    "additional_context": {
+      "source-auth-test": {
+        "chunk_uuid": "chunk-auth-test",
+        "id": "source-auth-test",
+        "chunk_content": "test_authorize_user rejects expired bearer tokens.",
+        "source_type": "code_symbol",
+        "source_title": "test_authorize_user"
+      }
+    }
+  },
+  "error": null,
+  "meta": {"request_id": "request-fixture-auth", "latency_ms": 18.4}
+}

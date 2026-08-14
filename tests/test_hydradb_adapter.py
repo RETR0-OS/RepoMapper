@@ -4,7 +4,6 @@ import json
 from typing import Any
 
 import pytest
-
 from hydra_graph.config import DEFAULT_API_URL, HydraDBConfig
 from hydra_graph.hydradb import (
     HydraDBAPIError,
@@ -209,6 +208,8 @@ def test_retryable_5xx_is_retried_but_non_retryable_4xx_is_not() -> None:
     )
     with pytest.raises(HydraDBAPIError, match="forbidden"):
         HydraDBClient(
-            config(max_retries=2, retry_backoff_seconds=0), transport=forbidden, sleep=lambda _: None
+            config(max_retries=2, retry_backoff_seconds=0),
+            transport=forbidden,
+            sleep=lambda _: None,
         ).query(query="do not retry client errors")
     assert len(forbidden.requests) == 1

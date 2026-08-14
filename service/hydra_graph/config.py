@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os
-from typing import Mapping
-
+from collections.abc import Mapping
+from dataclasses import dataclass
 
 DEFAULT_API_URL = "https://api.hydradb.com"
 
@@ -33,7 +32,7 @@ class HydraDBConfig:
         return bool(self.api_key and self.database)
 
     @classmethod
-    def from_env(cls, environ: Mapping[str, str] | None = None) -> "HydraDBConfig":
+    def from_env(cls, environ: Mapping[str, str] | None = None) -> HydraDBConfig:
         env = os.environ if environ is None else environ
         return cls(
             api_key=_clean(env.get("HYDRA_DB_API_KEY")),

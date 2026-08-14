@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
 import json
 import random
 import time
+import uuid
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Protocol
 from urllib import error, parse, request
-import uuid
 
 from .config import HydraDBConfig
-
 
 JsonObject = dict[str, Any]
 
@@ -171,9 +170,7 @@ class HydraDBClient:
             body["metadata_filters"] = dict(metadata_filters)
         return self._call("POST", "/query", json_body=body)
 
-    def status(
-        self, ids: Sequence[str], *, collection: str | None = None
-    ) -> JsonObject:
+    def status(self, ids: Sequence[str], *, collection: str | None = None) -> JsonObject:
         clean_ids = _clean_ids(ids)
         return self._call(
             "GET",
@@ -185,9 +182,7 @@ class HydraDBClient:
             },
         )
 
-    def delete(
-        self, ids: Sequence[str], *, collection: str | None = None
-    ) -> JsonObject:
+    def delete(self, ids: Sequence[str], *, collection: str | None = None) -> JsonObject:
         return self._call(
             "DELETE",
             "/context",
