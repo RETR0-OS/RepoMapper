@@ -17,7 +17,7 @@ python -m pip install -e ".[dev]"
 
 cd .\extension
 npm install
-Pop-Location
+cd ..
 ```
 
 Python 3.11 or newer, Node.js 20 or newer, and VS Code 1.96 or newer are required.
@@ -49,7 +49,7 @@ cd .\extension
 npm run check
 npm test
 npm run build
-Pop-Location
+cd ..
 ```
 
 ## Run the UI preview
@@ -69,7 +69,7 @@ For a real extension host:
 ```powershell
 cd .\extension
 npm run build
-Pop-Location
+cd ..
 code --extensionDevelopmentPath="$PWD\extension"
 ```
 
