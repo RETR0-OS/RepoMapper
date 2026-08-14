@@ -14,9 +14,15 @@ from hydra_graph.security import ManagedSecurity
 
 
 class SecretChannel:
-    def __init__(self, *, approved: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        approved: bool = True,
+        selected_repository: str | None = None,
+    ) -> None:
         self.records: dict[str, str] = {}
         self.approved = approved
+        self.selected_repository = selected_repository
         self.consent_requests: list[dict[str, Any]] = []
 
     def request(self, message_type: str, **payload: Any) -> dict[str, Any]:
@@ -30,7 +36,15 @@ class SecretChannel:
             return {"ok": True}
         if message_type == "oauth_consent":
             self.consent_requests.append(payload)
-            return {"ok": True, "approved": self.approved}
+            projects = payload.get("projects", [])
+            selected = self.selected_repository or (
+                projects[0]["repository_id"] if projects else None
+            )
+            return {
+                "ok": True,
+                "approved": self.approved,
+                "repository_id": selected,
+            }
         raise AssertionError(message_type)
 
 
@@ -176,7 +190,13 @@ def test_mcp_oauth_requires_pkce_consent_and_uses_secret_storage(tmp_path: Path)
     assert bad.status_code == 400
     assert bad.json()["error"] == "invalid_grant"
     assert initialized.status_code == 200
-    assert channel.consent_requests[0]["repository_id"] == "git:example:0123456789abcdefabcd"
+    assert channel.consent_requests[0]["projects"] == [
+        {
+            "repository_id": "git:example:0123456789abcdefabcd",
+            "project_name": tmp_path.name,
+            "root_fingerprint": hashlib.sha256(str(tmp_path).lower().encode()).hexdigest(),
+        }
+    ]
     assert set(channel.consent_requests[0]["scopes"]) == {
         "repository:read",
         "evidence:read",
@@ -244,3 +264,49 @@ def test_dynamic_registration_rejects_non_loopback_redirects(tmp_path: Path) -> 
     assert response.status_code == 400
     assert response.json()["error"] == "invalid_redirect_uri"
     assert not channel.records
+
+
+def test_consent_binds_token_to_explicit_registered_project(tmp_path: Path) -> None:
+    second_root = tmp_path / "second-project"
+    second_root.mkdir()
+    second_id = "git:second:fedcba9876543210abcd"
+    channel = SecretChannel(selected_repository=second_id)
+    issuer = "http://127.0.0.1:8765"
+    provider = ManagedOAuthProvider(
+        channel,  # type: ignore[arg-type]
+        repository_root=tmp_path,
+        repository_id="git:example:0123456789abcdefabcd",
+        issuer_url=issuer,
+    )
+    provider.register_project(second_root, second_id)
+    config = HydraDBConfig(api_key=None, database="", collection="current")
+    container = create_container(
+        config,
+        repository_id="git:example:0123456789abcdefabcd",
+        repository_root=tmp_path,
+    )
+    security = ManagedSecurity(
+        "installation-control-key-with-at-least-32-characters",
+        permitted_hosts={"127.0.0.1"},
+    )
+    with TestClient(
+        create_app(
+            container,
+            managed_security=security,
+            mcp_oauth_provider=provider,
+            mcp_issuer_url=issuer,
+        ),
+        base_url=issuer,
+    ) as client:
+        registered = register(client)
+        code, verifier = authorize(client, registered)
+        tokens = exchange(client, registered, code, verifier)
+        access_records = [
+            value for key, value in channel.records.items() if key.startswith("access/")
+        ]
+
+    assert channel.consent_requests[0]["projects"][1]["repository_id"] == second_id
+    assert len(access_records) == 1
+    assert f'"subject":"{second_id}"' in access_records[0]
+    assert str(second_root) not in access_records[0]
+    assert tokens["token_type"] == "Bearer"

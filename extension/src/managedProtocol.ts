@@ -40,8 +40,12 @@ export interface OAuthConsentRequest {
   type: "oauth_consent";
   request_id: string;
   client_name: string;
-  repository_id: string;
   scopes: string[];
+  projects: Array<{
+    repository_id: string;
+    project_name: string;
+    root_fingerprint: string;
+  }>;
 }
 
 export type ManagedServiceMessage = ServiceHello | ServiceReady | CredentialRequest | OAuthStoreRequest | OAuthConsentRequest;
@@ -86,9 +90,11 @@ export function parseManagedServiceLine(line: string): ManagedServiceMessage {
   }
   if (value.type === "oauth_consent" && validRequestId(value.request_id)
     && typeof value.client_name === "string" && value.client_name.length >= 1 && value.client_name.length <= 200
-    && typeof value.repository_id === "string" && Array.isArray(value.scopes)
+    && Array.isArray(value.scopes)
     && value.scopes.length >= 1 && value.scopes.length <= 8
-    && value.scopes.every((scope) => typeof scope === "string" && /^[a-z]+:[a-z-]+$/.test(scope))) {
+    && value.scopes.every((scope) => typeof scope === "string" && /^[a-z]+:[a-z-]+$/.test(scope))
+    && Array.isArray(value.projects) && value.projects.length >= 1 && value.projects.length <= 32
+    && value.projects.every(validOAuthProject)) {
     return value as unknown as OAuthConsentRequest;
   }
   throw new Error("Managed service returned an unsupported message.");
@@ -207,4 +213,13 @@ function validRequestId(value: unknown): boolean {
 
 function validOAuthKey(value: unknown): boolean {
   return typeof value === "string" && /^[a-z]+\/[A-Za-z0-9_-]{16,128}$/.test(value);
+}
+
+function validOAuthProject(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const project = value as Record<string, unknown>;
+  return typeof project.repository_id === "string"
+    && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(project.repository_id)
+    && typeof project.project_name === "string" && project.project_name.length >= 1 && project.project_name.length <= 200
+    && typeof project.root_fingerprint === "string" && /^[a-f0-9]{64}$/.test(project.root_fingerprint);
 }

@@ -43,6 +43,26 @@ describe("managed private protocol", () => {
     expect(() => parseManagedServiceLine("x".repeat(32_769))).toThrow(/too large/i);
   });
 
+  it("accepts only bounded project choices for native OAuth consent", () => {
+    const message = {
+      protocol: MANAGED_IPC_PROTOCOL,
+      type: "oauth_consent",
+      request_id: "b".repeat(32),
+      client_name: "Codex",
+      scopes: ["repository:read"],
+      projects: [{
+        repository_id: scope.repositoryId,
+        project_name: "Example Project",
+        root_fingerprint: "c".repeat(64)
+      }]
+    };
+    expect(parseManagedServiceLine(JSON.stringify(message))).toEqual(message);
+    expect(() => parseManagedServiceLine(JSON.stringify({
+      ...message,
+      projects: [{ ...message.projects[0], repository_id: "../outside" }]
+    }))).toThrow(/unsupported/i);
+  });
+
   it("returns credentials only for the matching private request", () => {
     const request = parseManagedServiceLine(JSON.stringify({
       protocol: MANAGED_IPC_PROTOCOL,

@@ -6,6 +6,7 @@ import hashlib
 import secrets
 import time
 from pathlib import Path
+from threading import RLock
 from urllib.parse import urlparse
 
 from mcp.server.auth.provider import (
@@ -49,17 +50,30 @@ class ManagedOAuthProvider:
         issuer_url: str,
     ) -> None:
         self._channel = channel
-        canonical_root = str(repository_root.resolve())
-        fingerprint_input = (
-            canonical_root.lower().encode()
-            if Path(canonical_root).drive
-            else canonical_root.encode()
-        )
-        self._repository_root_fingerprint = hashlib.sha256(
-            fingerprint_input
-        ).hexdigest()
         self._repository_id = repository_id
         self._issuer_url = issuer_url.rstrip("/")
+        self._projects: dict[str, dict[str, str]] = {}
+        self._projects_lock = RLock()
+        self.register_project(repository_root, repository_id)
+
+    def register_project(self, repository_root: Path, repository_id: str) -> None:
+        """Expose one already authenticated extension project for native consent."""
+
+        root = repository_root.resolve()
+        canonical = str(root)
+        fingerprint_input = (
+            canonical.lower().encode() if Path(canonical).drive else canonical.encode()
+        )
+        with self._projects_lock:
+            self._projects[repository_id] = {
+                "repository_id": repository_id,
+                "project_name": root.name or repository_id,
+                "root_fingerprint": hashlib.sha256(fingerprint_input).hexdigest(),
+            }
+
+    def registered_project_ids(self) -> tuple[str, ...]:
+        with self._projects_lock:
+            return tuple(sorted(self._projects))
 
     async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
         return self._load_model("client", client_id, OAuthClientInformationFull)
@@ -85,14 +99,23 @@ class ManagedOAuthProvider:
         scopes = params.scopes or [READ_ONLY_SCOPES[0]]
         if not scopes or not set(scopes).issubset(READ_ONLY_SCOPES):
             raise AuthorizeError("invalid_scope", "Only read-only repository scopes are allowed")
+        with self._projects_lock:
+            projects = [dict(project) for project in self._projects.values()]
         response = self._channel.request(
             "oauth_consent",
             client_name=client.client_name or "MCP client",
-            repository_id=self._repository_id,
             scopes=scopes,
+            projects=projects,
         )
         if response.get("approved") is not True:
             raise AuthorizeError("access_denied", "Repository Map access was not approved")
+        selected_repository = response.get("repository_id")
+        if not isinstance(selected_repository, str):
+            raise AuthorizeError("access_denied", "No Repository Map project was selected")
+        with self._projects_lock:
+            selected = self._projects.get(selected_repository)
+        if selected is None:
+            raise AuthorizeError("access_denied", "The selected project is no longer available")
         code_value = secrets.token_urlsafe(32)
         code = AuthorizationCode(
             code=code_value,
@@ -103,7 +126,7 @@ class ManagedOAuthProvider:
             redirect_uri=params.redirect_uri,
             redirect_uri_provided_explicitly=params.redirect_uri_provided_explicitly,
             resource=params.resource,
-            subject=self._repository_id,
+            subject=selected_repository,
         )
         self._store_model("code", code_value, code)
         return construct_redirect_uri(
@@ -175,7 +198,9 @@ class ManagedOAuthProvider:
         if access.expires_at is not None and access.expires_at <= int(time.time()):
             await self.revoke_token(access)
             return None
-        if access.subject != self._repository_id:
+        with self._projects_lock:
+            project_available = access.subject in self._projects
+        if not project_available:
             return None
         return access
 
@@ -203,6 +228,10 @@ class ManagedOAuthProvider:
         refresh_value = secrets.token_urlsafe(32)
         access_key = _record_key("access", access_value)
         refresh_key = _record_key("refresh", refresh_value)
+        with self._projects_lock:
+            project = self._projects.get(subject)
+        if project is None:
+            raise TokenError("invalid_grant", "The selected project is no longer available")
         access = StoredAccessToken(
             token=access_value,
             client_id=client_id,
@@ -212,7 +241,7 @@ class ManagedOAuthProvider:
             subject=subject,
             claims={
                 "iss": self._issuer_url,
-                "repository_root_fingerprint": self._repository_root_fingerprint,
+                "repository_root_fingerprint": project["root_fingerprint"],
             },
             refresh_key=refresh_key,
         )

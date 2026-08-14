@@ -187,6 +187,18 @@ class RepositoryScopes:
             self._scopes[key] = scoped
             return scoped
 
+    def by_repository_id(self, repository_id: str) -> ServiceContainer:
+        normalized_id = normalize_repository_id(repository_id)
+        with self._lock:
+            matches = [
+                scope
+                for scope in self._scopes.values()
+                if scope.sync.repository_id == normalized_id
+            ]
+        if len(matches) != 1:
+            raise LookupError("OAuth project is unavailable or ambiguous")
+        return matches[0]
+
     @staticmethod
     def _key(root: Path, repository_id: str) -> tuple[str, str]:
         canonical = str(root.resolve()).replace("\\", "/")
@@ -324,12 +336,17 @@ def create_app(
     services = container or create_container()
     if services.observe_sessions is None:
         services.observe_sessions = ObserveSessions(services.events)
+    repository_scopes = RepositoryScopes(services)
+    current_services: ContextVar[ServiceContainer] = ContextVar(
+        "hydra_repository_services", default=services
+    )
     from .mcp_server import create_mcp_server
 
     mcp_server = create_mcp_server(
         services,
         oauth_provider=mcp_oauth_provider,
         issuer_url=mcp_issuer_url,
+        service_resolver=repository_scopes.by_repository_id,
     )
     mcp_app = mcp_server.streamable_http_app()
 
@@ -349,10 +366,6 @@ def create_app(
     )
     app.state.services = services
     app.state.mcp_server = mcp_server
-    repository_scopes = RepositoryScopes(services)
-    current_services: ContextVar[ServiceContainer] = ContextVar(
-        "hydra_repository_services", default=services
-    )
     app.state.repository_scopes = repository_scopes
 
     @app.middleware("http")
@@ -443,6 +456,10 @@ def create_app(
                 nonce=body.nonce,
                 signature=body.signature,
             )
+            repository_scopes.get(str(grant.repository_root), grant.repository_id)
+            register_project = getattr(mcp_oauth_provider, "register_project", None)
+            if callable(register_project):
+                register_project(grant.repository_root, grant.repository_id)
         except ValueError as exc:
             raise HTTPException(status_code=401, detail=str(exc)) from exc
         return {

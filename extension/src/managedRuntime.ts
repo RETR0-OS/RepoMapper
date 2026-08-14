@@ -47,7 +47,7 @@ export class ManagedRuntime implements vscode.Disposable, vscode.UriHandler {
   private stdoutBuffer = "";
   private readonly pendingConsents = new Map<string, {
     message: Extract<ManagedServiceMessage, { type: "oauth_consent" }>;
-    resolve: (approved: boolean) => void;
+    resolve: (repositoryId?: string) => void;
     timer: NodeJS.Timeout;
   }>();
   private readonly output = vscode.window.createOutputChannel("Repository Map Service", { log: true });
@@ -91,16 +91,34 @@ export class ManagedRuntime implements vscode.Disposable, vscode.UriHandler {
     this.pendingConsents.delete(requestId);
     clearTimeout(pending.timer);
     const message = pending.message;
-    const approved = message.repository_id === this.project.repositoryId
-      && await vscode.window.showInformationMessage(
-        `${message.client_name} wants read-only Repository Map access to ${this.project.projectName}.`,
+    const selected = message.projects.length === 1
+      ? message.projects[0]
+      : await vscode.window.showQuickPick(
+        message.projects.map((project) => ({
+          label: project.project_name,
+          description: project.repository_id,
+          detail: `Canonical root fingerprint ${project.root_fingerprint.slice(0, 16)}…`,
+          project
+        })),
         {
-          modal: true,
-          detail: `Requested scopes: ${message.scopes.join(", ")}. This does not reveal HydraDB credentials or allow indexing writes.`
-        },
-        "Allow read-only access"
-      ) === "Allow read-only access";
-    pending.resolve(approved);
+          title: `${message.client_name} Repository Map access`,
+          placeHolder: "Select the project this agent may read",
+          ignoreFocusOut: true
+        }
+      ).then((item) => item?.project);
+    if (!selected) {
+      pending.resolve(undefined);
+      return;
+    }
+    const approved = await vscode.window.showInformationMessage(
+      `${message.client_name} wants read-only Repository Map access to ${selected.project_name}.`,
+      {
+        modal: true,
+        detail: `Requested scopes: ${message.scopes.join(", ")}. This does not reveal HydraDB credentials or allow indexing writes.`
+      },
+      "Allow read-only access"
+    ) === "Allow read-only access";
+    pending.resolve(approved ? selected.repository_id : undefined);
   }
 
   public async ensureReady(): Promise<ManagedSession> {
@@ -125,7 +143,7 @@ export class ManagedRuntime implements vscode.Disposable, vscode.UriHandler {
     this.child = undefined;
     for (const pending of this.pendingConsents.values()) {
       clearTimeout(pending.timer);
-      pending.resolve(false);
+      pending.resolve(undefined);
     }
     this.pendingConsents.clear();
     void this.releaseOwnerLock();
@@ -258,19 +276,22 @@ export class ManagedRuntime implements vscode.Disposable, vscode.UriHandler {
       return;
     }
     if (message.type === "oauth_consent") {
-      const approved = await this.requestOAuthConsent(message);
-      this.writeToService(managedResponse(message.request_id, { approved }));
+      const repositoryId = await this.requestOAuthConsent(message);
+      this.writeToService(managedResponse(message.request_id, {
+        approved: repositoryId !== undefined,
+        ...(repositoryId ? { repository_id: repositoryId } : {})
+      }));
     }
   }
 
   private async requestOAuthConsent(
     message: Extract<ManagedServiceMessage, { type: "oauth_consent" }>
-  ): Promise<boolean> {
+  ): Promise<string | undefined> {
     const requestId = randomUUID();
-    return await new Promise<boolean>((resolve) => {
+    return await new Promise<string | undefined>((resolve) => {
       const timer = setTimeout(() => {
         this.pendingConsents.delete(requestId);
-        resolve(false);
+        resolve(undefined);
       }, 120_000);
       this.pendingConsents.set(requestId, { message, resolve, timer });
       const uri = vscode.Uri.parse(
@@ -280,11 +301,11 @@ export class ManagedRuntime implements vscode.Disposable, vscode.UriHandler {
         if (opened) return;
         clearTimeout(timer);
         this.pendingConsents.delete(requestId);
-        resolve(false);
+        resolve(undefined);
       }, () => {
         clearTimeout(timer);
         this.pendingConsents.delete(requestId);
-        resolve(false);
+        resolve(undefined);
       });
     });
   }
