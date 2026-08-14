@@ -19,6 +19,7 @@ htmlcov/
 node_modules/
 extension/dist/
 extension/out/
+extension/resources/service/
 *.vsix
 
 # Build and runtime output

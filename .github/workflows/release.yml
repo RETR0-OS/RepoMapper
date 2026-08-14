@@ -1,0 +1,127 @@
+name: Build platform extensions
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: win32-x64
+            runner: windows-latest
+            executable: hydra-graph.exe
+          - target: win32-arm64
+            runner: windows-11-arm
+            executable: hydra-graph.exe
+          - target: darwin-x64
+            runner: macos-15-intel
+            executable: hydra-graph
+          - target: darwin-arm64
+            runner: macos-15
+            executable: hydra-graph
+          - target: linux-x64
+            runner: ubuntu-24.04
+            executable: hydra-graph
+          - target: linux-arm64
+            runner: ubuntu-24.04-arm
+            executable: hydra-graph
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+      - name: Install build dependencies
+        run: python -m pip install -e ".[dev,packaging]"
+      - name: Install extension dependencies
+        working-directory: extension
+        run: npm ci
+      - name: Verify Python
+        run: |
+          python -m ruff check service evaluation demo tests packaging
+          python -m pytest -q
+      - name: Verify extension
+        working-directory: extension
+        run: |
+          npm run check
+          npm test
+          npm run build
+          npm audit --audit-level=high
+      - name: Build managed service
+        run: python -m PyInstaller --noconfirm --clean packaging/hydra_graph.spec
+      - name: Require release signing secrets
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          APPLE_SIGN_IDENTITY: ${{ secrets.APPLE_SIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          case "${{ matrix.target }}" in
+            win32-*) test -n "$WINDOWS_CERTIFICATE_BASE64" && test -n "$WINDOWS_CERTIFICATE_PASSWORD" ;;
+            darwin-*) test -n "$APPLE_SIGN_IDENTITY" && test -n "$APPLE_ID" && test -n "$APPLE_TEAM_ID" && test -n "$APPLE_APP_PASSWORD" ;;
+          esac
+      - name: Sign Windows service
+        if: startsWith(github.ref, 'refs/tags/v') && startsWith(matrix.target, 'win32-')
+        shell: pwsh
+        run: >-
+          ./packaging/sign_windows.ps1
+          -Executable "dist/hydra-graph/${{ matrix.executable }}"
+          -CertificateBase64 '${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}'
+          -CertificatePassword '${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}'
+      - name: Sign and notarize macOS service
+        if: startsWith(github.ref, 'refs/tags/v') && startsWith(matrix.target, 'darwin-')
+        env:
+          APPLE_SIGN_IDENTITY: ${{ secrets.APPLE_SIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: bash packaging/sign_macos.sh "dist/hydra-graph/${{ matrix.executable }}"
+      - name: Stage managed service
+        run: >-
+          python packaging/stage_service.py
+          --source dist/hydra-graph
+          --extension extension
+          --target ${{ matrix.target }}
+      - name: Create artifact directory
+        shell: bash
+        run: mkdir -p artifacts
+      - name: Build platform VSIX
+        working-directory: extension
+        run: npx vsce package --target ${{ matrix.target }} --out "../artifacts/repository-map-${{ matrix.target }}.vsix"
+      - name: Python SBOM
+        run: cyclonedx-py environment --output-format JSON --output-file "artifacts/repository-map-${{ matrix.target }}.python.cdx.json"
+      - name: Node SBOM
+        working-directory: extension
+        shell: bash
+        run: npm sbom --json > "../artifacts/repository-map-${{ matrix.target }}.node.cdx.json"
+      - name: Checksums and licenses
+        run: python packaging/release_metadata.py artifacts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: repository-map-${{ matrix.target }}
+          path: artifacts/
+          if-no-files-found: error
+      - uses: actions/attest-build-provenance@v2
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          subject-path: artifacts/repository-map-${{ matrix.target }}.vsix
