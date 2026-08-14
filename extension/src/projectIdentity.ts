@@ -68,7 +68,7 @@ export function gitRepositoryIdentity(input: GitIdentityInput): ProjectIdentityR
     subproject = `\n${relative}`;
   }
   const originFingerprint = sha256(remote.canonical);
-  const identityHash = sha256(`${remote.canonical}${subproject}`).slice(0, 20);
+  const identityHash = originFingerprint.slice(0, 20);
   const subprojectSuffix = subproject ? `:${sha256(relative).slice(0, 10)}` : "";
   return {
     version: IDENTITY_VERSION,

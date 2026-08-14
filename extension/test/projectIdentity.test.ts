@@ -28,6 +28,9 @@ describe("project identity", () => {
     const subproject = gitRepositoryIdentity({ projectRoot: "/work/repo/apps/api", gitRoot: "/work/repo", origin: "https://github.com/a/repo" });
     expect(upstream?.repository_id).not.toBe(fork?.repository_id);
     expect(subproject?.repository_id).toMatch(/^git:repo:[a-f0-9]{20}:[a-f0-9]{10}$/);
+    expect(subproject?.repository_id.split(":").slice(0, 3)).toEqual(
+      upstream?.repository_id.split(":").slice(0, 3)
+    );
     expect(subproject?.repository_id).not.toBe(upstream?.repository_id);
   });
 
