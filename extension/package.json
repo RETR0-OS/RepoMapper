@@ -80,7 +80,22 @@
       },
       {
         "command": "hydra.configureService",
-        "title": "Configure Service URL",
+        "title": "Configure Repository Map",
+        "category": "Repository Map"
+      },
+      {
+        "command": "hydra.setup",
+        "title": "Set Up Repository Map",
+        "category": "Repository Map"
+      },
+      {
+        "command": "hydra.replaceApiKey",
+        "title": "Replace HydraDB API Key",
+        "category": "Repository Map"
+      },
+      {
+        "command": "hydra.removeProjectBinding",
+        "title": "Remove Project Database Binding",
         "category": "Repository Map"
       },
       {

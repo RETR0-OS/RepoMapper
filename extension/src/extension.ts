@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { RepositoryMapCodeLensProvider } from "./codeLensProvider.js";
+import { CredentialVault } from "./credentials.js";
 import { captureEditorFocus, focusedViewRequest, type FocusAction } from "./editorFocus.js";
 import {
   formatCheckpoint,
@@ -28,12 +29,23 @@ import {
 } from "./indexing.js";
 import { RepositoryServiceClient } from "./serviceClient.js";
 import { RepositorySidebar } from "./sidebar.js";
+import { resolveCurrentProject } from "./projectResolver.js";
+import type { ResolvedProject } from "./projectIdentity.js";
+import { removeProjectCredentials, replaceProfileKey, runCredentialSetup } from "./setupWizard.js";
 import type { ServiceHealth, ViewMode } from "./types.js";
 import { pendingCompareContext, preserveViewContext } from "./viewContext.js";
-import { createRepositoryScope, type RepositoryScope } from "./workspaceScope.js";
 
-export function activate(context: vscode.ExtensionContext): void {
-  const repositoryScope = activeRepositoryScope();
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  let project: ResolvedProject | undefined;
+  try {
+    project = await resolveCurrentProject();
+  } catch (error) {
+    void vscode.window.showErrorMessage(
+      `Repository Map could not resolve the current project. ${error instanceof Error ? error.message : "Unknown project error."}`
+    );
+  }
+  const repositoryScope = project;
+  const credentialVault = new CredentialVault(context.secrets, context.globalState);
   const repositoryStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 90);
   repositoryStatus.name = "Repository Map";
   repositoryStatus.text = "$(type-hierarchy) Repository Map";
@@ -359,19 +371,27 @@ export function activate(context: vscode.ExtensionContext): void {
       }
     }],
     ["hydra.configureService", async () => {
-      const configuration = vscode.workspace.getConfiguration("hydra");
-      const current = configuration.get<string>("serviceUrl", "http://127.0.0.1:8765");
-      const serviceUrl = await vscode.window.showInputBox({
-        title: "Configure repository service",
-        value: current,
-        prompt: "Local HTTP URL for the Python repository service",
-        validateInput: (value) => /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:\/.*)?$/i.test(value)
-          ? undefined : "Use a local HTTP URL, for example http://127.0.0.1:8765."
-      });
-      if (serviceUrl) {
-        await configuration.update("serviceUrl", serviceUrl, vscode.ConfigurationTarget.Workspace);
-        await panel.refresh();
+      if (!project) {
+        void vscode.window.showWarningMessage("Open a local project folder before configuring Repository Map.");
+        return;
       }
+      if (await runCredentialSetup(credentialVault, project)) await panel.refresh();
+    }],
+    ["hydra.setup", async () => {
+      if (!project) {
+        void vscode.window.showWarningMessage("Open a local project folder before configuring Repository Map.");
+        return;
+      }
+      if (await runCredentialSetup(credentialVault, project)) await panel.refresh();
+    }],
+    ["hydra.replaceApiKey", async () => {
+      await replaceProfileKey(credentialVault);
+      await panel.refresh();
+    }],
+    ["hydra.removeProjectBinding", async () => {
+      if (!project) return;
+      await removeProjectCredentials(credentialVault, project);
+      await panel.refresh();
     }]
   ];
   registrations.forEach(([command, handler]) => context.subscriptions.push(vscode.commands.registerCommand(command, handler)));
@@ -383,6 +403,13 @@ export function activate(context: vscode.ExtensionContext): void {
     panel,
     vscode.languages.registerCodeLensProvider({ scheme: "file" }, new RepositoryMapCodeLensProvider())
   );
+  if (project && !credentialVault.hasProjectBinding(project.repositoryId)) {
+    const action = await vscode.window.showInformationMessage(
+      `Set up Repository Map for ${project.projectName} without using the terminal.`,
+      "Start setup"
+    );
+    if (action === "Start setup") await vscode.commands.executeCommand("hydra.setup");
+  }
   void panel.refresh();
 }
 
@@ -390,11 +417,4 @@ export function deactivate(): void {}
 
 function isMode(value: unknown): value is ViewMode {
   return typeof value === "string" && ["repository", "explore", "trace", "observe", "compare", "preserve"].includes(value);
-}
-
-function activeRepositoryScope(): RepositoryScope | undefined {
-  const folders = vscode.workspace.workspaceFolders?.filter((folder) => folder.uri.scheme === "file") ?? [];
-  const folder = folders[0];
-  if (!folder) return undefined;
-  return createRepositoryScope(folder.uri.fsPath, folder.name);
 }
