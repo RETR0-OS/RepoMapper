@@ -12,6 +12,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from .ids import edge_logical_id
 from .models import Evidence, GraphEdge, GraphNode
 from .query import QueryRequest, QueryService
 
@@ -332,9 +333,19 @@ def _relation_edge(
     predicate = relation.get("predicate") or relation.get("raw_predicate")
     if not predicate:
         return None
+    repository_id = chunk.get("repository_id")
+    if not repository_id:
+        return None
+    logical_id = edge_logical_id(
+        repository_id=str(repository_id),
+        source_id=source_id,
+        predicate=str(predicate),
+        target_id=target_id,
+        quality=quality,
+    )
     candidate = {
         "id": stable_edge_id,
-        "logical_id": stable_edge_id,
+        "logical_id": logical_id,
         "source_id": source_id,
         "predicate": str(predicate),
         "target_id": target_id,

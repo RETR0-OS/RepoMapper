@@ -458,3 +458,15 @@ def test_persisted_manifest_allows_restart_to_delete_renamed_sources(tmp_path: A
     assert result.added == ("source-new",)
     assert result.deleted == ("source-old",)
     assert restarted.manifest.revision_id == "rev-new"
+
+
+def test_verified_snapshot_requires_exact_ready_card_hashes() -> None:
+    service, _ = sync_service(LifecycleTransport())
+    original = card("source-a", "node-a", "a" * 64)
+    assert service.sync([original], revision_id="rev-new").status is SyncStatus.READY
+
+    changed = card("source-a", "node-a", "b" * 64)
+
+    assert service.verifies_snapshot([original], revision_id="rev-new") is True
+    assert service.verifies_snapshot([changed], revision_id="rev-new") is False
+    assert service.verifies_snapshot([original], revision_id="fabricated") is False

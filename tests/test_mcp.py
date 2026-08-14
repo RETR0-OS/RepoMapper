@@ -171,10 +171,10 @@ def test_compare_does_not_relabel_generic_chunks_as_change_events() -> None:
         {"before": "rev-old", "after": "rev-abc"},
     )
 
-    assert result["status"] == "degraded"
+    assert result["status"] == "unavailable"
     assert result["chunks"] == []
-    assert "no generic repository chunks" in result["warnings"][0]
-    assert transport.calls[0]["json_body"]["metadata_filters"]["entity_kind"] == "CHANGE_EVENT"
+    assert "no fallback retrieval" in result["warnings"][0]
+    assert transport.calls == []
 
 
 def test_lens_does_not_relabel_generic_chunks_as_saved_lens() -> None:
@@ -182,7 +182,22 @@ def test_lens_does_not_relabel_generic_chunks_as_saved_lens() -> None:
 
     result = call(server, "open_system_lens", {"lens": "payments"})
 
-    assert result["status"] == "degraded"
+    assert result["status"] == "unavailable"
     assert result["chunks"] == []
-    assert "SYSTEM_LENS" in result["warnings"][0]
-    assert transport.calls[0]["json_body"]["metadata_filters"]["entity_kind"] == "SYSTEM_LENS"
+    assert "no fallback retrieval" in result["warnings"][0]
+    assert transport.calls == []
+
+
+def test_missing_evolution_result_matches_query_envelope_contract() -> None:
+    server, transport, _ = mcp()
+
+    result = call(
+        server,
+        "compare_repository_graph",
+        {"before": "rev-old", "after": "rev-new"},
+    )
+
+    assert result["response_schema"] == "hack-hydra.query-response.v1"
+    assert result["chunk_id_to_group_ids"] == {}
+    assert result["budget"]["max_context_chars"] > 0
+    assert transport.calls == []

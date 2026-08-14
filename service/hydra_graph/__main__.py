@@ -28,6 +28,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="Print the exact upload scope without contacting HydraDB",
     )
+    checkpoint = subparsers.add_parser(
+        "checkpoint", help="Capture one verified local before/after checkpoint"
+    )
+    checkpoint.add_argument("slot", choices=("before", "after"))
+    checkpoint.add_argument("--revision", required=True)
+    publish = subparsers.add_parser(
+        "evolution-publish", help="Preview or publish a captured deterministic delta"
+    )
+    publish.add_argument("--before", required=True)
+    publish.add_argument("--after", required=True)
+    publish.add_argument("--confirm", action="store_true")
+    compare = subparsers.add_parser(
+        "compare", help="Query one before/after change event from HydraDB evolution Knowledge"
+    )
+    compare.add_argument("--before", required=True)
+    compare.add_argument("--after", required=True)
+    compare.add_argument("--focus")
+    lens = subparsers.add_parser(
+        "lens-open", help="Open one shared lens through sequential evolution/current queries"
+    )
+    lens.add_argument("--lens", required=True)
     args = parser.parse_args(argv)
     command = args.command or "serve"
     if command == "mcp":
@@ -46,6 +67,31 @@ def main(argv: Sequence[str] | None = None) -> int:
         result = services.sync.sync(cards, revision_id=args.revision).as_dict()
         print(json.dumps({"preview": preview, "sync": result}, indent=2))
         return 0 if result["status"] == "ready" else 1
+    if command in {"checkpoint", "evolution-publish", "compare", "lens-open"}:
+        from .api import create_container
+
+        services = create_container()
+        assert services.evolution is not None
+        if command == "checkpoint":
+            result = services.evolution.capture_checkpoint(
+                args.slot, revision_id=args.revision
+            )
+        elif command == "evolution-publish":
+            result = services.evolution.publish_delta(
+                before_revision_id=args.before,
+                after_revision_id=args.after,
+                confirm=args.confirm,
+            )
+        elif command == "compare":
+            result = services.evolution.compare(
+                before_revision_id=args.before,
+                after_revision_id=args.after,
+                focus=args.focus,
+            )
+        else:
+            result = services.evolution.open_lens(lens=args.lens)
+        print(json.dumps(result, indent=2))
+        return 0 if result["status"] in {"captured", "preview", "ready"} else 1
     import uvicorn
 
     uvicorn.run(

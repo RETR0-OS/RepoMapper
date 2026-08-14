@@ -113,6 +113,25 @@ class SyncService:
                 "current_state_indeterminate": self._current_state_indeterminate,
             }
 
+    def verifies_snapshot(
+        self, cards: Sequence[SourceCard], *, revision_id: str
+    ) -> bool:
+        """Return whether cards exactly match the last verified current snapshot."""
+
+        try:
+            hashes = {card.source_id: _card_hash(card) for card in cards}
+        except ValueError:
+            return False
+        if len(hashes) != len(cards):
+            return False
+        with self._state_lock:
+            return bool(
+                self._status is SyncStatus.READY
+                and not self._current_state_indeterminate
+                and self.manifest.revision_id == revision_id
+                and dict(self.manifest.sources) == hashes
+            )
+
     def sync(self, cards: Sequence[SourceCard], *, revision_id: str) -> SyncResult:
         with self._operation_lock:
             return self._sync_locked(cards, revision_id=revision_id)

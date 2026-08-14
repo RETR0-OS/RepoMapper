@@ -108,7 +108,9 @@ def test_all_extension_view_routes_are_callable() -> None:
         assert response.status_code == 200
         assert response.json()["mode"] == mode
 
-    assert len(transport.calls) == 6
+    # Compare and Preserve require explicit evolution identifiers and must not
+    # fall through to generic current-collection retrieval.
+    assert len(transport.calls) == 4
 
 
 def test_unavailable_query_never_returns_fixture_data() -> None:
@@ -236,3 +238,86 @@ def test_manifest_path_helper_rejects_outside_candidate(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="escapes"):
         _contained_manifest_path(repository, outside)
+
+
+def test_checkpoint_body_is_exact_and_contains_no_confirm_flag() -> None:
+    class Evolution:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str]] = []
+
+        def capture_checkpoint(self, slot: str, *, revision_id: str) -> dict[str, Any]:
+            self.calls.append((slot, revision_id))
+            return {
+                "status": "captured",
+                "operation": "capture_checkpoint",
+                "slot": slot,
+                "revision_id": revision_id,
+            }
+
+    client, _ = api()
+    evolution = Evolution()
+    client.app.state.services.evolution = evolution
+
+    response = client.post(
+        "/api/evolution/checkpoints/before", json={"revision_id": "rev-ready"}
+    )
+    rejected = client.post(
+        "/api/evolution/checkpoints/before",
+        json={"revision_id": "rev-ready", "confirm": True},
+    )
+
+    assert response.status_code == 200
+    assert evolution.calls == [("before", "rev-ready")]
+    assert rejected.status_code == 422
+
+
+@pytest.mark.parametrize(
+    ("path", "body", "detail"),
+    [
+        (
+            "/api/evolution/checkpoints/after",
+            {"revision_id": "unverified"},
+            "Checkpoint capture refused.",
+        ),
+        (
+            "/api/evolution/publish",
+            {
+                "before_revision_id": "missing",
+                "after_revision_id": "after",
+                "confirm": False,
+            },
+            "Delta publication refused.",
+        ),
+        (
+            "/api/lenses",
+            {
+                "name": "Flow",
+                "purpose": "Preserve flow",
+                "view_id": "expired",
+                "notes": None,
+                "confirm": False,
+            },
+            "Shared lens save refused.",
+        ),
+    ],
+)
+def test_evolution_domain_failures_are_bounded_conflicts(
+    path: str, body: dict[str, Any], detail: str
+) -> None:
+    class Evolution:
+        def capture_checkpoint(self, *_: Any, **__: Any) -> Any:
+            raise ValueError("C:/secret/workspace/path")
+
+        def publish_delta(self, **_: Any) -> Any:
+            raise ValueError('{"record_json":"secret"}')
+
+        def save_lens(self, **_: Any) -> Any:
+            raise ValueError("no exact path at C:/secret")
+
+    client, _ = api()
+    client.app.state.services.evolution = Evolution()
+
+    response = client.post(path, json=body)
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": detail}

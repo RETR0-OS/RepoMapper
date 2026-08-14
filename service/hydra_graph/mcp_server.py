@@ -164,21 +164,15 @@ def create_mcp_server(services: Any | None = None) -> FastMCP:
     ) -> dict[str, Any]:
         if not 1 <= max_changes <= 500:
             raise ValueError("max_changes must be between 1 and 500")
-        focus_text = f" Focus on {focus}." if focus else ""
-        result = services.queries.repository_query(
-            QueryRequest(
-                question=(
-                    f"Retrieve stored graph change events from revision {before} to {after}."
-                    f"{focus_text}"
-                ),
-                revision=after,
-                max_results=min(50, max_changes),
-                max_context_chars=15_000,
-                max_paths=min(10, max_changes),
-                max_relations=max_changes,
-                entity_kind="CHANGE_EVENT",
-                session_id=session_id,
-            )
+        evolution = getattr(services, "evolution", None)
+        if evolution is None:
+            return _missing_evolution_result(services, revision=after)
+        result = evolution.compare(
+            before_revision_id=before,
+            after_revision_id=after,
+            focus=focus,
+            max_changes=max_changes,
+            session_id=session_id,
         )
         remember(result, ViewMode.COMPARE)
         return result
@@ -191,19 +185,15 @@ def create_mcp_server(services: Any | None = None) -> FastMCP:
         revision: str = "current",
         session_id: str | None = None,
     ) -> dict[str, Any]:
-        result = services.queries.repository_query(
-            QueryRequest(
-                question=(
-                    f"Open the saved system lens named {lens} and retrieve its current "
-                    "grounded path."
-                ),
-                revision=revision,
-                max_results=12,
-                max_context_chars=10_000,
-                entity_kind="SYSTEM_LENS",
-                session_id=session_id,
+        evolution = getattr(services, "evolution", None)
+        if evolution is None:
+            return _missing_evolution_result(services, revision=revision)
+        result = evolution.open_lens(lens=lens, session_id=session_id)
+        if revision != "current":
+            result["warnings"].append(
+                "The revision argument does not trigger cross-collection traversal; this "
+                "returns the saved shared-lens record only."
             )
-        )
         remember(result, ViewMode.PRESERVE)
         return result
 
@@ -258,3 +248,42 @@ def tool_names(server: FastMCP) -> Sequence[str]:
     import asyncio
 
     return tuple(tool.name for tool in asyncio.run(server.list_tools()))
+
+
+def _missing_evolution_result(services: Any, *, revision: str) -> dict[str, Any]:
+    config = services.queries.client.config
+    return {
+        "response_schema": "hack-hydra.query-response.v1",
+        "session_id": "unavailable_evolution",
+        "view_id": "unavailable_evolution",
+        "status": "unavailable",
+        "hydradb": {
+            "available": False,
+            "database": config.database or None,
+            "collections": [config.evolution_collection],
+            "query_by": "hybrid",
+            "mode": "thinking",
+            "graph_context": True,
+            "path_ids": [],
+            "origin": None,
+            "cross_collection_traversal": False,
+            "memory_used": False,
+        },
+        "revision": revision,
+        "paths": [],
+        "relations": [],
+        "chunk_id_to_group_ids": {},
+        "chunks": [],
+        "sources": [],
+        "additional_context": [],
+        "warnings": ["Evolution service is not configured; no fallback retrieval was used."],
+        "budget": {
+            "max_context_chars": 1,
+            "returned_context_chars": 0,
+            "max_paths": 0,
+            "returned_paths": 0,
+            "max_relations": 0,
+            "returned_relations": 0,
+            "truncated": False,
+        },
+    }
