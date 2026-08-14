@@ -10,10 +10,12 @@
     "revision_id": { "type": "string", "minLength": 1 },
     "nodes": {
       "type": "array",
+      "uniqueItems": true,
       "items": { "$ref": "#/$defs/node" }
     },
     "edges": {
       "type": "array",
+      "uniqueItems": true,
       "items": { "$ref": "#/$defs/edge" }
     },
     "diagnostics": {
@@ -23,6 +25,26 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "relativePath": {
+      "oneOf": [
+        { "const": "." },
+        {
+          "type": "string",
+          "minLength": 1,
+          "not": {
+            "anyOf": [
+              { "pattern": "^/" },
+              { "pattern": "^[A-Za-z]:/" },
+              { "pattern": "\\\\" },
+              { "pattern": "^\\./" },
+              { "pattern": "(?:^|/)\\.\\.?(?:/|$)" },
+              { "pattern": "//" },
+              { "pattern": "/$" }
+            ]
+          }
+        }
+      ]
+    },
     "span": {
       "type": "object",
       "required": ["start_line", "start_column", "end_line", "end_column"],
@@ -39,15 +61,45 @@
       "required": ["id", "path", "excerpt_hash", "explanation"],
       "properties": {
         "id": { "type": "string", "minLength": 1 },
-        "path": { "type": "string", "minLength": 1 },
+        "path": { "$ref": "#/$defs/relativePath" },
         "start_line": { "type": ["integer", "null"], "minimum": 1 },
         "start_column": { "type": ["integer", "null"], "minimum": 0 },
         "end_line": { "type": ["integer", "null"], "minimum": 1 },
         "end_column": { "type": ["integer", "null"], "minimum": 0 },
-        "excerpt_hash": { "type": "string", "minLength": 1 },
+        "excerpt_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
         "explanation": { "type": "string", "minLength": 1, "maxLength": 2000 }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "not": {
+            "anyOf": [
+              { "required": ["start_line"] },
+              { "required": ["start_column"] },
+              { "required": ["end_line"] },
+              { "required": ["end_column"] }
+            ]
+          }
+        },
+        {
+          "required": ["start_line", "start_column", "end_line", "end_column"],
+          "properties": {
+            "start_line": { "type": "integer", "minimum": 1 },
+            "start_column": { "type": "integer", "minimum": 0 },
+            "end_line": { "type": "integer", "minimum": 1 },
+            "end_column": { "type": "integer", "minimum": 0 }
+          }
+        },
+        {
+          "required": ["start_line", "start_column", "end_line", "end_column"],
+          "properties": {
+            "start_line": { "type": "null" },
+            "start_column": { "type": "null" },
+            "end_line": { "type": "null" },
+            "end_column": { "type": "null" }
+          }
+        }
+      ]
     },
     "node": {
       "type": "object",
@@ -55,21 +107,61 @@
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "logical_id": { "type": "string", "minLength": 1 },
-        "kind": { "type": "string", "minLength": 1 },
+        "kind": {
+          "enum": [
+            "REPOSITORY", "PACKAGE", "MODULE", "FILE", "CLASS", "INTERFACE",
+            "TYPE", "FUNCTION", "METHOD", "VARIABLE", "CONSTANT", "TEST",
+            "ENTRYPOINT", "CONFIG_BLOCK", "INFRA_BLOCK", "BUILD_TARGET", "ROUTE",
+            "EVENT", "DATASTORE", "EXTERNAL_SERVICE", "SYSTEM_LENS", "CHANGE_EVENT"
+          ]
+        },
         "display_name": { "type": "string", "minLength": 1 },
         "qualified_name": { "type": "string", "minLength": 1 },
         "language": { "type": ["string", "null"] },
-        "path": { "type": "string", "minLength": 1 },
+        "path": { "$ref": "#/$defs/relativePath" },
         "span": { "anyOf": [{ "$ref": "#/$defs/span" }, { "type": "null" }] },
         "signature": { "type": ["string", "null"] },
         "revision_id": { "type": "string", "minLength": 1 },
-        "content_hash": { "type": "string", "minLength": 64, "maxLength": 64 },
+        "content_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
         "parser": { "type": "string", "minLength": 1 },
         "parser_version": { "type": "string", "minLength": 1 },
         "is_generated": { "type": "boolean" },
         "attributes": { "type": "object" }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "required": ["kind"],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "CLASS", "INTERFACE", "TYPE", "FUNCTION", "METHOD", "VARIABLE",
+                  "CONSTANT", "TEST", "ENTRYPOINT", "CONFIG_BLOCK", "INFRA_BLOCK",
+                  "BUILD_TARGET", "ROUTE", "EVENT", "DATASTORE", "EXTERNAL_SERVICE"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": ["span"],
+            "properties": { "span": { "$ref": "#/$defs/span" } }
+          }
+        },
+        {
+          "if": {
+            "required": ["kind"],
+            "properties": {
+              "kind": {
+                "not": { "enum": ["REPOSITORY", "SYSTEM_LENS", "CHANGE_EVENT"] }
+              }
+            }
+          },
+          "then": {
+            "properties": { "path": { "not": { "const": "." } } }
+          }
+        }
+      ]
     },
     "edge": {
       "type": "object",
@@ -78,18 +170,67 @@
         "id": { "type": "string", "minLength": 1 },
         "logical_id": { "type": "string", "minLength": 1 },
         "source_id": { "type": "string", "minLength": 1 },
-        "predicate": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "predicate": {
+          "enum": [
+            "CONTAINS", "DEFINES", "DECLARES", "IMPORTS", "EXPORTS", "REFERENCES",
+            "EXTENDS", "IMPLEMENTS", "OVERRIDES", "RETURNS", "ACCEPTS",
+            "INSTANTIATES", "CALLS", "MAY_CALL", "DISPATCHES_TO", "HANDLES", "EMITS",
+            "SUBSCRIBES_TO", "READS_FROM", "WRITES_TO", "THROWS", "TESTS", "MOCKS",
+            "ASSERTS_BEHAVIOR_OF", "USES_FIXTURE", "CONFIGURES", "RESOLVES_TO", "LOADS",
+            "PROVIDES", "DEPLOYS", "INVOKES", "ADDED_IN", "REMOVED_IN", "CHANGED_IN",
+            "RENAMED_TO", "REPLACES", "DRIFTS_FROM"
+          ]
+        },
         "target_id": { "type": "string", "minLength": 1 },
         "quality": { "enum": ["exact", "inferred", "semantic", "unknown"] },
         "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
-        "evidence": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/evidence" } },
+        "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence" } },
         "revision_id": { "type": "string", "minLength": 1 },
         "extractor": { "type": "string", "minLength": 1 },
         "extractor_version": { "type": "string", "minLength": 1 },
         "owner_source_id": { "type": "string", "minLength": 1 },
         "attributes": { "type": "object" }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "required": ["quality"],
+            "properties": { "quality": { "const": "exact" } }
+          },
+          "then": {
+            "properties": {
+              "confidence": { "type": "null" },
+              "evidence": { "minItems": 1 }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["quality"],
+            "properties": { "quality": { "const": "inferred" } }
+          },
+          "then": {
+            "required": ["confidence"],
+            "properties": {
+              "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+              "evidence": { "minItems": 1 }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["quality"],
+            "properties": { "quality": { "const": "semantic" } }
+          },
+          "then": {
+            "required": ["confidence"],
+            "properties": {
+              "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+            }
+          }
+        }
+      ]
     }
   }
 }
