@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import ast
+import tokenize
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Iterable
 
 from .discovery import DiscoveredFile, DiscoveryReport, discover_files
 from .ids import content_hash, edge_id, evidence_id, node_id
@@ -20,7 +21,6 @@ from .models import (
     RelationQuality,
     SourceSpan,
 )
-
 
 PARSER_NAME = "python-ast"
 PARSER_VERSION = "1"
@@ -127,32 +127,40 @@ class PythonAnalyzer:
             tuple[str, RelationPredicate, str, RelationQuality, str], list[Evidence]
         ] = defaultdict(list)
 
-        repository = self._repository_node(report, parsed_files)
+        repository = self._repository_node(report)
         nodes[repository.id] = repository
-        file_nodes, package_nodes = self._structure_nodes(report, parsed_files)
+        file_nodes, package_nodes = self._structure_nodes(report)
         nodes.update({node.id: node for node in (*package_nodes, *file_nodes)})
 
         for package in package_nodes:
             parent_path = str(PurePosixPath(package.path).parent)
-            parent = repository if parent_path == "." else self._node_at_path(package_nodes, parent_path)
+            parent = (
+                repository if parent_path == "." else self._node_at_path(package_nodes, parent_path)
+            )
             self._collect_edge(
                 edges_by_key,
                 parent,
                 RelationPredicate.CONTAINS,
                 package,
                 parent.id,
-                self._filesystem_evidence(package, f"{parent.display_name} contains {package.display_name}."),
+                self._filesystem_evidence(
+                    package, f"{parent.display_name} contains {package.display_name}."
+                ),
             )
         for file_node in file_nodes:
             parent_path = str(PurePosixPath(file_node.path).parent)
-            parent = repository if parent_path == "." else self._node_at_path(package_nodes, parent_path)
+            parent = (
+                repository if parent_path == "." else self._node_at_path(package_nodes, parent_path)
+            )
             self._collect_edge(
                 edges_by_key,
                 parent,
                 RelationPredicate.CONTAINS,
                 file_node,
                 parent.id,
-                self._filesystem_evidence(file_node, f"{parent.display_name} contains {file_node.display_name}."),
+                self._filesystem_evidence(
+                    file_node, f"{parent.display_name} contains {file_node.display_name}."
+                ),
             )
 
         file_by_path = {node.path: node for node in file_nodes}
@@ -167,18 +175,19 @@ class PythonAnalyzer:
             diagnostics=tuple(sorted(diagnostics)),
         )
 
-    def _parse_files(
-        self, files: Iterable[DiscoveredFile]
-    ) -> tuple[list[_ParsedFile], list[str]]:
+    def _parse_files(self, files: Iterable[DiscoveredFile]) -> tuple[list[_ParsedFile], list[str]]:
         parsed: list[_ParsedFile] = []
         diagnostics: list[str] = []
         for discovered in files:
             if discovered.language != "python":
                 continue
             try:
-                source = discovered.absolute_path.read_text(encoding="utf-8")
+                with tokenize.open(discovered.absolute_path) as source_file:
+                    source = source_file.read()
             except (OSError, UnicodeDecodeError) as error:
-                diagnostics.append(f"{discovered.path}: unreadable Python source ({error.__class__.__name__})")
+                diagnostics.append(
+                    f"{discovered.path}: unreadable Python source ({error.__class__.__name__})"
+                )
                 continue
             try:
                 tree = ast.parse(source, filename=discovered.path, type_comments=True)
@@ -195,9 +204,7 @@ class PythonAnalyzer:
             )
         return parsed, diagnostics
 
-    def _repository_node(
-        self, report: DiscoveryReport, parsed_files: list[_ParsedFile]
-    ) -> GraphNode:
+    def _repository_node(self, report: DiscoveryReport) -> GraphNode:
         compact, logical = node_id(
             repository_id=self.repository_id,
             path=".",
@@ -207,7 +214,7 @@ class PythonAnalyzer:
             signature_discriminator=None,
         )
         manifest = "\n".join(
-            f"{item.discovered.path}:{item.discovered.content_hash}" for item in parsed_files
+            f"{item.path}:{item.content_hash}" for item in report.files if item.language == "python"
         )
         return GraphNode(
             id=compact,
@@ -222,14 +229,11 @@ class PythonAnalyzer:
             parser_version=FILESYSTEM_VERSION,
         )
 
-    def _structure_nodes(
-        self, report: DiscoveryReport, parsed_files: list[_ParsedFile]
-    ) -> tuple[list[GraphNode], list[GraphNode]]:
+    def _structure_nodes(self, report: DiscoveryReport) -> tuple[list[GraphNode], list[GraphNode]]:
         packages: set[str] = set()
         files: list[GraphNode] = []
-        parsed_by_path = {item.discovered.path: item for item in parsed_files}
         for discovered in report.files:
-            if discovered.path not in parsed_by_path:
+            if discovered.language != "python":
                 continue
             parent = PurePosixPath(discovered.path).parent
             while str(parent) != ".":
@@ -295,7 +299,9 @@ class PythonAnalyzer:
         parsed_files: list[_ParsedFile],
         file_by_path: dict[str, GraphNode],
         nodes: dict[str, GraphNode],
-        edges_by_key: dict[tuple[str, RelationPredicate, str, RelationQuality, str], list[Evidence]],
+        edges_by_key: dict[
+            tuple[str, RelationPredicate, str, RelationQuality, str], list[Evidence]
+        ],
     ) -> list[_Symbol]:
         symbols: list[_Symbol] = []
         for parsed in parsed_files:
@@ -306,21 +312,25 @@ class PythonAnalyzer:
                 scope_parts: list[str],
                 parent_id: str,
                 class_qualified_name: str | None,
+                parsed_file: _ParsedFile = parsed,
+                owner_file: GraphNode = file_node,
             ) -> None:
                 for syntax in body:
-                    if not isinstance(syntax, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if not isinstance(
+                        syntax, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+                    ):
                         continue
-                    qualified = ".".join([parsed.module_name, *scope_parts, syntax.name])
+                    qualified = ".".join([parsed_file.module_name, *scope_parts, syntax.name])
                     if isinstance(syntax, ast.ClassDef):
                         kind = NodeKind.CLASS
                         signature = f"class {syntax.name}"
                         next_class = qualified
-                    elif class_qualified_name and len(scope_parts) > 0:
-                        kind = NodeKind.METHOD
+                    elif syntax.name.startswith("test_") or parsed_file.discovered.is_test:
+                        kind = NodeKind.TEST
                         signature = _function_signature(syntax)
                         next_class = class_qualified_name
-                    elif syntax.name.startswith("test_") or parsed.discovered.is_test:
-                        kind = NodeKind.TEST
+                    elif nodes[parent_id].kind is NodeKind.CLASS:
+                        kind = NodeKind.METHOD
                         signature = _function_signature(syntax)
                         next_class = class_qualified_name
                     else:
@@ -329,13 +339,13 @@ class PythonAnalyzer:
                         next_class = class_qualified_name
                     compact, logical = node_id(
                         repository_id=self.repository_id,
-                        path=parsed.discovered.path,
+                        path=parsed_file.discovered.path,
                         language="python",
                         kind=kind.value,
                         qualified_name=qualified,
                         signature_discriminator=None,
                     )
-                    excerpt = _source_segment(parsed.source, syntax)
+                    excerpt = _source_segment(parsed_file.source, syntax)
                     docstring = ast.get_docstring(syntax, clean=True)
                     graph_node = GraphNode(
                         id=compact,
@@ -344,14 +354,14 @@ class PythonAnalyzer:
                         display_name=syntax.name,
                         qualified_name=qualified,
                         language="python",
-                        path=parsed.discovered.path,
+                        path=parsed_file.discovered.path,
                         span=_node_span(syntax),
                         signature=signature,
                         revision_id=self.revision_id,
                         content_hash=content_hash(excerpt),
                         parser=PARSER_NAME,
                         parser_version=PARSER_VERSION,
-                        is_generated=parsed.discovered.is_generated,
+                        is_generated=parsed_file.discovered.is_generated,
                         attributes={
                             "body_fingerprint": _body_fingerprint(syntax),
                             "docstring": docstring,
@@ -363,13 +373,13 @@ class PythonAnalyzer:
                         node=graph_node,
                         ast_node=syntax,
                         parent_id=parent_id,
-                        module_name=parsed.module_name,
+                        module_name=parsed_file.module_name,
                         class_qualified_name=next_class,
                     )
                     symbols.append(symbol)
                     parent_node = nodes[parent_id]
                     evidence = self._ast_evidence(
-                        parsed,
+                        parsed_file,
                         syntax,
                         f"{parent_node.display_name} defines {graph_node.display_name}.",
                     )
@@ -378,7 +388,7 @@ class PythonAnalyzer:
                         parent_node,
                         RelationPredicate.DEFINES,
                         graph_node,
-                        file_node.id,
+                        owner_file.id,
                         evidence,
                     )
                     visit_body(
@@ -396,9 +406,10 @@ class PythonAnalyzer:
         parsed_files: list[_ParsedFile],
         file_by_path: dict[str, GraphNode],
         symbols: list[_Symbol],
-        edges_by_key: dict[tuple[str, RelationPredicate, str, RelationQuality, str], list[Evidence]],
+        edges_by_key: dict[
+            tuple[str, RelationPredicate, str, RelationQuality, str], list[Evidence]
+        ],
     ) -> None:
-        parsed_by_path = {item.discovered.path: item for item in parsed_files}
         file_by_module = {_module_name(path): node for path, node in file_by_path.items()}
         symbol_by_qualified = {symbol.node.qualified_name: symbol for symbol in symbols}
         symbol_by_ast = {id(symbol.ast_node): symbol for symbol in symbols}
@@ -406,13 +417,20 @@ class PythonAnalyzer:
         for parsed in parsed_files:
             file_node = file_by_path[parsed.discovered.path]
             aliases: dict[str, str] = {}
-            for syntax in ast.walk(parsed.tree):
+            # Only module-level bindings participate in this resolver. A local
+            # import has function scope; treating it as global could fabricate a
+            # call from another function. A later scoped resolver may add those
+            # facts without weakening today's exactness.
+            for syntax in parsed.tree.body:
                 if isinstance(syntax, ast.Import):
                     for alias in syntax.names:
                         bound = alias.asname or alias.name.split(".")[0]
                         aliases[bound] = alias.name if alias.asname else alias.name.split(".")[0]
                         target_file = file_by_module.get(alias.name)
                         if target_file:
+                            explanation = (
+                                f"{file_node.display_name} imports {target_file.qualified_name}."
+                            )
                             self._collect_edge(
                                 edges_by_key,
                                 file_node,
@@ -422,13 +440,31 @@ class PythonAnalyzer:
                                 self._ast_evidence(
                                     parsed,
                                     syntax,
-                                    f"{file_node.display_name} imports {target_file.qualified_name}.",
+                                    explanation,
                                 ),
                             )
                 elif isinstance(syntax, ast.ImportFrom):
                     module = _relative_module(parsed.module_name, syntax.module, syntax.level)
-                    target_file = file_by_module.get(module)
-                    if target_file:
+                    import_targets: dict[str, GraphNode] = {}
+                    for alias in syntax.names:
+                        if alias.name == "*":
+                            continue
+                        bound = alias.asname or alias.name
+                        candidate = f"{module}.{alias.name}" if module else alias.name
+                        aliases[bound] = candidate
+                        target_file = file_by_module.get(candidate) or file_by_module.get(module)
+                        if target_file:
+                            import_targets[target_file.id] = target_file
+                    # A star import can still prove a file-to-file import even
+                    # though it cannot safely bind individual target symbols.
+                    if any(alias.name == "*" for alias in syntax.names):
+                        target_file = file_by_module.get(module)
+                        if target_file:
+                            import_targets[target_file.id] = target_file
+                    for target_file in sorted(import_targets.values(), key=lambda item: item.id):
+                        explanation = (
+                            f"{file_node.display_name} imports {target_file.qualified_name}."
+                        )
                         self._collect_edge(
                             edges_by_key,
                             file_node,
@@ -438,19 +474,19 @@ class PythonAnalyzer:
                             self._ast_evidence(
                                 parsed,
                                 syntax,
-                                f"{file_node.display_name} imports {target_file.qualified_name}.",
+                                explanation,
                             ),
                         )
-                    for alias in syntax.names:
-                        if alias.name == "*":
-                            continue
-                        bound = alias.asname or alias.name
-                        candidate = f"{module}.{alias.name}" if module else alias.name
-                        aliases[bound] = candidate
 
             class Resolver(ast.NodeVisitor):
-                def __init__(resolver_self) -> None:
+                def __init__(
+                    resolver_self,
+                    parsed_file: _ParsedFile,
+                    alias_map: dict[str, str],
+                ) -> None:
                     resolver_self.scope: list[_Symbol] = []
+                    resolver_self.parsed_file = parsed_file
+                    resolver_self.alias_map = alias_map
 
                 def visit_ClassDef(resolver_self, syntax: ast.ClassDef) -> None:
                     symbol = symbol_by_ast.get(id(syntax))
@@ -459,10 +495,14 @@ class PythonAnalyzer:
                             target = self._resolve_expression(
                                 base,
                                 symbol,
-                                aliases,
+                                resolver_self.alias_map,
                                 symbol_by_qualified,
                             )
                             if target and target.node.kind is NodeKind.CLASS:
+                                explanation = (
+                                    f"{symbol.node.qualified_name} extends "
+                                    f"{target.node.qualified_name}."
+                                )
                                 self._collect_edge(
                                     edges_by_key,
                                     symbol.node,
@@ -470,9 +510,9 @@ class PythonAnalyzer:
                                     target.node,
                                     symbol.node.id,
                                     self._ast_evidence(
-                                        parsed,
+                                        resolver_self.parsed_file,
                                         base,
-                                        f"{symbol.node.qualified_name} extends {target.node.qualified_name}.",
+                                        explanation,
                                     ),
                                 )
                         resolver_self.scope.append(symbol)
@@ -504,7 +544,7 @@ class PythonAnalyzer:
                         target_symbol = self._resolve_expression(
                             syntax.func,
                             source_symbol,
-                            aliases,
+                            resolver_self.alias_map,
                             symbol_by_qualified,
                         )
                         if target_symbol and target_symbol.node.id != source_symbol.node.id:
@@ -514,7 +554,7 @@ class PythonAnalyzer:
                                 else RelationPredicate.CALLS
                             )
                             evidence = self._ast_evidence(
-                                parsed,
+                                resolver_self.parsed_file,
                                 syntax,
                                 f"{source_symbol.node.qualified_name} {predicate.value.lower()} "
                                 f"{target_symbol.node.qualified_name}.",
@@ -531,11 +571,12 @@ class PythonAnalyzer:
                                 source_symbol.node.kind is NodeKind.TEST
                                 and target_symbol.node.kind is not NodeKind.TEST
                             ):
+                                test_explanation = (
+                                    f"{source_symbol.node.qualified_name} tests "
+                                    f"{target_symbol.node.qualified_name} through a resolved call."
+                                )
                                 test_evidence = evidence.model_copy(
-                                    update={
-                                        "explanation": f"{source_symbol.node.qualified_name} tests "
-                                        f"{target_symbol.node.qualified_name} through a resolved call."
-                                    }
+                                    update={"explanation": test_explanation}
                                 )
                                 self._collect_edge(
                                     edges_by_key,
@@ -547,7 +588,7 @@ class PythonAnalyzer:
                                 )
                     resolver_self.generic_visit(syntax)
 
-            Resolver().visit(parsed.tree)
+            Resolver(parsed, aliases).visit(parsed.tree)
 
     @staticmethod
     def _resolve_expression(
@@ -614,7 +655,9 @@ class PythonAnalyzer:
                     quality=quality,
                     evidence=tuple(sorted(evidence, key=lambda item: item.id)),
                     revision_id=self.revision_id,
-                    extractor=PARSER_NAME if predicate is not RelationPredicate.CONTAINS else FILESYSTEM_PARSER,
+                    extractor=PARSER_NAME
+                    if predicate is not RelationPredicate.CONTAINS
+                    else FILESYSTEM_PARSER,
                     extractor_version=PARSER_VERSION,
                     owner_source_id=owner,
                 )
@@ -671,4 +714,3 @@ def analyze_repository(
     discovery: DiscoveryReport | None = None,
 ) -> GraphIR:
     return PythonAnalyzer(repository_id, revision_id).analyze(root, discovery=discovery)
-

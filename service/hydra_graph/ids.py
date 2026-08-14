@@ -12,7 +12,6 @@ import posixpath
 import re
 from pathlib import Path, PurePosixPath
 
-
 _SAFE_REPOSITORY_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
 
@@ -100,7 +99,14 @@ def edge_logical_id(
 ) -> str:
     repository = normalize_repository_id(repository_id)
     return ":".join(
-        ["repo", repository, source_id, predicate.strip().upper(), target_id, quality.strip().lower()]
+        [
+            "repo",
+            repository,
+            source_id,
+            predicate.strip().upper(),
+            target_id,
+            quality.strip().lower(),
+        ]
     )
 
 
@@ -130,3 +136,19 @@ def source_id(node_identifier: str) -> str:
 
     return _compact_id("source", node_identifier)
 
+
+def aggregate_id(
+    *,
+    repository_id: str,
+    depth: str,
+    source_group_id: str,
+    predicate: str,
+    target_group_id: str,
+) -> str:
+    """Build a stable identifier for a deterministic presentation aggregate."""
+
+    repository = normalize_repository_id(repository_id)
+    logical = ":".join(
+        [repository, depth.lower(), source_group_id, predicate.upper(), target_group_id]
+    )
+    return _compact_id("aggregate", logical)

@@ -13,7 +13,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from .ids import normalize_relative_path
 
-
 GRAPH_IR_VERSION = "1.0"
 
 
@@ -117,7 +116,7 @@ class Evidence(FrozenModel):
     start_column: int | None = Field(default=None, ge=0)
     end_line: int | None = Field(default=None, ge=1)
     end_column: int | None = Field(default=None, ge=0)
-    excerpt_hash: str = Field(min_length=64, max_length=64)
+    excerpt_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     explanation: str = Field(min_length=1, max_length=2000)
 
     @field_validator("path")
@@ -187,7 +186,7 @@ class GraphNode(FrozenModel):
     span: SourceSpan | None = None
     signature: str | None = None
     revision_id: str = Field(min_length=1)
-    content_hash: str = Field(min_length=64, max_length=64)
+    content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     parser: str = Field(min_length=1)
     parser_version: str = Field(min_length=1)
     is_generated: bool = False
@@ -230,14 +229,16 @@ class GraphEdge(FrozenModel):
     def validate_provenance(self) -> GraphEdge:
         if self.source_id == self.target_id:
             raise ValueError("self-relations are not valid repository graph edges")
+        if self.quality in {RelationQuality.EXACT, RelationQuality.INFERRED} and not self.evidence:
+            raise ValueError(f"{self.quality.value} relations require grounded evidence")
         if self.quality is RelationQuality.EXACT:
             if self.confidence is not None:
                 raise ValueError("exact relations do not use decorative confidence")
-            if not self.evidence:
-                raise ValueError("exact relations require deterministic evidence")
-        elif self.quality in {RelationQuality.INFERRED, RelationQuality.SEMANTIC}:
-            if self.confidence is None:
-                raise ValueError(f"{self.quality.value} relations require a defined confidence")
+        elif (
+            self.quality in {RelationQuality.INFERRED, RelationQuality.SEMANTIC}
+            and self.confidence is None
+        ):
+            raise ValueError(f"{self.quality.value} relations require a defined confidence")
         return self
 
 
@@ -273,4 +274,3 @@ class GraphIR(FrozenModel):
 
     def node_map(self) -> dict[str, GraphNode]:
         return {node.id: node for node in self.nodes}
-

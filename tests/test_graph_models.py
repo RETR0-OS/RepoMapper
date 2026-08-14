@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
-
 from hydra_graph.ids import content_hash, edge_id, evidence_id, node_id
 from hydra_graph.models import (
     Evidence,
@@ -14,6 +12,7 @@ from hydra_graph.models import (
     RelationQuality,
     SourceSpan,
 )
+from pydantic import ValidationError
 
 
 def make_node(name: str, *, kind: NodeKind = NodeKind.FUNCTION) -> GraphNode:
@@ -85,7 +84,7 @@ def test_exact_edge_requires_evidence_and_rejects_decorative_confidence() -> Non
         extractor_version="1",
         owner_source_id=source.id,
     )
-    with pytest.raises(ValidationError, match="require deterministic evidence"):
+    with pytest.raises(ValidationError, match="require grounded evidence"):
         GraphEdge(**fields, evidence=())
     with pytest.raises(ValidationError, match="decorative confidence"):
         GraphEdge(**fields, evidence=(make_evidence(),), confidence=1.0)
@@ -167,4 +166,3 @@ def test_evidence_range_is_all_or_nothing() -> None:
             excerpt_hash=content_hash("x"),
             explanation="An incomplete range is invalid.",
         )
-

@@ -8,14 +8,19 @@ version = "0.1.0"
 description = "Deterministic repository graph service for Hack Hydra"
 requires-python = ">=3.11"
 dependencies = [
+  "fastapi>=0.140,<1",
+  "mcp>=1.29,<3",
   "pydantic>=2.10,<3",
   "pathspec>=0.12,<1",
+  "uvicorn>=0.50,<1",
 ]
 
 [project.optional-dependencies]
 dev = [
+  "httpx>=0.28,<1",
   "pytest>=8.3,<9",
   "pytest-cov>=6,<7",
+  "ruff>=0.12,<1",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -26,3 +31,9 @@ addopts = "-ra --strict-markers"
 testpaths = ["tests"]
 pythonpath = ["service"]
 
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

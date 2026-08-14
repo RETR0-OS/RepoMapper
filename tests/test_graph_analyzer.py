@@ -5,7 +5,6 @@ from pathlib import Path
 from hydra_graph.analyzer import analyze_repository
 from hydra_graph.models import NodeKind, RelationPredicate, RelationQuality
 
-
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "sample_repo"
 
 
@@ -73,7 +72,9 @@ def test_node_ids_survive_unrelated_line_movement(tmp_path: Path) -> None:
     source = tmp_path / "module.py"
     source.write_text("def stable(value):\n    return value\n", encoding="utf-8")
     before = analyze_repository(tmp_path, repository_id="stable", revision_id="before")
-    source.write_text("# a new unrelated line\n\ndef stable(value):\n    return value\n", encoding="utf-8")
+    source.write_text(
+        "# a new unrelated line\n\ndef stable(value):\n    return value\n", encoding="utf-8"
+    )
     after = analyze_repository(tmp_path, repository_id="stable", revision_id="after")
 
     before_symbol = next(node for node in before.nodes if node.display_name == "stable")
@@ -99,4 +100,69 @@ def test_parser_errors_are_diagnostic_not_invented_symbols(tmp_path: Path) -> No
     graph = analyze_repository(tmp_path, repository_id="broken", revision_id="r1")
     assert any("syntax error" in diagnostic for diagnostic in graph.diagnostics)
     assert not any(node.kind is NodeKind.FUNCTION for node in graph.nodes)
+    assert any(node.kind is NodeKind.FILE and node.path == "broken.py" for node in graph.nodes)
 
+
+def test_nested_functions_are_not_mislabeled_as_methods(tmp_path: Path) -> None:
+    (tmp_path / "nested.py").write_text(
+        "class Example:\n"
+        "    def method(self):\n"
+        "        def inner():\n"
+        "            return 1\n"
+        "        return inner()\n",
+        encoding="utf-8",
+    )
+    graph = analyze_repository(tmp_path, repository_id="kinds", revision_id="r1")
+    kinds = {node.display_name: node.kind for node in graph.nodes}
+    assert kinds["method"] is NodeKind.METHOD
+    assert kinds["inner"] is NodeKind.FUNCTION
+
+
+def test_test_methods_are_normalized_as_tests(tmp_path: Path) -> None:
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "test_example.py").write_text(
+        "class TestExample:\n    def test_behavior(self):\n        assert True\n",
+        encoding="utf-8",
+    )
+    graph = analyze_repository(tmp_path, repository_id="tests", revision_id="r1")
+    test_method = next(node for node in graph.nodes if node.display_name == "test_behavior")
+    assert test_method.kind is NodeKind.TEST
+
+
+def test_function_local_import_is_not_misapplied_to_other_scopes(tmp_path: Path) -> None:
+    (tmp_path / "target.py").write_text("def work():\n    return 1\n", encoding="utf-8")
+    (tmp_path / "caller.py").write_text(
+        "def importing_scope():\n"
+        "    from target import work\n"
+        "    return work()\n\n"
+        "def unrelated_scope():\n"
+        "    return work()\n",
+        encoding="utf-8",
+    )
+    graph = analyze_repository(tmp_path, repository_id="scope", revision_id="r1")
+    relations = _relation_names(graph)
+    assert (
+        "caller.unrelated_scope",
+        RelationPredicate.CALLS,
+        "target.work",
+    ) not in relations
+    assert (
+        "caller.importing_scope",
+        RelationPredicate.CALLS,
+        "target.work",
+    ) not in relations
+
+
+def test_relative_submodule_import_targets_the_declared_module(tmp_path: Path) -> None:
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "service.py").write_text("def work():\n    return 1\n", encoding="utf-8")
+    (package / "api.py").write_text(
+        "from . import service\n\ndef call():\n    return service.work()\n", encoding="utf-8"
+    )
+    graph = analyze_repository(tmp_path, repository_id="relative", revision_id="r1")
+    relations = _relation_names(graph)
+    assert ("pkg.api", RelationPredicate.IMPORTS, "pkg.service") in relations
+    assert ("pkg.api.call", RelationPredicate.CALLS, "pkg.service.work") in relations

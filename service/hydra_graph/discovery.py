@@ -5,14 +5,13 @@ from __future__ import annotations
 import os
 import re
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 import pathspec
 
 from .ids import content_hash, normalize_relative_path
-
 
 DEFAULT_MAX_FILE_BYTES = 1_000_000
 _CONTROL_FILES = {".gitignore", ".hydraignore"}
@@ -205,10 +204,13 @@ def discover_files(
                 continue
 
             lowered_parts = {part.lower() for part in Path(relative).parts}
-            is_test = "tests" in lowered_parts or name.startswith("test_") or name.endswith("_test.py")
-            is_generated = any(
-                part in {"generated", "dist", "build", "vendor"} for part in lowered_parts
-            ) or ".generated." in name.lower()
+            is_test = (
+                "tests" in lowered_parts or name.startswith("test_") or name.endswith("_test.py")
+            )
+            is_generated = (
+                any(part in {"generated", "dist", "build", "vendor"} for part in lowered_parts)
+                or ".generated." in name.lower()
+            )
             found.append(
                 DiscoveredFile(
                     path=relative,
@@ -226,4 +228,3 @@ def discover_files(
         files=tuple(sorted(found, key=lambda item: item.path)),
         ignored=tuple(sorted(ignored, key=lambda item: (item.path, item.reason))),
     )
-

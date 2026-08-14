@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from contextlib import suppress
 from pathlib import Path
 
 from hydra_graph.discovery import discover_files
-
 
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "sample_repo"
 
@@ -26,10 +26,8 @@ def test_discovery_blocks_secret_names_binary_large_and_symlink_files(tmp_path: 
     (tmp_path / "binary.dat").write_bytes(b"hello\x00world")
     (tmp_path / "large.txt").write_text("x" * 32, encoding="utf-8")
     (tmp_path / "safe.py").write_text("answer = 42\n", encoding="utf-8")
-    try:
+    with suppress(OSError):
         (tmp_path / "linked.py").symlink_to(tmp_path / "safe.py")
-    except OSError:
-        pass
 
     report = discover_files(tmp_path, max_file_bytes=16)
     reasons = {item.path: item.reason for item in report.ignored}
@@ -53,4 +51,3 @@ def test_secret_detection_does_not_reject_harmless_short_placeholders(tmp_path: 
     (tmp_path / "config.py").write_text('api_key = "example"\n', encoding="utf-8")
     report = discover_files(tmp_path)
     assert [item.path for item in report.files] == ["config.py"]
-
