@@ -225,3 +225,90 @@ evolution, checkpoint, and Observe state for each workspace. Direct CLI and
 standalone MCP workflows may still use the process environment because they do
 not have VS Code workspace context. Index preview and explicit confirmation
 remain required before an extension-triggered HydraDB upload.
+
+## D-031 — Canonical project identity
+
+Status: accepted. Supersedes the path-derived identity in D-030.
+
+Treat the active editor's workspace folder as the current project, followed by
+the sole folder and then a native multi-root picker. Resolve that folder through
+`realpath` and never broaden analysis to a higher Git root.
+
+For a new Git project, normalize the credential-free `origin` remote and use
+`git:<name>:<20-character-origin-hash>`. A separately opened Git subproject adds
+a stable Git-relative path hash. Persist only the repository ID and origin
+fingerprint, never the raw remote. A project without a usable origin gets a
+random persistent local identity.
+
+Existing identities win. Offer a Git migration preview after later Git setup,
+but migrate automatically only when no indexed current or evolution source can
+be orphaned. Otherwise preserve the existing identity.
+
+## D-032 — SecretStorage and per-operation leases
+
+Status: accepted. Supersedes the credential boundary in D-024.
+
+TypeScript owns HydraDB account profiles and project database bindings in VS
+Code SecretStorage. Normal state stores only labels and opaque IDs. The managed
+Python process starts without HydraDB environment credentials and requests a
+fresh key/database lease over framed private IPC for every HydraDB operation.
+
+Do not cache credentials for the process lifetime or expose database names in
+health, ProductViews, query envelopes, events, MCP output, UI status, manifests,
+or evolution records. Acknowledge that credentials briefly exist in JavaScript
+and Python memory; do not claim physical zeroization.
+
+## D-033 — Bundled authenticated runtime
+
+Status: accepted. Supersedes the manually started service in D-024.
+
+Ship a hash-verified PyInstaller one-directory service inside each desktop VSIX.
+The extension owns startup, stable alternate port selection, multi-window owner
+locking, attachment, stale-session invalidation, restart, and final shutdown.
+
+Keep loopback binding. Use a SecretStorage installation key to sign window
+challenges and issue short-lived REST tokens bound to one canonical project
+root and repository ID. Authenticate all managed REST routes except version
+discovery and the OAuth/MCP protocol routes, which have their own authorization
+boundary. Reject host, root, token, body, rate, and protocol mismatches.
+
+## D-034 — OAuth-only agent access
+
+Status: accepted. Supersedes manual MCP configuration in D-028.
+
+Keep one Streamable HTTP MCP endpoint at `/mcp` in the managed service. Codex
+and Claude Code registration contains only the loopback URL and is performed by
+their supported CLI after an exact preview and user confirmation.
+
+Use dynamic client registration, PKCE S256, short authorization codes and
+access tokens, rotating refresh tokens, explicit revocation, and read-only
+repository scopes. Store server-side client/grant records through SecretStorage
+IPC. Route first consent through a nonce-only VS Code URI and native client,
+project, and scope approval. Resolve every token subject to exactly one
+registered repository container.
+
+## D-035 — Platform-specific desktop packages
+
+Status: accepted.
+
+Publish separate VSIX packages for Windows, macOS, and Linux on x64 and ARM64.
+Bundle all runtime dependencies; never download a first-run binary or require
+Python/Node on the user's machine. Sign Windows binaries, codesign/notarize
+macOS binaries, and publish checksums, SBOMs, licenses, and provenance.
+
+Local VS Code desktop is the first supported environment. Web, Codespaces,
+Remote SSH, WSL-hosted extension processes, Alpine, and ARMHF remain outside the
+release contract until separately designed and tested.
+
+## D-036 — Automatic revisions and snapshot tokens
+
+Status: accepted. Supersedes manual revision entry in D-026.
+
+Use the complete commit SHA for a clean Git repository. Use a deterministic
+analyzed-content digest for a dirty or non-Git project. Index preview issues a
+short-lived single-use token bound to root, identity, revision, discovery, and
+source-card scope. Confirmation re-analyzes and refuses changed snapshots.
+
+Compare uses the verified before and after revisions automatically through
+Start comparison and Finish comparison. All indexing and evolution writes keep
+preview and explicit confirmation.

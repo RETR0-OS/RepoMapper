@@ -11,6 +11,13 @@ it does not become a second repository query engine.
 ## Component map
 
 ```text
+VS Code extension (root selection, SecretStorage, process owner)
+      |
+      | authenticated REST + private credential/OAuth IPC
+      v
+Bundled managed Python service
+      |
+      v
 Repository files
       |
       v
@@ -23,10 +30,10 @@ Graph IR -> source cards + exact BYOG payloads
 HydraDB current Knowledge
       |
       v
-Python query/view service ---- repository MCP tools
+Python query/view service ---- OAuth repository MCP tools
       |
       v
-TypeScript VS Code extension and graph webview
+TypeScript graph webview
 
 Before/after Graph IR checkpoints
       |
@@ -100,17 +107,18 @@ Explore, Trace, Observe, Compare, or Preserve view data. Its in-process view
 store is a small bounded cache of recently displayed results, not a graph
 database.
 
-The extension host, written in TypeScript, is the trust boundary for VS Code.
-It talks to the loopback Python service, validates source-navigation requests
-against the active workspace, and opens files and ranges through VS Code. The
-webview receives structured display data; it receives no HydraDB credentials
-and does not call HydraDB directly.
+The extension host, written in TypeScript, owns project selection, SecretStorage,
+the bundled process, authenticated project attachment, credential brokering,
+native consent, source navigation, and file opening. The webview receives
+structured display data; it receives no HydraDB credentials and does not call
+HydraDB directly.
 
 ## Human and agent access
 
-The VS Code extension and repository MCP server call the same service and see
-the same HydraDB-backed repository model. The MCP server exposes bounded
-repository-aware operations rather than raw database access.
+The VS Code extension and repository MCP server call the same managed service
+and see the same HydraDB-backed repository model. REST uses short project-bound
+tokens. MCP uses OAuth with an explicit repository subject. The MCP server
+exposes bounded repository-aware operations rather than raw database access.
 
 For Observe to correlate MCP calls with the extension timeline, the MCP endpoint
 must be mounted in the same service process at `/mcp`. A separate stdio MCP
@@ -137,7 +145,7 @@ See [Compare and Preserve](compare-and-preserve.md) for the evolution flow.
 The workspace may contain:
 
 - source code and configuration;
-- a source-ID and card-hash sync manifest;
+- an opaque repository identity and a source-ID/card-hash sync manifest;
 - exactly two bounded Graph IR checkpoint files used as diff inputs; and
 - a bounded in-process cache of current HydraDB views and Observe events.
 
@@ -158,8 +166,13 @@ does not claim success and retains local diff checkpoints where possible.
 
 ## Security boundaries
 
-- HydraDB credentials stay in the Python process and are never sent to the
-  webview.
+- API keys and project database names are stored in VS Code SecretStorage.
+  Python receives a fresh short-lived lease through private IPC for each
+  HydraDB operation. Neither value is sent to the webview.
+- The bundled service is hash-verified, version-matched, loopback-only, and
+  started without HydraDB values in argv or environment.
+- REST uses short-lived canonical-root/repository tokens. MCP uses PKCE OAuth,
+  rotating tokens, revocation, and native project/scope consent.
 - The service analyzes only the selected, resolved repository root. Extension
   scope comes from the extension host, never from the webview.
 - Repository paths in Graph IR are normalized, relative paths. Absolute paths

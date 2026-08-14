@@ -1,204 +1,83 @@
 # Troubleshooting
 
-Start with these checks from the repository root:
+This guide starts with the packaged extension. Developer-only problems are at the end.
 
-```powershell
-.\.venv\Scripts\Activate.ps1
-python --version
-python -m hydra_graph --help
-python -m hydra_graph serve --help
-python -m hydra_graph index --help
-```
+## Setup did not appear
 
-With the service running:
+Run **Repository Map: Set Up Repository Map**. Make sure a local folder is open. Remote workspaces, WSL extension hosts, Codespaces, and web VS Code are not supported in this release.
 
-```powershell
-$health = Invoke-RestMethod http://127.0.0.1:8765/health
-$health | ConvertTo-Json -Depth 5
-```
+In a multi-root workspace, open a file in the intended folder or select it from the native picker.
 
-## `hydra-graph` is not recognized
+## Read access test failed
 
-Activate the virtual environment and install the project in editable mode:
+Repository Map does not show the stored key or database. Check the values outside the extension, then:
 
-```powershell
-.\.venv\Scripts\Activate.ps1
-python -m pip install -e ".[dev]"
-python -m hydra_graph --help
-```
+- run **Replace HydraDB API Key** to enter a replacement key;
+- run **Remove Project Database Binding**, then setup, to enter the database again;
+- confirm normal HTTPS access to HydraDB is allowed by the machine/network.
 
-All documented CLI operations work through `python -m hydra_graph`, even when
-the `hydra-graph` console alias is not on `PATH`.
+The test is read-only. Failure does not upload repository data.
 
-## PowerShell blocks virtual-environment activation
+## Managed service is unavailable
 
-Use a process-only execution policy, which expires when the PowerShell process
-closes:
+Try **Repository Map: Refresh Repository Map**. A stale window session is invalidated automatically after a network or authentication failure; the next request can take ownership and restart the service.
 
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\.venv\Scripts\Activate.ps1
-```
+Open **Output: Repository Map Service** for bounded diagnostics. Do not paste secrets into issue reports.
 
-Or call the virtual environment's Python directly:
+If the bundled service hash or protocol is wrong, reinstall the exact platform package. The extension intentionally refuses an unknown or modified binary.
 
-```powershell
-.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
-.\.venv\Scripts\python.exe -m hydra_graph --help
-```
+## Port 8765 is occupied
 
-## Health is `unavailable`
+The extension chooses a stable alternate loopback port automatically. Run **Configure Agents** again if an existing Codex or Claude Code registration still points to an old port. Repository Map never edits agent configuration silently.
 
-If the message names `HYDRA_DB_API_KEY` and `HYDRA_DB_DATABASE`, set both in the
-same PowerShell session that starts the service:
+## Index preview changed or expired
 
-```powershell
-$env:HYDRA_DB_API_KEY = "your-key"
-$env:HYDRA_DB_DATABASE = "your-database"
-python -m hydra_graph serve
-```
+Preview tokens are single-use and expire after ten minutes. They are also rejected when analyzed files change. Run **Index Workspace with HydraDB** again, review the new revision/scope, and reconfirm.
 
-The service does not automatically load [`.env.example`](../.env.example) or a
-local `.env` file. If credentials are set and a request still fails, check
-network access, `HYDRA_DB_API_URL`, and the returned error. The adapter retries
-network errors, `429`, `500`, `502`, and `503` within its configured budget. It
-does not hide a final failure with local data.
+## Indexing is failed or indeterminate
 
-## Health is `unverified`
+Do not treat the last revision label as proof that all old content remains visible. Retry only after HydraDB is available and review the full new preview. A successful full sync restores a verified manifest.
 
-Credentials are configured, but this process has not verified a concrete
-current revision. Run a preview and complete an index:
+If a legacy manifest had a database field, Repository Map removes it. A mismatched secure binding leaves the project unverified until a new confirmed index succeeds.
 
-```powershell
-$revision = (git rev-parse HEAD).Trim()
-python -m hydra_graph index --revision $revision --preview
-python -m hydra_graph index --revision $revision
-```
+## Git identity changed
 
-Then confirm `/health` reports `state: ready`, `revision_verified: true`, and the
-expected revision. A missing `.hydra-graph/manifest.json` means a new process
-cannot claim the prior verified state. An invalid manifest makes startup fail
-closed; inspect the reported file problem, preserve the bad file for diagnosis,
-and run a complete fresh index rather than editing it to force `ready`.
+Run **Review Repository Identity**. Repository Map keeps the existing ID unless it can prove that migration will not orphan indexed current or evolution sources. An unindexed local identity can migrate with its SecretStorage binding. An indexed identity requires an explicit data reset/migration outside this release.
 
-## Health is `indexing`
+Raw remote URLs are never shown because they may contain credentials.
 
-Wait for the bounded indexing operation to finish. Current queries are
-deliberately gated while source upserts and status checks may expose a mixed
-candidate/current state. If polling reaches
-`HYDRA_DB_POLL_TIMEOUT_SECONDS`, the operation fails honestly rather than
-returning local analyzer results.
+## Codex or Claude Code was not detected
 
-## Health is `failed` or the collection is indeterminate
+Run the client from a normal terminal and confirm its executable is on the VS Code extension-host `PATH`. Restart VS Code after installing a client, then run **Configure Agents** again.
 
-Read the index response fields `failed`, `pending`, `warning`, and
-`current_state_indeterminate`. Do not assume `ready_revision` means its old
-content is still fully visible: it is only the last verified marker.
+The command previews exactly what it will run. It does not overwrite client config files.
 
-Fix the credential, network, HydraDB response, deletion, or manifest-write
-problem. Then preview and index one complete repository snapshot again:
+## OAuth did not complete
 
-```powershell
-python -m hydra_graph index --revision "recovery-snapshot" --preview
-python -m hydra_graph index --revision "recovery-snapshot"
-```
+- Keep VS Code and the project open.
+- Allow VS Code to handle its own `vscode://` URI.
+- Check that the client uses a loopback HTTP redirect and PKCE S256.
+- Restart agent setup if the 60-second code expired.
+- Reauthorize after refresh-token revocation.
 
-There is no claimed transactional rollback. Do not manually edit the manifest
-to force `ready`.
+If several projects are open, select the intended project in the native consent UI. A closed or ambiguous project is rejected.
 
-## Index preview points at the wrong repository
+## MCP stops after closing VS Code
 
-Stop the service, set an absolute root, and restart:
+This is expected. MCP shares the managed service and is available only while VS Code runs. Reopen the project and retry the agent action.
 
-```powershell
-$env:HYDRA_REPOSITORY_ROOT = (Resolve-Path "C:\src\expected-repository").Path
-$env:HYDRA_REPOSITORY_ID = "expected-repository"
-python -m hydra_graph serve
-```
+## Observe stopped
 
-The indexing API cannot override this root. `/health` returns an opaque
-`repository_root_fingerprint`, not the path. A fingerprint mismatch prevents
-the extension from sending workspace-change events for a different checkout.
+Observe fails closed on revision drift, root mismatch, inactive session, malformed events, or an evicted history cursor. Use **Restart follow** after restoring one verified revision. It never skips a missing event range.
 
-## Current and evolution collections conflict
+## Compare cannot finish
 
-They must be distinct and nonblank:
+Index the before state, start the comparison, make the change, index the changed state, then finish. The before and after verified revisions must differ. Both checkpoints remain local until HydraDB confirms delta publication.
 
-```powershell
-$env:HYDRA_DB_COLLECTION = "current"
-$env:HYDRA_DB_EVOLUTION_COLLECTION = "evolution"
-python -m hydra_graph serve
-```
+## Preserve has no grounded lens
 
-Using one collection would blur current repository truth with change-event and
-lens records, so startup fails instead of accepting it.
+Open a verified HydraDB view containing at least one exact connected edge. A System Lens cannot be created from preview data, automatic relations, empty views, or unverified revisions.
 
-## The extension cannot reach the service
+## Developer mode
 
-Confirm the service and its loopback URL:
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:8765/health
-```
-
-In VS Code Settings, check `hydra.serviceUrl`. It must be a local loopback URL
-and normally should be `http://127.0.0.1:8765`. If indexing is slow but healthy,
-increase `hydra.indexTimeoutMs` within its allowed range rather than the ordinary
-request timeout.
-
-If the Python service cannot be reached, the extension may show a clearly
-labeled interaction preview. That UI preview is not returned by the Python
-service or MCP and is not HydraDB evidence.
-
-## MCP client cannot connect
-
-Use the mounted URL exactly:
-
-```text
-http://127.0.0.1:8765/mcp
-```
-
-Common mistakes are using `/mcp/mcp`, connecting before `python -m hydra_graph
-serve` is running, or using a non-loopback hostname rejected by transport
-security. Check the registration:
-
-```powershell
-codex mcp list
-claude mcp list
-```
-
-For Observe, do not replace the mounted endpoint with a standalone stdio process;
-the processes do not share events or views. See [MCP and agents](mcp-and-agents.md).
-
-## Observe rejects a session, event cursor, or workspace change
-
-- Unknown sessions return `404`.
-- Completed sessions, revision conflicts, and missing event history return
-  `409`.
-- Too many active sessions return `429`.
-- Unknown/expired views, unshown items, path traversal, paths outside the
-  selected root, and workspace-root fingerprint mismatches are rejected.
-- A history-gap response means the bounded event buffer no longer contains the
-  supplied cursor. Start a new Observe session rather than silently treating a
-  partial timeline as complete.
-
-## Compare or Preserve returns no specialized data
-
-Compare needs a complete, published change-event record for the exact before and
-after revisions. Preserve needs a valid saved lens plus a separately retrieved
-current exact path. Generic chunks, incomplete change pages, ignored filters,
-malformed records, or missing exact evidence are omitted or degraded; they are
-not relabeled to make the view look successful.
-
-Check the response `warnings`, `hydradb.collections`, and availability. Local
-checkpoints are never used as a Compare retrieval fallback.
-
-## Run the local checks
-
-```powershell
-.\scripts\check.ps1
-```
-
-This proves the checked code and mocked transport contracts pass locally. It
-does not prove live HydraDB behavior. See
-[Trust and safety](trust-and-safety.md#what-has-not-been-proved-live).
+Only contributors should enable `hydra.developerMode`. In that mode, install the Python and Node dependencies from [Development](development.md), start the service separately, and use the developer loopback URL. Environment credentials belong only to that explicit process and do not test SecretStorage/managed IPC behavior.

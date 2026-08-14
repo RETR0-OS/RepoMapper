@@ -1,160 +1,87 @@
 # Trust and safety
 
-Hydra Repository Map is designed to say where its data came from, what was
-verified, and when it cannot answer. The central rule is simple: production
-retrieval comes from HydraDB.
+Repository Map handles repository source, a HydraDB API key, a project database binding, and coding-agent authorization. Its security model separates ordinary extension state, OS-backed secret storage, private local IPC, authenticated loopback APIs, and HydraDB HTTPS.
 
-## Data path
+## SecretStorage boundary
 
-The local analyzer reads the configured repository and builds deterministic
-Graph IR, source cards, and exact BYOG relations. It is an ingestion producer.
-After upload, repository queries, paths, Compare records, and Preserve records
-must come back through HydraDB.
+VS Code SecretStorage contains:
 
-The service does not use these as a hidden query fallback:
+- account profile API keys;
+- project database bindings;
+- installation control material;
+- OAuth client, code, access, and refresh records.
 
-- repository files;
-- analyzer Graph IR;
-- the sync manifest;
-- before/after checkpoints;
-- checked JSON response fixtures; or
-- a local graph database.
+Ordinary workspace/global state contains only opaque IDs, profile labels, and non-sensitive preferences. Project state contains only a repository ID and fingerprints. Secrets are not synchronized between machines.
 
-When credentials are absent, HydraDB is unavailable, a revision conflicts, a
-specialized record is malformed, or current state is indeterminate, the service
-returns an empty/degraded response with warnings or refuses the operation. It
-does not fill the result with plausible local data.
+Stored key and database values are never revealed. Rotation means entering a replacement.
 
-Automated fixtures exercise transport and response normalization. They are not
-loaded by the running service and are not evidence of live HydraDB performance.
+## Credentials during a request
 
-## Credentials and network boundary
+For each HydraDB operation:
 
-- `HYDRA_DB_API_KEY` stays in the Python service process.
-- The key is sent to HydraDB as a bearer credential; it is not sent to the VS
-  Code webview, stored in a ProductView, or accepted as an MCP tool argument.
-- The FastAPI service binds to `127.0.0.1` and does not offer an arbitrary host
-  option.
-- The mounted MCP endpoint keeps DNS rebinding protection enabled and accepts
-  loopback hosts and origins only.
-- Raw HydraDB ingest, delete, and status operations are not public service
-  routes. Indexing is exposed through the configured-root preview and confirmed
-  index workflow.
+1. Python requests the binding for one normalized repository ID over private IPC.
+2. TypeScript reads the project binding and selected profile from SecretStorage.
+3. TypeScript sends the key and database in one framed IPC response.
+4. Python performs one HTTPS HydraDB operation.
+5. Both sides release their references.
 
-Treat any process that can read the service environment as able to read the API
-key. Use normal operating-system account and secret-management boundaries.
+There is no process-lifetime credential cache. JavaScript and Python cannot guarantee physical zeroization of immutable strings, so credentials do briefly exist in process memory. The supported guarantee is no unsafe persistence and no long-lived cache.
 
-## Repository boundary
+Managed service children receive no HydraDB key or database in argv, environment variables, files, HTTP setup bodies, or webview messages. The managed binary ignores inherited `HYDRA_DB_*` values.
 
-The extension sends an encoded canonical workspace root and generated
-repository ID in paired request headers. The loopback service resolves and
-validates that root, then selects an isolated repository-scoped container.
-Requests without these headers retain the process scope used by direct CLI and
-MCP workflows. A request cannot provide only one half of the scope.
+## Database disclosure controls
 
-Discovery, analysis, index preview, checkpoint capture, and workspace-change
-validation stay within the selected root. The local upload confirmation shows
-that exact root. Any process running as the same operating-system user that can
-call the loopback service should therefore be treated as able to request local
-analysis; the HydraDB write still requires the explicit preview and confirmation
-flow in the extension.
+Database names do not appear in health, query responses, ProductViews, events, MCP results, sidebars, status bars, sync manifests, or evolution records. The sync manifest uses a keyed fingerprint to detect the wrong binding.
 
-The service checks resolved manifest and checkpoint locations for containment,
-including symlink escapes. It exposes only a deterministic SHA-256 root
-fingerprint in health and session responses, never the absolute root. The
-extension compares this fingerprint with its canonical workspace root before it
-reports a workspace change.
+Legacy manifests containing a plaintext `database` field are rewritten atomically without that field. If the current secret binding cannot produce a matching fingerprint, the state is not trusted as verified.
 
-Paths submitted to interaction routes must be normalized, inside the configured
-root, and already represented by visible source-backed nodes. A workspace-change
-event marks matching visible entities only. It does not infer that a relation
-changed and does not silently re-index the file.
+Public HydraDB errors are generic. A remote response that echoes a credential or database cannot be copied into a warning, API response, MCP result, or service log.
 
-## Evidence and relation quality
+## Project boundary
 
-Exact repository relations originate in uploaded BYOG data and carry validated
-source evidence. Evidence includes a repository-relative normalized path, a
-complete ordered source range, and a valid excerpt hash. Malformed evidence,
-non-BYOG origin, unsupported predicates, or ungrounded entities cannot be
-promoted to exact.
+The selected VS Code folder is resolved with `realpath` and remains the scan boundary. A higher Git root may contribute origin/subpath identity, but it never broadens discovery. Deleted roots, non-file URI schemes, paths outside the opened folder, secret-like filenames, binary/oversized files, and symlink escapes are rejected or ignored.
 
-Inferred relations remain labeled inferred. The product does not fabricate an
-evidence range from a chunk declaration or a readable sentence. If a returned
-entity or relation cannot satisfy the shared graph model, it is omitted with an
-honest warning or omitted count.
+Git remote credentials, queries, and fragments are removed before hashing. The raw remote is not persisted or returned.
 
-Views are bounded projections of ranked HydraDB results. They are not exhaustive
-whole-repository graphs. Rank, path IDs, relation origin, collection, budgets,
-and truncation are preserved so the UI and agents can describe what was actually
-returned.
+## Local service authentication
 
-## Revision and sync truth
+Only `/version` is unauthenticated discovery. Managed REST requests use short-lived random bearer tokens issued after an HMAC-signed challenge. Each grant is bound to one canonical root and repository ID.
 
-`unverified` means configuration exists but the process has not verified a
-concrete current revision. `ready` means an index completed and its deterministic
-source-hash manifest was persisted. Queries for `current` are gated while an
-index is in progress or the current collection is indeterminate.
+The server rejects:
 
-Current-collection replacement is not transactional. Stable source IDs are
-upserted before every status check and deletion can complete. If a later step
-fails, candidate content may already be visible. The prior `ready_revision`
-remains the last verified marker, not a promise that HydraDB has rolled back to
-that content.
+- remote bind/host values and DNS rebinding;
+- missing, expired, replayed, or wrong-project tokens;
+- root substitutions;
+- oversized bodies;
+- excessive per-token request rates;
+- version mismatches;
+- write confirmations with stale snapshots.
 
-The safe recovery is an explicit complete reindex after the underlying problem
-is resolved. The service never claims a rollback it did not perform. More detail
-is in [Indexing and sync](indexing-and-sync.md).
+Developer mode is a separate explicit path and must not be treated as the Marketplace security boundary.
 
-## Evolution boundary
+## MCP OAuth
 
-The current and evolution collections must be distinct. Change events and
-shared lenses are written and queried only in evolution. Current repository
-paths are queried only in current. Preserve uses two sequential, explicit
-single-collection queries and joins their validated product meaning in the
-service.
+MCP does not reuse REST project tokens. It uses OAuth 2.1 dynamic registration, PKCE S256, short codes, short access tokens, rotating refresh tokens, and revocation. Redirect URIs must be loopback HTTP. Only read scopes are supported.
 
-This is not a HydraDB cross-collection traversal claim. The product also makes no
-HydraDB Memory claim. Local before/after checkpoints are write inputs used to
-build deterministic delta cards; Compare never reads them as a retrieval
-fallback.
+First authorization passes through a nonce-only VS Code URI. The native consent UI shows the client, selected project, and scopes. Multiple open projects require explicit selection. Token subjects resolve an exact registered repository service; ambiguity fails closed.
 
-## Agent and Observe boundary
+Agent configuration contains only the loopback `/mcp` URL. HydraDB secrets and static bearer tokens never appear there.
 
-The mounted `/mcp` endpoint shares events and stored bounded views with the
-extension. Tool calls record query and view events; they do not reveal or claim
-hidden agent reasoning. `pin_context` records an explicit human selection and
-instruction without changing structural graph facts.
+## Write safety
 
-Observe sessions are revision-bound and bounded. The server derives event IDs,
-revision IDs, view IDs, entity IDs, and relationship IDs from validated server
-state. Clients cannot post arbitrary event envelopes. Unknown or completed
-sessions, expired views, unshown items, and path escapes are rejected before a
-HydraDB request or event emission where applicable.
+Index, evolution publication, System Lens save, and drift acceptance use preview-before-confirmation. Index previews are single-use, expire, and bind the canonical project, repository ID, revision, file snapshot, and source-card scope. A changed file invalidates confirmation.
 
-Event history is bounded. Cursor polling returns a conflict when the requested
-cursor is no longer retained, rather than silently presenting an incomplete
-timeline as complete.
+HydraDB source replacement is not transactional. Partial ingest, status, or deletion marks current state indeterminate. The previous revision remains only the last verified marker, not a promise that the old state is fully queryable.
 
-## What has not been proved live
+## Evidence and retrieval truth
 
-The checked-out project does not contain HydraDB credentials. The adapter and
-service have extensive mocked transport, schema, anti-gaming, and failure-path
-tests, but those tests do not establish a credentialed production result.
+- HydraDB is the production retrieval substrate.
+- No unavailable query is replaced by local search.
+- Exact edges require BYOG origin plus a valid deterministic evidence envelope.
+- Malformed or automatic relations are downgraded or omitted.
+- Views are bounded; they are not presented as exhaustive architecture.
+- Observe records explicit events only, never hidden model reasoning.
 
-Until a credentialed integration run records the exact requests and raw
-responses, treat these areas as provisional:
+## Known proof boundary
 
-- exact live relation-inspection response semantics;
-- stable-source replacement behavior beyond the explicit indeterminate model;
-- HydraDB Memory behavior, which the product does not use or claim; and
-- cross-collection revision traversal, which the product does not perform or
-  claim.
-
-Offline evaluation output is a rehearsal, not evidence that graph-backed
-HydraDB retrieval improved an agent outcome. Comparative claims require a
-complete credentialed A/B/C run against the exact gold repository revision and
-must pass the demo preflight. See the [project README](../README.md#verify) and
-[evaluation design](../.agents/evaluation.md).
-
-For setup, begin with [Getting started](getting-started.md). For operational
-failures, use [Troubleshooting](troubleshooting.md).
+Automated tests and offline fixtures prove contracts but not the live HydraDB service. Release acceptance still requires credentialed staging on every supported platform plus current Codex and Claude Code OAuth tests. See [Known limits](limitations.md) and [Packaging and distribution](distribution.md).

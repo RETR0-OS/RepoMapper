@@ -18,6 +18,8 @@ The repository separates product documentation, runtime code, shared contracts, 
 | `evaluation/` | Isolated A/B/C evaluation runner, scoring, records, and agent manifests |
 | `demo/` | Live preflight and timed demo runbook |
 | `scripts/` | Repository-wide verification commands |
+| `packaging/` | PyInstaller build, staging, signing, checksums, SBOM/license, and provenance helpers |
+| `.github/workflows/` | Six-target release matrix |
 
 ## Python package
 
@@ -32,6 +34,9 @@ Important modules under `service/hydra_graph/`:
 | `cards.py` | Converts Graph IR entities into HydraDB Knowledge source cards and BYOG relations |
 | `projections.py` | Builds package, file, and symbol projections |
 | `hydradb.py` | Owns the direct HydraDB API v2 transport contract |
+| `managed.py` | Implements framed private credential/OAuth IPC |
+| `security.py` | Signs window challenges and validates project-bound REST tokens |
+| `mcp_oauth.py` | Implements dynamic registration, PKCE grants, rotation, and revocation |
 | `sync.py` | Coordinates source ingestion, polling, deletion, manifests, and revision state |
 | `query.py` | Normalizes raw HydraDB responses into the stable product envelope |
 | `views.py` | Builds bounded six-mode product views |
@@ -52,6 +57,11 @@ Important paths under `extension/src/`:
 |---|---|
 | `extension.ts` | Activates the extension and wires commands, views, sessions, and workflows |
 | `serviceClient.ts` | Validates and calls the loopback service |
+| `managedRuntime.ts` | Verifies, starts, attaches, restarts, and stops the bundled service |
+| `managedProtocol.ts` | Defines versioned startup, credential, OAuth, and consent IPC |
+| `credentials.ts` | Stores account, database binding, installation, and OAuth records in SecretStorage |
+| `projectResolver.ts` / `projectIdentity.ts` | Selects the open project and derives persistent Git/local identity |
+| `agentSetup.ts` | Detects Codex/Claude and runs confirmed URL-only registration commands |
 | `graphPanel.ts` | Owns webview lifecycle and trusted message handling |
 | `sidebar.ts` | Provides native Tree Views and status content |
 | `editorFocus.ts` | Converts the active editor position into safe repository focus context |
@@ -77,10 +87,10 @@ Important paths under `extension/src/`:
 
 `.hydra-graph/` is runtime bookkeeping, not a local retrieval database. It can contain:
 
+- the opaque persistent repository identity;
 - the last verified synchronization manifest;
 - at most one `before` and one `after` checkpoint for deterministic comparison.
 
 The application never searches those files to answer repository questions. Production retrieval comes from HydraDB.
 
 Generated builds, evaluation artifacts, virtual environments, coverage output, and runtime state are ignored by Git.
-

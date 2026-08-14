@@ -1,125 +1,74 @@
-# MCP and agents
+# MCP and coding agents
 
-The recommended agent connection is the Streamable HTTP MCP endpoint mounted in
-the running service:
+Repository Map exposes one Streamable HTTP MCP endpoint inside the managed service. It is not a second process and it is available only while VS Code is running.
+
+## Configure an agent
+
+Run **Repository Map: Configure Agents**. The extension:
+
+1. starts or attaches to the managed service;
+2. detects `codex` and `claude` without changing configuration;
+3. shows the exact commands for the installed clients;
+4. lets you select one or both;
+5. asks for confirmation;
+6. runs each client's supported command with an argument array, not a shell;
+7. removes `HYDRA_DB_*` values from the child environment.
+
+The current command shapes are:
 
 ```text
-http://127.0.0.1:8765/mcp
+codex mcp add repository-map --url http://127.0.0.1:<port>/mcp
+claude mcp add --transport http --scope local repository-map http://127.0.0.1:<port>/mcp
 ```
 
-The mounted tools share the same bounded view store and event bus as the VS Code
-extension. That shared process is required for agent tool activity to appear in
-Observe.
+The port is discovered at runtime. No HydraDB key, database, static bearer token, project root, or repository remote is written to agent configuration.
 
-## Start the shared service
+## First authorization
 
-Set the environment described in [Configuration](configuration.md), then run:
+Codex and Claude Code discover the OAuth server from the MCP endpoint. Authorization uses:
 
-```powershell
-python -m hydra_graph serve
-```
+- dynamic client registration;
+- PKCE S256;
+- 60-second single-use authorization codes;
+- five-minute access tokens;
+- rotating one-day refresh tokens;
+- token-family revocation;
+- read-only scopes by default.
 
-Confirm the advertised endpoint:
+The service asks VS Code for consent through private IPC. VS Code creates a random, one-time URI containing only an in-memory request ID, routes it through the extension URI handler, and opens native project/scope consent. Client details and grant material do not appear in that URI.
 
-```powershell
-$health = Invoke-RestMethod http://127.0.0.1:8765/health
-$health.mcp_endpoint
-```
+If more than one project has attached to the service, choose the project explicitly. The issued token subject is that repository ID and each tool resolves the matching service container. A missing, ambiguous, or closed project fails closed.
 
-The result should be `/mcp`. Do not add a second `/mcp`; the client URL is not
-`/mcp/mcp`.
+## Scopes
 
-## Codex
+The available scopes are:
 
-Add this to the user-level `~/.codex/config.toml` or a trusted project's
-`.codex/config.toml`:
+- `repository:read` — bounded repository queries and views;
+- `evidence:read` — source-backed relation explanation;
+- `observe:read` — explicit Observe correlation and view events.
 
-```toml
-[mcp_servers.hydra-repository]
-url = "http://127.0.0.1:8765/mcp"
-```
+There is no MCP indexing, deletion, credential, or identity-migration scope in this release.
 
-Then verify the registration:
+## Tools
 
-```powershell
-codex mcp list
-```
+- `repository_query` — hybrid HydraDB repository question.
+- `focus_symbol` — bounded literal retrieval around a known entity.
+- `trace_flow` — bounded multi-hop HydraDB path.
+- `explain_relationship` — evidence for an edge already present in a stored view.
+- `compare_repository_graph` — evolution Knowledge for two revisions.
+- `open_system_lens` — a shared lens record and its current grounded path.
+- `pin_context` — explicit programmer-selected context in an active Observe session.
 
-Restart or reload the Codex client if it was already running when the
-configuration changed.
-
-## Claude Code
-
-From the trusted project:
-
-```powershell
-claude mcp add --scope project --transport http hydra-repository http://127.0.0.1:8765/mcp
-claude mcp list
-```
-
-Project scope makes the repository-local choice visible and reviewable. Use a
-different supported Claude Code scope only when that is intentional.
-
-## Available tools
-
-| Tool | Purpose | Important boundary |
-| --- | --- | --- |
-| `repository_query` | Ask a conceptual repository question with hybrid HydraDB graph retrieval. | Returns bounded ranked HydraDB context, not a full repository dump. |
-| `focus_symbol` | Focus literal retrieval on a known symbol or path. | Does not promise exhaustive callers, callees, or neighbors. |
-| `trace_flow` | Request bounded multi-hop paths in thinking mode. | Hop, path, relation, result, and context budgets are enforced. |
-| `explain_relationship` | Explain a relationship already returned in a stored view. | Returns `not_found` when the relationship is outside that bounded result. |
-| `compare_repository_graph` | Retrieve a published change event for two revisions. | Queries only the evolution collection; generic chunks cannot masquerade as change records. |
-| `open_system_lens` | Retrieve a shared lens and a separately grounded current path. | Uses sequential single-collection queries, not cross-collection traversal. |
-| `pin_context` | Record an explicit programmer selection and instruction. | Emits context telemetry; it does not modify structural graph facts. |
-
-Tool results expose `hydradb.available`, explicit collection names, rank/path
-identifiers, budgets, warnings, and a response schema. If HydraDB is unavailable,
-the result is empty and says so. Agents must not replace it with a local search
-and present that search as a HydraDB result.
+Every tool is HydraDB-backed. Missing credentials or unavailable retrieval returns an explicit empty result, not local search.
 
 ## Observe correlation
 
-Start Observe from the extension before an agent query. When an MCP tool omits
-`session_id` and exactly one Observe session is active, the mounted server binds
-the tool event to that session automatically. With no active session, the query
-still works but is not attached to an Observe session. With multiple active
-sessions, omission is ambiguous and the tool fails instead of guessing.
+MCP and VS Code share the same event bus and bounded view store because they share one process. With one active Observe session, an omitted session ID is correlated automatically. Multiple active sessions are ambiguous and rejected before HydraDB I/O.
 
-An explicit MCP `session_id` remains a valid independent agent correlation ID.
-If it names a known completed Observe session, it is rejected. This differs from
-the public `/api/query` route, where a supplied session ID must be a known active
-Observe session with a compatible verified revision before any HydraDB request.
+Observe records explicit queries, returned context, selections, evidence opens, and visible file edits. It does not expose chain of thought or hidden agent reasoning.
 
-Observe shows domain events and returned paths. It does not expose or claim an
-agent's hidden chain of thought. Event history is bounded; cursor polling reports
-a history gap instead of silently resetting when retained events have overflowed.
+## Revocation and availability
 
-## Standalone MCP
+OAuth client and grant records are brokered into VS Code SecretStorage. Python keeps no process-lifetime grant cache. Revocation removes the token family. Closing the final VS Code window stops the service, so MCP becomes unavailable even if an agent still has an unexpired token.
 
-For simple tool use without shared Observe state:
-
-```powershell
-python -m hydra_graph mcp --transport stdio
-```
-
-The CLI also accepts `sse` and `streamable-http` transports:
-
-```powershell
-python -m hydra_graph mcp --transport streamable-http
-```
-
-These commands create another Python process. Its event bus and stored views are
-not the ones used by a separately running FastAPI service, so it cannot feed that
-service's Observe timeline. Prefer the mounted `/mcp` endpoint for the product
-workflow.
-
-## Local transport security
-
-The service binds to `127.0.0.1`. The mounted MCP transport keeps DNS rebinding
-protection enabled and allows only loopback host/origin forms for
-`127.0.0.1`, `localhost`, and `[::1]`. HydraDB credentials remain in the Python
-process and are not MCP arguments or webview data.
-
-If setup fails, see [MCP troubleshooting](troubleshooting.md#mcp-client-cannot-connect).
-The broader data and evidence boundaries are in
-[Trust and safety](trust-and-safety.md).
+Developer mode may run standalone stdio MCP for testing. It cannot feed the managed service's Observe timeline and is not part of the Marketplace setup.

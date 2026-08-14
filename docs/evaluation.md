@@ -62,11 +62,11 @@ Offline output is always labeled as a rehearsal. It cannot enable comparative cl
 
 Before a live run:
 
-1. Set the HydraDB and repository environment variables described in [Configuration](configuration.md).
+1. In an explicit developer shell, set the evaluation CLI's HydraDB and repository environment variables. This is not the packaged extension credential path.
 2. Point `HYDRA_REPOSITORY_ROOT` at `fixtures/evaluation/repo`.
 3. Set `HYDRA_REPOSITORY_ID=evaluation-fixture`.
 4. Index the fixture repository into the `current` collection at revision `eval-rev-1`.
-5. Start the loopback service and confirm `/health` reports that exact database, repository, root fingerprint, collection, and revision.
+5. Start the developer loopback service and confirm `/health` reports the exact repository, root fingerprint, collection, and revision. The database name is intentionally absent from health; the harness binds it from its own live configuration.
 
 Then run:
 
@@ -136,4 +136,3 @@ Prefer statements with counts and denominators, for example:
 > Condition C returned 3 of 4 required exact relations, compared with 1 of 4 in condition B, on 2 checked questions.
 
 Avoid broad percentage claims when the question set is small. Always make the raw observations and scoring inputs available with the summary.
-

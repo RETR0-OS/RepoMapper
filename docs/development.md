@@ -4,6 +4,8 @@
 
 This page is for contributors changing the analyzer, service, extension, schemas, or evaluation harness.
 
+End users do not follow this page. The Marketplace package bundles the service and dependencies; see [Packaging and distribution](distribution.md).
+
 ## Set up a development environment
 
 From PowerShell in the repository root:

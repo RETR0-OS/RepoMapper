@@ -4,21 +4,18 @@ These recipes cover the extension's write, query, editor, Compare, and Preserve 
 
 ## Before you start
 
-Repository Map talks only to a loopback HTTP service: `localhost`, `127.0.0.1`, or `::1`. The extension host keeps service access out of the webview. A manually edited non-loopback URL is rejected as well as a URL containing credentials, query parameters, or a fragment.
+Repository Map bundles and manages a loopback service. The extension host keeps service access, SecretStorage, and filesystem selection out of the webview. The first window owns the process and other windows attach with project-bound tokens.
 
-The extension selects the first open local workspace folder. The service validates that scope and owns the HydraDB credentials. The webview cannot choose or replace the filesystem path.
-
-Use **Repository Map: Configure Service URL** if the local service is not at the default `http://127.0.0.1:8765`. Then use **Refresh Repository Map** or **Retry service**.
+The active editor's workspace folder wins. A single folder is automatic; an ambiguous multi-root workspace uses a native picker. The canonical opened folder remains the scan boundary.
 
 ## Index a repository safely
 
 1. Open the repository as a VS Code workspace.
 2. Run **Repository Map: Index Workspace with HydraDB**, or select **Index this workspace** in the HydraDB Index Status sidebar.
-3. Enter an explicit revision ID, normally a Git SHA or a clear demo revision. The value must be non-empty, at most 256 characters, and contain no control characters.
-4. Wait for the local analysis preview. No upload occurs during this step.
-5. Review the modal. It shows the extension-selected root, generated repository ID, revision, discovered and ignored files, graph node and relation counts, generated source cards, a bounded source list, and diagnostics.
-6. Select **Upload to HydraDB** only if the root, revision, and scope are correct. Canceling performs no upload.
-7. Wait for indexing and the automatic health/view refresh.
+3. Wait while the service derives a clean Git SHA or analyzed-content revision and builds the local preview. No upload occurs.
+4. Review the modal. It shows the selected root, stable repository ID, revision, discovered and ignored files, graph node and relation counts, generated source cards, a bounded source list, and diagnostics.
+5. Select **Upload to HydraDB** only if the root, revision, and scope are correct. Canceling performs no upload.
+6. Wait for indexing and the automatic health/view refresh.
 
 A success message is shown only when the candidate revision is the ready revision, no sources remain pending, no source failed, and current HydraDB state is not indeterminate. Otherwise the extension reports failed and pending counts, the last verified revision when known, and any uncertainty warning.
 

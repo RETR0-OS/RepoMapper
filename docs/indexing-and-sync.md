@@ -6,16 +6,9 @@ uploads file changes.
 
 ## Preview before writing
 
-Choose a concrete revision label, preferably a commit SHA:
-
-```powershell
-$revision = (git rev-parse HEAD).Trim()
-python -m hydra_graph index --revision $revision --preview
-```
-
-If the working tree does not represent that commit exactly, use a truthful
-workspace-snapshot label instead. The revision is an identity and consistency
-boundary, not a free-form description.
+The managed service chooses the revision. A clean Git project uses the complete
+commit SHA. A dirty or non-Git project uses a deterministic digest of analyzed
+content. Users do not type revision labels.
 
 Preview performs these local operations:
 
@@ -31,11 +24,9 @@ Preview performs no HydraDB request. It is not a retrieval path.
 
 ## Run the write
 
-After reviewing the preview:
-
-```powershell
-python -m hydra_graph index --revision $revision
-```
+After reviewing the preview, the extension sends its single-use confirmation
+token. The service re-analyzes the project and refuses the write if the root,
+identity, revision, files, or source-card scope changed.
 
 The service compares deterministic complete-card hashes with the persisted
 manifest. It uploads added and changed sources in bounded batches, waits for
@@ -71,13 +62,6 @@ The `/health` endpoint summarizes service state:
 | `ready` | A concrete revision and its persisted manifest were verified by this process. |
 | `failed` | The latest attempt failed. Read the message and sync result; current content may be indeterminate. |
 
-Check health from PowerShell:
-
-```powershell
-$health = Invoke-RestMethod http://127.0.0.1:8765/health
-$health | ConvertTo-Json -Depth 5
-```
-
 `revision_verified: true` and `verification_status: verified` mean the process
 has a verified revision marker. They do not turn HydraDB replacement into a
 transaction.
@@ -105,11 +89,12 @@ again. Confirm `ready` before relying on current queries.
 
 ## Index from VS Code
 
-Run `Repository Map: Index Workspace with HydraDB`. The extension requests a
-revision, calls the local preview endpoint, shows the upload scope in a modal,
-and writes only after confirmation. API bodies contain only the revision ID.
-The extension host supplies the paired workspace scope headers; the webview
-cannot supply or change them.
+Run **Repository Map: Index Workspace with HydraDB**. The extension calls the
+authenticated preview endpoint, shows the selected root, automatic revision,
+and upload scope, then writes only after confirmation. The preview body is
+empty; confirmation contains only the opaque preview token. Project scope comes
+from the short-lived managed token, never the webview or caller-controlled
+headers.
 
 ## Change history and lenses
 

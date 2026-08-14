@@ -1,156 +1,80 @@
-# Hydra Repository Map
+# Repository Map
 
-Hydra Repository Map is a VS Code observability tool for agentic coding. It turns concrete repository structure into deterministic Graph IR, stores source cards and exact BYOG relations in HydraDB, and shows the same bounded HydraDB results to programmers and coding agents.
+Repository Map is a desktop VS Code extension for understanding a codebase, inspecting the HydraDB context returned to coding agents, and reviewing structural change over time.
 
-For the complete human guide, start with the [documentation index](docs/README.md).
+The Marketplace build is plug-and-play: install the extension, open a local project, and follow the setup prompts. It bundles and manages its Python service. Users do not install Python, Node.js, packages, or a separate MCP server.
 
-The central rule is strict: production retrieval comes from HydraDB. The analyzer prepares upload data; it is not a hidden local query fallback.
+The central truth rule remains strict: production retrieval comes from HydraDB. Local analysis creates deterministic source cards and exact relations for indexing; it is never a hidden retrieval fallback.
+
+## Use it
+
+1. Install the platform-specific Repository Map VSIX or Marketplace package.
+2. Open a local folder in VS Code.
+3. Run **Repository Map: Set Up Repository Map** if the walkthrough does not open automatically.
+4. Create or select a HydraDB account profile.
+5. Enter the API key and this project's database name in masked fields.
+6. Let the extension test read access, preview the index, and ask before uploading.
+7. Open the Repository Map activity item.
+8. Optionally run **Repository Map: Configure Agents** for Codex or Claude Code.
+
+API keys, project database names, installation keys, and OAuth grant records live in VS Code SecretStorage. They are not placed in settings, project files, environment variables, command arguments, MCP configuration, webview messages, or logs.
 
 ## What is included
 
-- A Python AST analyzer with stable IDs, exact source evidence, safe discovery, projections, and graph diffs.
-- A direct HydraDB API v2 adapter for ingest, status, query, relation inspection, replacement, and deletion.
-- Conservative sync and revision handling with explicit failed, unavailable, and indeterminate states.
-- A loopback FastAPI service for the VS Code extension.
-- A repository-specific MCP server for query, focus, trace, relationship explanation, comparison, lenses, and pinned context.
-- A TypeScript VS Code extension with Repository, Explore, Trace, Observe, Compare, and Preserve modes.
-- An interactive 2D graph with depth controls, filters, drag, pan, zoom, evidence inspection, source navigation, a textual path view, and responsive keyboard-accessible UI.
-- A confirmed `Index Workspace with HydraDB` flow that previews the selected workspace and exact upload scope before it writes.
-- A three-condition evaluation harness with an isolated TF-IDF baseline, HydraDB graph-context ablation, checked gold facts, raw artifacts, and fail-closed claim guards.
+- Six views: Repository, Explore, Trace, Observe, Compare, and Preserve.
+- A deterministic Python analyzer with stable IDs and line-addressable evidence.
+- Confirmed HydraDB indexing with automatic Git or content-digest revisions.
+- A bundled, hash-verified loopback service managed by the extension.
+- One OAuth-protected Streamable HTTP MCP endpoint shared by VS Code, Codex, and Claude Code.
+- Before/after graph changes and one shared System Lens.
+- An isolated A/B/C evaluation harness that cannot turn offline fixtures into live claims.
 
 ```mermaid
 flowchart LR
-    Repo["Repository files"] --> Analyzer["Deterministic Python analyzer"]
-    Analyzer --> Cards["Source cards + exact BYOG relations"]
-    Cards --> HydraDB["HydraDB Knowledge"]
-    HydraDB --> Service["Loopback Python service"]
-    Service --> VSCode["TypeScript VS Code extension"]
-    HydraDB --> MCP["Repository MCP tools"]
+    Project["Opened VS Code project"] --> Extension["Repository Map extension"]
+    Extension --> Analyzer["Bundled Python analyzer"]
+    Analyzer --> HydraDB["HydraDB Knowledge"]
+    HydraDB --> Views["Six repository views"]
+    HydraDB --> MCP["OAuth-protected /mcp"]
+    MCP --> Agents["Codex and Claude Code"]
 ```
 
-There is no local graph database in the retrieval path.
+## Project scope and identity
 
-## Requirements
+The active editor's workspace folder is the current project. A single open folder is selected automatically; an ambiguous multi-root workspace uses a native folder picker. The canonical opened folder is always the analysis boundary, even when its Git root is higher in the filesystem.
 
-- Python 3.11 or newer.
-- Node.js 20 or newer.
-- VS Code 1.96 or newer.
-- A HydraDB API key and database for live indexing and retrieval.
+New Git projects use a credential-free fingerprint of the normalized `origin` remote. HTTPS and SSH clones of the same remote receive the same identity. Opened subprojects also receive a stable Git-relative suffix. Non-Git projects receive a random local identity stored in `.hydra-graph/identity.json`.
 
-## Install
+Existing identities are preserved. If Git is added later, Repository Map previews the candidate identity. It migrates automatically only when no indexed source can be orphaned; otherwise it keeps the old identity and explains why.
 
-From PowerShell in the repository root:
+## Managed service and MCP
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -e ".[dev]"
+The first VS Code window starts the bundled service on loopback. Other windows authenticate, attach, and register their own project. A stale window session is discarded after a network or authentication failure so another window can take ownership. An occupied default port causes a stable alternate loopback port to be selected.
 
-cd .\extension
-npm install
-npm run build
-cd ..
-```
+**Repository Map: Configure Agents** detects installed Codex and Claude Code clients, shows the exact supported CLI commands, and runs only the selected registrations after confirmation. Agent configuration contains only the current loopback `/mcp` URL. First access uses OAuth 2.1 dynamic registration, PKCE S256, short-lived access tokens, rotating refresh tokens, revocation, and a native project/scope consent dialog.
 
-The service reads process environment variables. [.env.example](.env.example) is a reference; it is not loaded automatically.
+## Security boundary
 
-```powershell
-$env:HYDRA_DB_API_KEY = "your-key"
-$env:HYDRA_DB_DATABASE = "your-database"
-$env:HYDRA_DB_COLLECTION = "current"
-$env:HYDRA_DB_EVOLUTION_COLLECTION = "evolution"
-```
+The extension retrieves the account key and project database from SecretStorage for each HydraDB operation and sends them to Python through framed private stdin/stdout IPC. There is no process-lifetime credential cache. Credentials necessarily exist briefly in JavaScript and Python memory during an authenticated request; the guarantee is no unsafe persistence or long-lived cache, not impossible physical zeroization.
 
-Credentials remain in the Python process. They are not sent to the extension webview.
-The extension automatically uses the first open local workspace folder as the
-repository root and creates a safe repository ID from its folder name and
-canonical path. Users do not configure repository scope in `.env`.
+All managed REST routes require a short-lived token bound to one canonical root and repository ID. MCP uses its own OAuth access tokens. The service remains loopback-only and enforces host checks, size limits, rate limits, query budgets, root containment, version checks, and explicit write confirmation.
 
-## Preview and index
+## Supported release targets
 
-Previewing is local analysis only and does not contact HydraDB:
+- Windows x64 and ARM64
+- macOS x64 and ARM64
+- Linux x64 and ARM64
 
-```powershell
-hydra-graph index --revision "demo-before-change" --preview
-```
+The first release supports local VS Code desktop. Web extensions, Codespaces, Remote SSH, WSL-hosted extension processes, Alpine, and ARMHF are intentionally unsupported.
 
-After reviewing the exact files and source cards, run the upload:
+## Develop and verify
 
-```powershell
-hydra-graph index --revision "demo-before-change"
-```
-
-The VS Code command `Repository Map: Index Workspace with HydraDB` performs the same preview and adds a modal confirmation before upload. The extension sends the open workspace scope to the loopback service; the preview shows the exact root and generated repository ID before upload.
-
-## Run the service and extension
-
-Start the loopback service:
-
-```powershell
-hydra-graph serve
-```
-
-It listens on `http://127.0.0.1:8765`. The extension setting `hydra.serviceUrl` can change the port, but accepts local URLs only.
-
-In a second terminal, open an Extension Development Host:
-
-```powershell
-code --extensionDevelopmentPath="$PWD\extension"
-```
-
-Open the Repository Map activity item or run `Repository Map: Open Repository Map`. A running service with unavailable or unverified HydraDB shows an empty degraded result. If the service itself cannot be reached, the extension can show a clearly labeled interaction preview. Preview records are never returned by the Python service or MCP tools.
-
-## MCP setup
-
-The running loopback service exposes Streamable HTTP MCP at `http://127.0.0.1:8765/mcp`. Use this endpoint for Observe because the MCP tools, event bus, and stored views must share one Python process.
-
-For Codex, add this to the user-level `~/.codex/config.toml` or a trusted project's `.codex/config.toml`:
-
-```toml
-[mcp_servers.hydra-repository]
-url = "http://127.0.0.1:8765/mcp"
-```
-
-Then run `codex mcp list`. Codex supports both Streamable HTTP and stdio servers; see the [official Codex MCP documentation](https://developers.openai.com/codex/mcp/).
-
-For Claude Code:
-
-```powershell
-claude mcp add --scope project --transport http hydra-repository http://127.0.0.1:8765/mcp
-claude mcp list
-```
-
-See the [official Claude Code MCP documentation](https://code.claude.com/docs/en/mcp) for scope and configuration-file options.
-
-`python -m hydra_graph mcp --transport stdio` remains available for standalone tool use. A standalone process cannot feed the service's Observe timeline because it does not share the service event bus or view store.
-
-## Verify
-
-Run the complete local verification suite:
+Contributors still use Python and Node locally. See the [development guide](docs/development.md) for setup and the [packaging guide](docs/distribution.md) for release builds.
 
 ```powershell
 .\scripts\check.ps1
 ```
 
-The script runs Python lint and tests, TypeScript checks and tests, the production extension build, and the npm security audit. Offline HydraDB fixtures are used only at adapter and response boundaries in automated tests. Several anti-gaming tests mutate transport responses, reject mixed revisions, reject fabricated evidence, and prove that missing credentials produce an empty result without a local fallback.
+This runs Python lint/tests, TypeScript checks/tests, the extension build, and the npm audit. A credentialed HydraDB staging run is still required before publishing a release; offline fixtures are contract evidence, not live service proof.
 
-The checked evaluation fixtures can rehearse the A/B/C artifact flow without making a live claim:
-
-```powershell
-python -m evaluation --offline --output .\artifacts\offline --run-id offline-rehearsal
-```
-
-A credentialed run uses `--live` instead. It requires the evaluation fixture repository and its concrete gold revision to have been indexed in HydraDB. See [demo/five-minute-runbook.md](demo/five-minute-runbook.md) and run `python -m demo.preflight --results <live-raw.jsonl>` before interpreting a comparison.
-
-The checked Codex and Claude Code manifests are deliberately incomplete templates. A real run must replace the run and model placeholders, point `retrieval_results_path` at the exact live JSONL, and point `results_path` at observable `hack-hydra.agent-outcome.v1` JSONL. Preflight rejects missing, mismatched, rehearsal, or self-reported-only results.
-
-## Important limits
-
-- The deterministic repository analyzer currently supports Python source. TypeScript is used for the extension UI, not presented as parsed repository coverage.
-- The checked-out workspace has no HydraDB credentials, so the live capability spike must be run by a credentialed developer. The service remains honest and empty when credentials are absent.
-- Stable source replacement in the `current` collection is not transactional. A partial write or deletion marks the collection indeterminate; the last verified revision is a marker, not a claim that the prior state is still fully visible.
-- Exact relation inspection, Memory behavior, and cross-collection revision traversal remain provisional until a credentialed integration run proves their live semantics.
-- Indexing remains an explicit, reviewable action. Observe watches workspace changes only to mark source-backed entities already visible in the current bounded view; it does not silently re-index files.
-- Offline evaluation artifacts are rehearsals, not HydraDB performance evidence. Comparative claims require a complete credentialed A/B/C run against the exact gold repository revision.
-
-Product and architecture decisions live in [.agents/](.agents/README.md).
+Start with the [complete human documentation](docs/README.md), or go directly to [Getting started](docs/getting-started.md), [Views](docs/views.md), [Security](docs/trust-and-safety.md), and [Troubleshooting](docs/troubleshooting.md).

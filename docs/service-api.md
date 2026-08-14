@@ -1,8 +1,14 @@
 # Loopback service API
 
-The Python service listens on `http://127.0.0.1:8765` by default. It is a local
-product boundary for the VS Code extension and mounted MCP server, not a public
-HydraDB proxy. Request models reject unknown JSON fields.
+The managed Python service prefers `http://127.0.0.1:8765` and may choose a
+stable alternate port. It is a local product boundary, not a public HydraDB
+proxy. Request models reject unknown JSON fields.
+
+`GET /version` is the only unauthenticated REST discovery route. Every other
+managed REST request uses a short-lived bearer token issued by the signed
+project challenge. MCP has a separate OAuth boundary. The commands below are
+developer-runtime diagnostics; users should use VS Code commands rather than
+copying tokens into a shell.
 
 The examples below use PowerShell:
 
@@ -27,8 +33,8 @@ Invoke-RestMethod "$baseUrl/health" | ConvertTo-Json -Depth 5
   "revision_id": "abc123",
   "revision_verified": true,
   "verification_status": "verified",
-  "database": "repository-db",
   "collection": "current",
+  "source_count": 42,
   "repository_id": "my-repository",
   "repository_root_fingerprint": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "mcp_endpoint": "/mcp",
@@ -84,6 +90,7 @@ The ProductView response has this stable top-level shape:
 
 ```json
 {
+  "view_schema": "hack-hydra.product-view.v2",
   "view_id": "view_opaque",
   "revision_id": "abc123",
   "mode": "trace",
@@ -93,7 +100,6 @@ The ProductView response has this stable top-level shape:
   "aggregates": [],
   "hydradb": {
     "available": true,
-    "database": "repository-db",
     "collections": ["current"],
     "query_by": "hybrid",
     "mode": "thinking",
@@ -164,28 +170,25 @@ Stored views are bounded in-memory state and can expire.
 
 ## Safe indexing
 
-Extension requests provide `X-Hydra-Repository-Root` and
-`X-Hydra-Repository-Id` together. The root header is URI-component encoded so
-Windows and Unicode paths remain valid HTTP header values. The service resolves
-the root, requires an existing directory, validates the ID, and keeps sync,
-query, view, evolution, and Observe state isolated by repository scope.
-
-Requests without these headers use the service process scope for direct CLI and
-standalone MCP compatibility. Supplying only one header returns HTTP `422`.
+Managed extension requests never send caller-controlled root headers. The
+signed challenge resolves one canonical root and repository ID, and the bearer
+token selects that registered service container. Root headers remain only in
+the explicit developer runtime for compatibility testing.
 
 ### `POST /api/index/preview`
 
 Body:
 
 ```json
-{"revision_id":"abc123"}
+{}
 ```
 
-`revision_id` is required and limited to 256 characters.
+The server derives the revision: a clean Git commit SHA, otherwise a
+deterministic analyzed-content digest.
 
 ```powershell
-$body = @{ revision_id = "abc123" } | ConvertTo-Json
-Invoke-RestMethod "$baseUrl/api/index/preview" `
+$body = @{} | ConvertTo-Json
+$preview = Invoke-RestMethod "$baseUrl/api/index/preview" `
     -Method Post -ContentType "application/json" -Body $body
 ```
 
@@ -197,11 +200,12 @@ made.
 
 ### `POST /api/index`
 
-Uses the same exact body after the preview is accepted:
+Uses the single-use preview token returned by the preview:
 
 ```powershell
+$confirm = @{ preview_token = $preview.preview_token } | ConvertTo-Json
 Invoke-RestMethod "$baseUrl/api/index" `
-    -Method Post -ContentType "application/json" -Body $body
+    -Method Post -ContentType "application/json" -Body $confirm
 ```
 
 The response contains the same `preview` plus `sync`. Abridged example:
@@ -446,11 +450,10 @@ events:
 - `GET /api/status` — removed; returns `404`.
 - `POST /api/events` — no event-write handler; returns `405`.
 
-Use safe scoped indexing, server-derived Observe interactions, and the
-adapter's internal status/delete operations instead. Repository roots are
-accepted only through the paired, validated extension scope headers; indexing
-bodies cannot replace that scope. No route accepts raw Graph IR ingestion,
-delete IDs, or event envelopes.
+Use authenticated indexing, server-derived Observe interactions, and the
+adapter's internal status/delete operations instead. Managed project scope
+comes only from the project token; indexing bodies cannot replace it. No route
+accepts raw Graph IR ingestion, delete IDs, or event envelopes.
 
 Related guides: [Getting started](getting-started.md) ·
 [Configuration](configuration.md) · [Indexing and sync](indexing-and-sync.md) ·

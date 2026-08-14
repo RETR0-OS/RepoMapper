@@ -43,20 +43,21 @@ The application provides:
 
 ## End-to-end lifecycle
 
-1. **Configure:** give the Python process HydraDB credentials, an explicit repository ID, and one repository root.
-2. **Preview:** analyze that root locally and review the complete source-card upload scope.
-3. **Index:** confirm the write, wait for HydraDB graph creation, and establish one verified revision.
-4. **Explore:** ask questions and navigate bounded HydraDB-backed paths to exact source evidence.
-5. **Observe:** follow explicit MCP queries, returned context, selections, evidence opens, and visible file edits.
-6. **Change:** capture before and after checkpoints around an indexed edit and publish the deterministic delta to HydraDB evolution Knowledge.
-7. **Preserve:** save one important grounded path as a shared System Lens and review deterministic drift later.
-8. **Evaluate:** compare a source-derived baseline with HydraDB graph-disabled and graph-enabled retrieval without allowing fixtures or self-reported metrics to become live claims.
+1. **Install:** add the platform-specific extension; its signed Python service is already bundled.
+2. **Configure:** select an account profile and enter masked API-key and project-database secrets in VS Code.
+3. **Preview:** analyze the selected opened project locally and review the complete source-card upload scope.
+4. **Index:** confirm the write, wait for HydraDB graph creation, and establish one verified automatic revision.
+5. **Explore:** ask questions and navigate bounded HydraDB-backed paths to exact source evidence.
+6. **Observe:** follow explicit OAuth MCP queries, returned context, selections, evidence opens, and visible file edits.
+7. **Change:** capture before and after checkpoints around an indexed edit and publish the deterministic delta to HydraDB evolution Knowledge.
+8. **Preserve:** save one important grounded path as a shared System Lens and review deterministic drift later.
+9. **Evaluate:** compare a source-derived baseline with HydraDB graph-disabled and graph-enabled retrieval without allowing fixtures or self-reported metrics to become live claims.
 
 ## Guides by task
 
 ### Use the application
 
-- [Getting started](getting-started.md) — install, configure, preview, index, start the service, and open the extension.
+- [Getting started](getting-started.md) — install, configure, preview, index, open the views, and optionally connect agents.
 - [Repository Map views](views.md) — what every mode, control, status, badge, and inspector field means.
 - [Workflows](workflows.md) — indexing, orientation, questions, editor focus, comparisons, lenses, and agent following.
 - [Observe](observe.md) — event types, item states, pause, replay, cursor safety, and edit overlays.
@@ -72,7 +73,9 @@ The application provides:
 
 ### Operate it safely
 
-- [Configuration](configuration.md) — every environment variable and VS Code setting.
+- [Configuration](configuration.md) — SecretStorage profiles, project bindings, identities, settings, and the isolated developer runtime.
+- [Managed runtime](managed-runtime.md) — process ownership, multi-window attachment, ports, integrity, restart, and shutdown.
+- [Packaging and distribution](distribution.md) — platform VSIX targets, native service builds, signing, provenance, and release acceptance.
 - [Loopback service API](service-api.md) — supported HTTP routes, request shapes, statuses, limits, and examples.
 - [Indexing and sync](indexing-and-sync.md) — preview, upload, status, replacement, deletion, indeterminate state, and recovery.
 - [MCP and agents](mcp-and-agents.md) — mounted Streamable HTTP setup, available tools, Observe correlation, and standalone MCP limits.

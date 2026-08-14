@@ -1,96 +1,63 @@
 # Configuration
 
-The Python service reads environment variables when the process starts. The
-repository includes [`.env.example`](../.env.example) as a reference, but the
-service does not load it automatically.
+Normal users configure Repository Map in VS Code. Marketplace use has no required environment variables or service URL.
 
-## HydraDB settings
+## Secret account profiles
 
-| Variable | Required | Default | Meaning |
-| --- | --- | --- | --- |
-| `HYDRA_DB_API_KEY` | Yes for live use | none | HydraDB bearer credential. Missing credentials produce an explicit unavailable state. |
-| `HYDRA_DB_DATABASE` | Yes for live use | empty | HydraDB database used by all requests. |
-| `HYDRA_DB_COLLECTION` | No | `current` | Current repository collection. Must be nonblank and different from the evolution collection. |
-| `HYDRA_DB_EVOLUTION_COLLECTION` | No | `evolution` | Change-event and shared-lens collection. Must be nonblank and different from the current collection. |
-| `HYDRA_DB_API_URL` | No | `https://api.hydradb.com` | HydraDB API base URL. A trailing slash is removed. |
-| `HYDRA_DB_TIMEOUT_SECONDS` | No | `20` | Timeout for one HydraDB HTTP request. Must be greater than zero. |
-| `HYDRA_DB_MAX_RETRIES` | No | `2` | Additional attempts for network failures and retryable responses. Must be zero or greater. |
-| `HYDRA_DB_RETRY_BACKOFF_SECONDS` | No | `0.25` | Base retry backoff. Must be zero or greater. |
-| `HYDRA_DB_POLL_INTERVAL_SECONDS` | No | `1` | Delay between bounded index-status polls. Must be greater than zero. |
-| `HYDRA_DB_POLL_TIMEOUT_SECONDS` | No | `120` | Maximum status-poll time for an index operation. Must be greater than zero. |
+An account profile contains:
 
-The adapter retries network failures and HTTP `429`, `500`, `502`, and `503`.
-It does not retry request/authentication errors such as `400`, `401`, `403`,
-`404`, `409`, or `413`.
+- a visible, non-sensitive label;
+- one HydraDB API key in VS Code SecretStorage.
 
-## Repository scope
+The label may appear in normal extension state. The key may not. Profiles can be reused across projects.
 
-The VS Code extension configures repository scope automatically. It uses the
-first open local workspace folder as the root and creates an ASCII-safe ID from
-the folder name plus a short hash of its canonical path. It sends both values
-to the loopback service on every request. They are not VS Code settings and do
-not belong in `.env`.
+## Secret project bindings
 
-The environment variables below remain optional for direct CLI and standalone
-MCP use, where there is no VS Code workspace to supply the scope.
+Each repository identity maps to:
 
-| Variable | Required | Default | Meaning |
-| --- | --- | --- | --- |
-| `HYDRA_REPOSITORY_ID` | Optional outside the extension | database name, or `unconfigured-repository` without one | Repository identity for direct CLI and standalone MCP requests. |
-| `HYDRA_REPOSITORY_ROOT` | Optional outside the extension | process working directory | Repository root for direct CLI and standalone MCP requests. Prefer an absolute path. |
+- a selected account profile ID;
+- one database name in SecretStorage.
 
-Set an absolute root before starting the service from another directory:
+Only opaque profile IDs and repository IDs appear in ordinary state. Database names are not shown after entry and are not synchronized between machines.
+
+## Extension settings
+
+| Setting | Default | Meaning |
+| --- | ---: | --- |
+| `hydra.requestTimeoutMs` | `5000` | Read/query timeout for the managed loopback service. |
+| `hydra.indexTimeoutMs` | `120000` | Local analysis and indexing timeout. |
+| `hydra.developerMode` | `false` | Use a separately started service. Development only. |
+| `hydra.developerServiceUrl` | `http://127.0.0.1:8765` | Loopback URL used only when developer mode is enabled. |
+
+The normal service URL is managed automatically. If port 8765 belongs to an unrelated process, Repository Map chooses a stable alternate loopback port and later agent registrations use that port.
+
+## Repository identity state
+
+`.hydra-graph/identity.json` stores only:
+
+- the schema version;
+- the public repository ID;
+- whether it came from a Git origin, a generated local identity, or legacy state;
+- an optional SHA-256 origin fingerprint.
+
+It never stores the remote URL, API key, or database. The extension workspace binding contains the same opaque repository ID.
+
+For Git projects, the public ID uses a sanitized repository name and the first 20 characters of the normalized origin SHA-256. HTTPS, SSH, and SCP-style forms normalize to the same identity. A separately opened subproject adds a stable hash of its Git-relative path.
+
+For non-Git projects, a random UUID is generated once. Moving the folder preserves the identity because the checked project state wins over its path.
+
+## Developer runtime only
+
+Contributors may run the service separately and use environment-based credentials. This path is explicit and is not used by the packaged extension:
 
 ```powershell
-$repositoryRoot = (Resolve-Path "C:\src\my-repository").Path
-$env:HYDRA_REPOSITORY_ROOT = $repositoryRoot
-$env:HYDRA_REPOSITORY_ID = "my-repository"
+$env:HYDRA_DB_API_KEY = "development-only"
+$env:HYDRA_DB_DATABASE = "development-only"
 python -m hydra_graph serve
 ```
 
-The service resolves the root before use. `/health` exposes the repository ID
-and a deterministic SHA-256 `repository_root_fingerprint`, never the absolute
-path. The extension uses the fingerprint to prove that its workspace and the
-service refer to the same canonical root before reporting workspace-change
-events.
+The managed binary ignores all `HYDRA_DB_*` environment variables. Never tell end users to configure them.
 
-Sync bookkeeping is saved at `.hydra-graph/manifest.json` inside the configured
-root. Manifest and checkpoint paths are containment-checked after path
-resolution, including symlinks. `.hydra-graph/` is ignored by Git.
+## What cannot be configured
 
-## PowerShell example
-
-Environment variables apply to the current process and child processes:
-
-```powershell
-$env:HYDRA_DB_API_KEY = "your-key"
-$env:HYDRA_DB_DATABASE = "your-database"
-$env:HYDRA_DB_COLLECTION = "current"
-$env:HYDRA_DB_EVOLUTION_COLLECTION = "evolution"
-$env:HYDRA_DB_TIMEOUT_SECONDS = "20"
-$env:HYDRA_DB_POLL_TIMEOUT_SECONDS = "120"
-
-python -m hydra_graph serve
-```
-
-Do not commit a real API key. Do not put it in VS Code webview settings or MCP
-tool arguments. It belongs in the Python service process.
-
-## VS Code settings
-
-| Setting | Default | Allowed range | Meaning |
-| --- | --- | --- | --- |
-| `hydra.serviceUrl` | `http://127.0.0.1:8765` | loopback HTTP URL | Local Python service URL. |
-| `hydra.requestTimeoutMs` | `5000` | 500–30000 | Timeout for ordinary local service requests. |
-| `hydra.indexTimeoutMs` | `120000` | 5000–600000 | Timeout for analysis and indexing requests. |
-
-Use VS Code Settings and search for `Repository Map` to change these values.
-Keep the URL on loopback. The Python service itself binds only to `127.0.0.1`.
-
-## Configuration is not verification
-
-The service is allowed to start without credentials so it can report an honest
-`unavailable` state. With credentials but no verified manifest, `/health`
-reports `unverified`, not `ready`. See [Indexing and sync](indexing-and-sync.md)
-for the full state table and [Trust and safety](trust-and-safety.md) for the
-security boundaries.
+Users cannot disable preview/confirmation, broaden the project root, expose the service beyond loopback, place a bearer token in MCP configuration, or enable local fallback retrieval. These are security and truth boundaries, not preferences.

@@ -79,7 +79,10 @@ Do not make a “better” or percentage claim unless all questions, all three c
 
 ## Security boundary
 
-The service binds to loopback only. It is not designed to be exposed directly to a network. There is no remote authentication layer because remote binding is outside the supported deployment model.
+The service binds to loopback only and still authenticates managed REST and MCP calls. It is not designed to be exposed directly to a network.
 
-See [Trust and safety](trust-and-safety.md) before changing the bind address or adding routes that mutate HydraDB.
+Indexed identity migration is deliberately conservative. HydraDB v2 does not currently give this product a proven exhaustive metadata-delete operation for both current and evolution sources. Repository Map therefore migrates an unindexed local identity, but preserves an indexed legacy identity rather than silently orphaning records.
 
+The packaged release supports local VS Code desktop on Windows, macOS, and Linux x64/ARM64. Web, Codespaces, Remote SSH, WSL-hosted extension processes, Alpine, and ARMHF are not supported.
+
+See [Trust and safety](trust-and-safety.md) before changing the bind address, authentication, or routes that mutate HydraDB.
