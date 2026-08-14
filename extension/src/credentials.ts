@@ -145,6 +145,13 @@ export class CredentialVault {
     return this.listBindings().some((binding) => binding.repositoryId === repositoryId);
   }
 
+  public async hasStoredProjectBinding(repositoryId: string): Promise<boolean> {
+    requireRepositoryId(repositoryId);
+    const binding = parseBinding(await this.secrets.get(bindingKey(repositoryId)));
+    if (!binding) return false;
+    return parseProfile(await this.secrets.get(`${PROFILE_PREFIX}${binding.profile_id}`)) !== undefined;
+  }
+
   public async acquire(repositoryId: string): Promise<AcquiredCredentials> {
     requireRepositoryId(repositoryId);
     const rawBinding = await this.secrets.get(bindingKey(repositoryId));

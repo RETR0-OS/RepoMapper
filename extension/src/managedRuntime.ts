@@ -315,7 +315,8 @@ export class ManagedRuntime implements vscode.Disposable, vscode.UriHandler {
 
   private async handleCredentialRequest(request: CredentialRequest): Promise<void> {
     if (request.type === "credential_status") {
-      this.writeToService(credentialResponse(request, undefined, this.vault.hasProjectBinding(request.repository_id)));
+      const configured = await this.vault.hasStoredProjectBinding(request.repository_id);
+      this.writeToService(credentialResponse(request, undefined, configured));
       return;
     }
     try {

@@ -69,6 +69,19 @@ describe("CredentialVault", () => {
     expect((await vault.acquire("git:two:1234567890abcdef1234")).database).toBe("database-two");
   });
 
+  it("checks shared secret storage instead of a window-local binding index", async () => {
+    const secrets = new MemorySecrets();
+    const writerState = new MemoryState();
+    const writer = new CredentialVault(secrets, writerState);
+    const profile = await writer.createProfile("Shared account", "shared-secret-key");
+    const repositoryId = "git:shared:1234567890abcdef1234";
+    await writer.bindProject(repositoryId, profile.id, "shared-database");
+
+    const otherWindow = new CredentialVault(secrets, new MemoryState());
+    expect(otherWindow.hasProjectBinding(repositoryId)).toBe(false);
+    await expect(otherWindow.hasStoredProjectBinding(repositoryId)).resolves.toBe(true);
+  });
+
   it("copies a project binding for an identity migration without exposing it", async () => {
     const secrets = new MemorySecrets();
     const state = new MemoryState();
@@ -93,12 +106,14 @@ describe("CredentialVault", () => {
     const state = new MemoryState();
     const vault = new CredentialVault(secrets, state);
     await expect(vault.acquire("git:repo:1234567890abcdef1234")).rejects.toThrow("not configured");
+    await expect(vault.hasStoredProjectBinding("git:repo:1234567890abcdef1234")).resolves.toBe(false);
     const profile = await vault.createProfile("Default", "valid-secret-key");
     await vault.bindProject("git:repo:1234567890abcdef1234", profile.id, "database");
     for (const [key] of secrets.values) {
       if (key.includes("profile.v1")) secrets.values.set(key, "{broken");
     }
     await expect(vault.acquire("git:repo:1234567890abcdef1234")).rejects.toThrow("unavailable");
+    await expect(vault.hasStoredProjectBinding("git:repo:1234567890abcdef1234")).resolves.toBe(false);
   });
 
   it("creates stable installation secrets only in secret storage", async () => {
