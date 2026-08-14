@@ -15,6 +15,134 @@ Repository Map is released as six platform-specific VSIX packages. Each package 
 
 These are desktop packages. Do not mark them compatible with web, Codespaces, Remote SSH, WSL-hosted extension processes, Alpine, or ARMHF.
 
+## Development setup
+
+Run these commands from PowerShell in the repository root. The packaging extra
+installs PyInstaller, SBOM tooling, and the license inventory tool in addition
+to the normal development dependencies.
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev,packaging]"
+
+Push-Location .\extension
+npm ci
+Pop-Location
+```
+
+Python 3.11 or newer, Node.js 20 or newer, and VS Code 1.96 or newer are
+required to build from source. End users do not need these tools.
+
+### Run all checks
+
+The checked-in script runs Python lint and tests, TypeScript checking, extension
+tests, the production webview build, npm audit, and a VSIX dry run.
+
+```powershell
+.\scripts\check.ps1
+```
+
+Useful focused commands while developing are:
+
+```powershell
+python -m pytest -q
+python -m ruff check service evaluation demo tests packaging
+python -m ruff format --check service evaluation demo tests packaging
+
+Push-Location .\extension
+npm run check
+npm test
+npm run build
+npm audit --audit-level=high
+Pop-Location
+```
+
+### Run the UI preview
+
+The standalone preview exercises the six webview modes using clearly labeled
+fixture data. It does not start HydraDB or claim to show repository results.
+
+```powershell
+Push-Location .\extension
+npm run preview
+```
+
+Open the URL printed by the command. Press `Ctrl+C`, then run `Pop-Location`
+when finished.
+
+### Run an Extension Development Host
+
+Build the TypeScript extension, then open a second VS Code window that loads
+this checkout as the extension under development:
+
+```powershell
+Push-Location .\extension
+npm run build
+Pop-Location
+
+code --extensionDevelopmentPath="$PWD\extension"
+```
+
+This command uses the service bundle currently staged under
+`extension/resources/service`. To test a freshly changed Python service, build
+and stage it first using the next section.
+
+## Build a local VSIX
+
+PyInstaller does not cross-compile. Run these commands on the operating system
+and architecture named by `$target`. The following example builds Windows x64;
+replace the target only when running on its matching native machine.
+
+```powershell
+$target = "win32-x64"
+
+python -m PyInstaller --noconfirm --clean packaging/hydra_graph.spec
+python packaging/smoke_managed.py `
+  --bundle dist/hydra-graph `
+  --target $target
+python packaging/stage_service.py `
+  --source dist/hydra-graph `
+  --extension extension `
+  --target $target
+
+New-Item -ItemType Directory -Force .\artifacts | Out-Null
+Push-Location .\extension
+npm ci
+npm run check
+npm test
+npm run build
+npx vsce package `
+  --target $target `
+  --ignore-other-target-folders `
+  --out "..\artifacts\repository-map-$target.vsix"
+Pop-Location
+```
+
+The resulting local package is unsigned and intended only for development. It
+still contains the complete native service, so the test machine does not need
+Python or Node.
+
+### Install and test the local package
+
+```powershell
+$target = "win32-x64"
+code --install-extension ".\artifacts\repository-map-$target.vsix" --force
+code .
+```
+
+In VS Code, run **Developer: Reload Window**, then run **Repository Map: Setup**
+from the Command Palette. Complete the masked HydraDB setup, review the index
+preview, cancel once to prove cancellation is safe, then confirm a fresh
+preview. Exercise Repository, Explore, Trace, Observe, Compare, and Preserve.
+
+To remove the development installation:
+
+```powershell
+code --uninstall-extension hack-hydra.hydra-repository-observability
+```
+
 ## Build pipeline
 
 The release matrix performs these steps on the native target runner:
@@ -31,6 +159,30 @@ The release matrix performs these steps on the native target runner:
 10. upload release artifacts.
 
 The package never downloads a runtime on first launch. End users do not need Python or Node.
+
+## Create local release metadata
+
+After building one local target, create its Python and Node SBOMs, checksums,
+and Python dependency license inventory:
+
+```powershell
+$target = "win32-x64"
+
+cyclonedx-py environment `
+  --output-format JSON `
+  --output-file ".\artifacts\repository-map-$target.python.cdx.json"
+
+Push-Location .\extension
+npm sbom --json |
+  Set-Content -Encoding utf8 "..\artifacts\repository-map-$target.node.cdx.json"
+Pop-Location
+
+python packaging/release_metadata.py .\artifacts
+Get-Content .\artifacts\SHA256SUMS.json
+```
+
+These commands create evidence for a local build. They do not sign, notarize,
+publish, or prove another platform target.
 
 ## Signing
 
@@ -50,6 +202,41 @@ Before publishing:
 - validate current Codex and Claude Code OAuth registration.
 
 Publish each VSIX with its corresponding Marketplace target. Do not publish one host-built binary as a universal package.
+
+### Build the signed release matrix
+
+The GitHub Actions workflow builds all six native targets. A version tag also
+enables Windows signing, macOS signing/notarization, and provenance attestation.
+Configure the release secrets described in the workflow before pushing a tag.
+
+```powershell
+$version = "0.1.0"
+git tag "v$version"
+git push origin "v$version"
+```
+
+These commands create and push a public release tag. Run them only after the
+version is final, the working tree is clean, the complete check passes, and the
+required signing secrets are configured. Monitor **Build platform extensions**
+in GitHub Actions and download all six `repository-map-<target>` artifacts.
+
+### Publish verified VSIX packages
+
+After completing staging acceptance on the downloaded signed packages, publish
+them with VS Code Marketplace authentication. This example uses the supported
+Microsoft Entra credential flow instead of placing a Marketplace token in the
+command line:
+
+```powershell
+Push-Location .\extension
+$packages = Get-ChildItem ..\artifacts\repository-map-*.vsix |
+  ForEach-Object { $_.FullName }
+npx vsce publish --azure-credential --packagePath $packages
+Pop-Location
+```
+
+Publishing changes the Marketplace. Review `$packages` before running the
+command and do not publish unsigned local packages.
 
 ## Staging acceptance
 
