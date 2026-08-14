@@ -73,6 +73,8 @@ class SourceCard(FrozenModel):
     metadata: dict[str, str | bool]
     additional_metadata: dict[str, str | int | bool | None]
     graph: HydraSourceGraph
+    title: str | None = Field(default=None, min_length=1, max_length=512)
+    source_type: str = Field(default="code_entity", min_length=1, max_length=128)
 
 
 def _hydra_entity_name(node: GraphNode) -> str:
@@ -305,8 +307,9 @@ def build_app_knowledge(cards: tuple[SourceCard, ...] | list[SourceCard]) -> lis
     return [
         {
             "id": card.source_id,
-            "title": str(card.additional_metadata["display_name"]),
-            "type": "code_entity",
+            "title": card.title
+            or str(card.additional_metadata.get("display_name") or card.source_id),
+            "type": card.source_type,
             "content": {"text": card.content},
             "metadata": card.metadata,
             "additional_metadata": {
