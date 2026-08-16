@@ -45,7 +45,7 @@ jobs:
           cache: pip
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: extension/package-lock.json
       - name: Install build dependencies
@@ -121,7 +121,7 @@ jobs:
       - name: Node SBOM
         working-directory: extension
         shell: bash
-        run: npm sbom --json > "../artifacts/repository-map-${{ matrix.target }}.node.cdx.json"
+        run: npm sbom --sbom-format cyclonedx --json > "../artifacts/repository-map-${{ matrix.target }}.node.cdx.json"
       - name: Checksums and licenses
         run: python packaging/release_metadata.py artifacts
       - uses: actions/upload-artifact@v4
