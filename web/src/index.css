@@ -1,0 +1,144 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+    --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+    --font-heading: var(--font-sans);
+    --font-mono: 'Geist Mono Variable', ui-monospace, monospace;
+
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --color-card: var(--card);
+    --color-card-foreground: var(--card-foreground);
+    --color-popover: var(--popover);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-primary: var(--primary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-secondary: var(--secondary);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-accent: var(--accent);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-destructive: var(--destructive);
+    --color-border: var(--border);
+    --color-input: var(--input);
+    --color-ring: var(--ring);
+
+    /* Product-specific accents. Distinct names so they never collide with
+       Tailwind's built-in lime/cyan/amber/red scales. */
+    --color-panel: var(--panel);
+    --color-raised: var(--raised);
+    --color-lime: var(--lime);
+    --color-lime-soft: var(--lime-soft);
+    --color-cyan-accent: var(--cyan-accent);
+    --color-amber-accent: var(--amber-accent);
+    --color-danger: var(--danger);
+
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --animate-marquee: marquee var(--duration) infinite linear;
+    --animate-marquee-vertical: marquee-vertical var(--duration) linear infinite;
+  @keyframes marquee {
+  from {
+    transform: translateX(0);
+        }
+  to {
+    transform: translateX(calc(-100% - var(--gap)));
+        }
+    }
+  @keyframes marquee-vertical {
+  from {
+    transform: translateY(0);
+        }
+  to {
+    transform: translateY(calc(-100% - var(--gap)));
+        }
+    }
+}
+
+/* Single fixed dark theme — this is a product-launch page, not a themed app. */
+:root {
+    --background: #0b0b0c;
+    --foreground: #ededef;
+
+    --panel: #141416;
+    --raised: #1c1c1f;
+
+    --card: #141416;
+    --card-foreground: #ededef;
+    --popover: #1c1c1f;
+    --popover-foreground: #ededef;
+
+    --primary: #c3f53c;
+    --primary-foreground: #0b0b0c;
+    --secondary: #1c1c1f;
+    --secondary-foreground: #ededef;
+    --muted: #141416;
+    --muted-foreground: #9a9aa2;
+    --accent: #1c1c1f;
+    --accent-foreground: #ededef;
+    --destructive: #f0717d;
+
+    --border: #26262a;
+    --input: #26262a;
+    --ring: #c3f53c;
+
+    --lime: #c3f53c;
+    --lime-soft: color-mix(in srgb, #c3f53c 16%, transparent);
+    --cyan-accent: #4de0d0;
+    --amber-accent: #ffb454;
+    --danger: #f0717d;
+
+    --radius: 0.75rem;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    }
+  body {
+    @apply bg-background text-foreground;
+    }
+  html {
+    @apply font-sans;
+    scroll-behavior: smooth;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+/* The graph mock's canvas backdrop — same technique as the real extension's
+   .graph-wrap (extension/src/webview/styles.css): a soft radial glow plus a
+   faint 1px grid, not a flat gradient. */
+.graph-canvas {
+  background:
+    radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--lime) 7%, transparent), transparent 60%),
+    linear-gradient(color-mix(in srgb, var(--border) 55%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--border) 55%, transparent) 1px, transparent 1px);
+  background-size: auto, 26px 26px, 26px 26px;
+}
+
+/* Fine grain overlay — the page's one texture flourish, applied once at the
+   document root, never per-section. */
+.grain-overlay {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  opacity: 0.045;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
