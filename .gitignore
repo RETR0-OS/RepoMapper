@@ -24,6 +24,7 @@ extension/resources/service/
 
 # Build and runtime output
 dist/
+!web/dist/
 build/
 .hydra-graph/
 artifacts/
