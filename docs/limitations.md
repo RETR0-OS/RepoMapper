@@ -69,6 +69,18 @@ The MVP supports one shared Knowledge-backed System Lens workflow. It does not c
 
 Accepting drift updates the saved baseline only after an explicit review and confirmation.
 
+## Contrast runs
+
+A contrast run measures two live coding-agent runs of one question. It is a record of those two runs, not a benchmark.
+
+- Agent runs are not deterministic. The same question can produce a different number of tool calls, a different duration, and a different cost on a later run. The panel reports the run it made. It does not average runs and it does not claim a general result.
+- Both sides keep every read-only tool the harness gives them. The Argus side differs by addition only, so the run measures an augmented harness rather than a weakened one. Because the agent may still choose its own tools on the Argus side, a run does not prove that an Argus tool produced the answer; read the tool-call list to see what it actually used.
+- The Argus side requires `repository-map` to be a registered and authenticated MCP server for the project. Registration alone is not enough — `claude mcp add` and `claude mcp login` are separate steps, and an unauthenticated server is dropped silently, leaving that side with no Argus tools.
+- Each run costs real money, because it is two real agent runs. Contrast has no fixture or offline mode.
+- Contrast requires the `claude` CLI to be installed and signed in. Without it the view shows the agent gate.
+
+`Write`, `Edit`, and `NotebookEdit` are denied on both sides, so a contrast run cannot change the repository. The spawned agent never receives HydraDB credentials; every `HYDRA_DB_*` environment variable is stripped before the process starts. Token counts and cost come from the agent CLI's own usage report, not from an Argus estimate.
+
 ## Evaluation claims
 
 Offline fixtures test contracts and rehearse artifact generation. They are not performance evidence.

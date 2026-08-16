@@ -31,7 +31,7 @@ flowchart LR
 
 The application provides:
 
-- Repository, Explore, Trace, Observe, Compare, and Preserve views;
+- Repository, Explore, Trace, Observe, Compare, Preserve, and Contrast views;
 - package, file, and symbol graph depths;
 - deterministic stable IDs and line-addressable evidence;
 - visibly separate exact and inferred relations;
@@ -66,7 +66,7 @@ The application provides:
 
 ### Understand the model
 
-- [Core concepts](concepts.md) — the mental model, concrete entities, revisions, and six product modes.
+- [Core concepts](concepts.md) — the mental model, concrete entities, revisions, and seven product modes.
 - [Graph IR and source evidence](graph-and-evidence.md) — nodes, edges, stable IDs, exact versus inferred facts, evidence, cards, and projections.
 - [Architecture](architecture.md) — component boundaries and the ingestion, query, Observe, and evolution data flows.
 - [Glossary](glossary.md) — concise definitions for product and graph terms.

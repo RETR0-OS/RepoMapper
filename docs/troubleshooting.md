@@ -233,6 +233,22 @@ Index the before state, start the comparison, make the change, index the changed
 
 Open a verified HydraDB view containing at least one exact connected edge. A System Lens cannot be created from preview data, automatic relations, empty views, or unverified revisions.
 
+## Contrast shows the agent gate
+
+Contrast needs the `claude` CLI to be installed and signed in. Without it the view shows the agent gate instead of a comparison.
+
+Run `claude` from a normal terminal, sign in, and confirm its executable is on the VS Code extension-host `PATH`. Restart VS Code after installing it. Argus does not install the CLI and does not sign in for you.
+
+## A contrast run did not finish
+
+A contrast run starts two real agent processes, so it takes as long as the agent takes. When a run times out or stops:
+
+- ask a narrower, more concrete question;
+- confirm one revision is ready and the managed service is available, because the Argus run answers through the loopback MCP endpoint;
+- start the run again.
+
+A stopped run is not a result. Do not compare a finished column with a stopped one. Each attempt costs real money, so change the question before repeating a run that already failed.
+
 ## Developer mode
 
 Only contributors should enable `hydra.developerMode`. In that mode, install the Python and Node dependencies from [Development](development.md), start the service separately, and use the developer loopback URL. Environment credentials belong only to that explicit process and do not test SecretStorage/managed IPC behavior.

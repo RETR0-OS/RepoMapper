@@ -66,7 +66,7 @@ Read these documents before making architectural or product changes:
 
 This is still primarily a product and architecture workspace, not an implementation repository. A standalone interactive UI mockup has established the current human-facing direction:
 
-- A VS Code-like shell with six modes: Repository, Explore, Trace, Observe, Compare, and Preserve.
+- A VS Code-like shell with seven modes: Repository, Explore, Trace, Observe, Compare, Preserve, and Contrast.
 - A deterministic 2D repository map with package, file, and symbol depth.
 - Movable nodes, panning, zooming, relation filters, and resettable layouts.
 - Direct node and edge navigation to source evidence.

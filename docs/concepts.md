@@ -83,7 +83,7 @@ empty degraded result instead of exposing a possibly mixed graph.
 The last verified revision is a bookkeeping marker. It is not a promise that a
 failed replacement left every old HydraDB source untouched.
 
-## The six product modes
+## The seven product modes
 
 - **Repository** shows bounded package, file, or symbol structure.
 - **Explore** focuses on a concrete entity and its returned neighborhood.
@@ -93,9 +93,33 @@ failed replacement left every old HydraDB source untouched.
 - **Compare** retrieves a stored structural change event between two revisions.
 - **Preserve** saves one important exact path and reports how its grounded path
   changes later.
+- **Contrast** answers one question twice with the same coding agent, once
+  without Argus and once through the Argus MCP endpoint, and reports each run's
+  measured usage.
 
 Observe does not expose private model reasoning or HydraDB's private internal
 traversal. It shows product events and returned data only.
+
+### Contrast is a measurement, not a general claim
+
+Contrast is the only mode that starts a coding agent. It runs the same question
+twice with the same agent and the same model. The base run uses only the agent's
+built-in tools: Grep, Glob, Read, and Bash. The Argus run uses
+`repository_query`, `trace_flow`, and `focus_symbol` through the loopback MCP
+endpoint. Both runs are live; neither is a fixture or a recording.
+
+Each column reports that run's own measured usage, taken from the agent CLI's
+usage report rather than from an Argus estimate. Agent runs are not
+deterministic, so the same question can produce a different number of tool calls
+on a different run. A contrast result describes the two runs it made. It is not
+an average and it is not a general result.
+
+The Argus side denies the agent's built-in search tools by default, so the
+comparison measures retrieval and not tool choice. Both sides are read-only, and
+the spawned agent never receives HydraDB credentials.
+
+See [Contrast](views.md#contrast) for the panel, and
+[Contrast runs](limitations.md#contrast-runs) for the limits.
 
 ## Current implementation scope
 

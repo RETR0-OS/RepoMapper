@@ -2,7 +2,7 @@
 
 Argus provides a keyboard-operable graph, a textual equivalent for visible relations, explicit state labels, reduced-motion behavior, and VS Code theme integration. This page describes the current controls and limits.
 
-For the six modes and common controls, see [Views](views.md). For task recipes, see [Workflows](workflows.md). Observe-specific event semantics are in [Observe](observe.md).
+For the seven modes and common controls, see [Views](views.md). For task recipes, see [Workflows](workflows.md). Observe-specific event semantics are in [Observe](observe.md).
 
 ## Keyboard use
 
@@ -46,6 +46,17 @@ Argus combines color with text and shape:
 - the timeline and textual relation list provide non-canvas equivalents.
 
 Do not use color alone when reviewing a view. Confirm the badge, relation quality text, inspector explanation, and source evidence.
+
+## The Contrast panel
+
+Contrast is two columns of measured agent activity rather than a graph, so it has its own structure:
+
+- Each run is a labeled section. One section is the base agent run and one is the Argus run, and the label names which run the column reports.
+- The metrics strip and both tool-call lists are polite live regions, so counts and new tool calls are announced as the runs proceed.
+- A text alternative lists both trajectories in order. The tool calls of each run can be read in sequence without comparing the two columns visually.
+- No difference is stated by color alone. Every difference in the metrics strip is also written as text.
+
+See [Contrast](views.md#contrast) for what each column reports.
 
 ## Reduced motion
 

@@ -20,7 +20,7 @@ The Activity Bar container has six native sidebar sections:
 The editor panel contains:
 
 1. service and revision status;
-2. the six mode tabs;
+2. the seven mode tabs;
 3. a repository question box;
 4. the current view summary and primary action;
 5. relation, inferred-edge, zoom, and layout controls;
@@ -153,6 +153,41 @@ The primary action is **Accept drift**. It is available only for a grounded curr
 
 See [Save and maintain a System Lens](workflows.md#save-and-maintain-a-system-lens).
 
+## Contrast
+
+**Purpose:** answer one question twice with the same coding agent and the same model, once without Argus and once with it.
+
+Contrast shows two runs side by side:
+
+- **Base agent** — Claude Code answers using the tools its harness normally gives it: Grep, Glob, Read, Bash, and the rest. Argus is not used.
+- **With Argus** — the same agent, with the same harness and the same tools, plus the Argus loopback MCP endpoint. It can also call `repository_query`, `trace_flow`, and `focus_symbol`.
+
+The two sides differ by addition only. Argus is measured as an augmentation of the harness, never as a replacement for it.
+
+Both runs are real and live. Neither column is a fixture or a recording.
+
+Each column reports the agent's own measured usage: tools available, tool calls made, files read, turns, input, output, and cache tokens, thinking tokens, wall-clock duration, and cost in USD. A metrics strip above the two columns shows the difference. Token counts and cost come from the agent CLI's own usage report; they are not an Argus estimate.
+
+### What is restricted
+
+`Write`, `Edit`, and `NotebookEdit` are denied on both sides. Contrast is read-only.
+
+Nothing else is taken away. Both sides keep every read-only tool the harness gives them, so the Argus side is never a weakened agent. The agent chooses when to use an Argus tool and when to use its own; that choice is part of what the run measures.
+
+The spawned agent never receives HydraDB credentials. Every `HYDRA_DB_*` environment variable is stripped before the process starts.
+
+### What a run proves
+
+Agent runs are not deterministic. The same question can produce a different number of tool calls on a different run. The panel reports the run it actually made. It does not average runs and it does not claim a general result.
+
+One observed run in this repository, for the question `How does a repository question become a HydraDB request body, and which test proves it?`, measured the base agent at 17 turns, 16 tool calls, 6 files read, 72 seconds, and $0.81. That is one run, not a benchmark.
+
+### Requirements and cost
+
+Contrast requires the `claude` CLI to be installed and signed in. If it is absent, the view shows the agent gate instead of a comparison.
+
+Each contrast run costs real money, because it is two real agent runs. See [Contrast a question with and without Argus](workflows.md#contrast-a-question-with-and-without-argus) and [Contrast runs](limitations.md#contrast-runs).
+
 ## Empty and degraded states
 
 - **No verified index:** use **Index this workspace** from the sidebar, view title, or Command Palette.
@@ -169,4 +204,5 @@ See [Save and maintain a System Lens](workflows.md#save-and-maintain-a-system-le
 - Relation filtering and node layout are local display choices, not persisted repository knowledge.
 - Repository depth applies only to Repository. Other modes use the depth returned by the service.
 - The mode tabs can reopen only the last verified Compare pair and last saved/opened lens. Preview IDs are never persisted as workflow context.
+- Contrast is not a bounded HydraDB view. It reports the two agent runs it made, and repeating the same question can produce different counts.
 - At very narrow panel widths the view keeps a minimum usable canvas width and may require horizontal scrolling. See [Responsive behavior](accessibility.md#responsive-behavior).

@@ -62,7 +62,7 @@ npm run preview
 cd ..
 ```
 
-Open the local URL printed by the preview process. Check all six modes, keyboard focus, graph selection, filters, dragging, pan and zoom, narrow layouts, and the textual path view.
+Open the local URL printed by the preview process. Check all seven modes, keyboard focus, graph selection, filters, dragging, pan and zoom, narrow layouts, and the textual path view.
 
 For a real extension host:
 

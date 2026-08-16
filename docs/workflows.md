@@ -1,6 +1,6 @@
 # Argus workflows
 
-These recipes cover the extension's write, query, editor, Compare, and Preserve flows. For individual controls, see [Views](views.md). For live event following, see [Observe](observe.md). For keyboard and responsive use, see [Accessibility](accessibility.md).
+These recipes cover the extension's write, query, editor, Compare, Preserve, and Contrast flows. For individual controls, see [Views](views.md). For live event following, see [Observe](observe.md). For keyboard and responsive use, see [Accessibility](accessibility.md).
 
 ## Before you start
 
@@ -132,6 +132,17 @@ Canceling leaves drift unresolved. Acceptance succeeds only when the service con
 
 See [Observe](observe.md) for the exact event and workspace-overlay rules.
 
+## Contrast a question with and without Argus
+
+1. Install the `claude` CLI and sign in. Without it, Contrast shows the agent gate.
+2. Verify that one revision is ready, because the Argus run answers through the loopback MCP endpoint.
+3. Open Contrast and enter one concrete repository question.
+4. Start the run. Argus answers the same question twice with the same agent and model: once with the agent's built-in tools only, and once with `repository_query`, `trace_flow`, and `focus_symbol`.
+5. Read the metrics strip, then read each column's tools available, tool calls, files read, turns, tokens, duration, and cost.
+6. Open each run's tool-call list before drawing a conclusion.
+
+Both runs are live and read-only. Each run costs real money. Running the same question again can produce different counts, so report the run you made rather than a general result. See [Contrast](views.md#contrast).
+
 ## Recover from degraded states
 
 - **Service unavailable:** verify the local process, configure a loopback URL, then retry.
@@ -148,3 +159,4 @@ See [Observe](observe.md) for the exact event and workspace-overlay rules.
 - Only one pending Compare workflow, last verified Compare pair, and last saved/opened lens are remembered per workspace.
 - Focused editor requests identify a file and line, not a guaranteed symbol.
 - Preview fixtures are useful for UI exploration only. They cannot be saved as lenses, used as grounded Compare results, or reported as ready.
+- A contrast run is two real agent runs. It has no fixture mode, its counts are not repeatable, and it costs money each time.

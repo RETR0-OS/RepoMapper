@@ -483,3 +483,40 @@ The query text is reserved for the user's own words and for real symbol names.
 The same rule binds MCP tools: `focus_symbol` searches for the symbol and path
 only, and applies direction and relation choices by selecting among returned
 proven hops, exactly as a predicate chip does in the panel.
+
+## D-046 — Contrast measures a real agent run, not a retrieval ablation
+
+Status: accepted.
+
+Contrast is the seventh mode. It asks one question twice with the same coding
+agent and the same model: once on the harness alone, and once on the same
+harness with the Argus MCP endpoint added. Every figure it shows comes from the
+agent's own reported usage.
+
+The first design made the left column a HydraDB query with `graph_context`
+disabled. That needed a new flag, because `repository_query` reads the stored
+BYOG graph unconditionally, independent of `graph_context`. Such a flag would
+have created a supported non-graph retrieval path, which D-002 forbids. The
+agent-run design needs no service change at all, so the hazard does not exist.
+
+An earlier design denied the agent's own search tools on the Argus side, to
+measure retrieval rather than tool choice. That was withdrawn. It measured a
+crippled harness against a whole one, and the Argus side routinely failed
+outright once it had no way to read a file. The claim being made is that Argus
+augments an agent, so the comparison must be harness versus harness-plus-Argus.
+Both sides now keep every read-only tool. The cost is that a run cannot prove an
+Argus tool produced the answer; the tool-call list shows what was actually used.
+
+`Write` and `Edit` are denied on both sides, so Contrast cannot change the
+repository. The run uses `--permission-mode auto`, not `dontAsk`: `dontAsk`
+denies every MCP tool, which would leave the Argus side unable to call the tools
+the mode exists to measure.
+
+An agent run is not deterministic. The panel reports the run it made. It does
+not average runs, and it makes no general claim. When either side does not
+complete, the panel says the comparison is not fair instead of showing a
+difference. Comparative research claims stay with the evaluation harness and
+`demo/preflight.py`.
+
+The spawned agent receives no HydraDB credentials; `agentEnvironment` strips
+every `HYDRA_DB_*` variable before the process starts.

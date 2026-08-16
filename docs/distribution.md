@@ -65,7 +65,7 @@ Pop-Location
 
 ### Run the UI preview
 
-The standalone preview exercises the six webview modes using clearly labeled
+The standalone preview exercises the seven webview modes using clearly labeled
 fixture data. It does not start HydraDB or claim to show repository results.
 
 ```powershell

@@ -14,6 +14,10 @@ A package- or file-level presentation edge derived from one or more lower-level 
 
 One validated Graph IR snapshot stored locally in the bounded `before` or `after` slot. Checkpoints exist only to compute a deterministic change event; they are not queried for repository answers.
 
+## Contrast run
+
+One pair of live coding-agent runs answering the same question with the same agent and model: a base run using only the agent's built-in tools, and a run using the Argus MCP tools. Each side reports its own measured usage. A contrast run describes those two runs only, because agent runs are not deterministic.
+
 ## Current collection
 
 The configured HydraDB Knowledge collection containing the most recently indexed repository source cards. Its default name is `current`.
