@@ -71,6 +71,17 @@ export interface HydraMetadata {
   status?: string;
 }
 
+/**
+ * Bounded, content-free counters from the service. They name the stage where a
+ * query lost its time or lost its graph, so an empty view can state its cause.
+ */
+export interface ViewDiagnostics {
+  outcome: string;
+  reason?: string;
+  stageMs?: Record<string, number>;
+  funnel?: Record<string, number>;
+}
+
 export interface GraphView {
   viewId: string;
   revision: string;
@@ -81,6 +92,7 @@ export interface GraphView {
   timeline: TimelineEvent[];
   warnings: string[];
   hydradb?: HydraMetadata;
+  diagnostics?: ViewDiagnostics;
   budget: {
     requestedNodes: number;
     returnedNodes: number;
@@ -124,7 +136,8 @@ export type HostToWebviewMessage =
   | { type: "error"; message: string; recoverable: boolean }
   | { type: "sourceOpened"; itemId: string }
   | { type: "observeStatus"; active: boolean; paused: boolean; bufferedCount: number; sessionId?: string; message?: string }
-  | { type: "actionResult"; action: string; message: string; view?: GraphView };
+  | { type: "actionResult"; action: string; message: string; view?: GraphView }
+  | { type: "agentGate"; message: string };
 
 export type WebviewToHostMessage =
   | { type: "ready" }
@@ -136,4 +149,5 @@ export type WebviewToHostMessage =
   | { type: "setObservePaused"; paused: boolean }
   | { type: "primaryAction"; mode: ViewMode; selectedId?: string }
   | { type: "retry" }
-  | { type: "persistDisplayState"; key: string; value: unknown };
+  | { type: "persistDisplayState"; key: string; value: unknown }
+  | { type: "configureAgents" };

@@ -42,13 +42,42 @@ export interface IndexResult {
   sync: IndexSyncResult;
 }
 
+export interface IndexJob {
+  jobId: string;
+  repositoryId: string;
+  revisionId: string;
+  state: "running" | "completed" | "failed" | "cancelled" | string;
+  phase: "analyzing" | "clearing_stale_graphs" | "uploading" | "verifying" | "deleting" | "done" | string;
+  totalBatches: number;
+  uploadedBatches: number;
+  totalSources: number;
+  verifiedSources: number;
+  failed: Record<string, string>;
+  startedAt: number;
+  updatedAt: number;
+  error?: string;
+  result?: IndexResult;
+  durable: boolean;
+  message: string;
+}
+
 export interface IndexingClient {
   previewIndex(): Promise<IndexPreview>;
-  indexRepository(previewToken: string): Promise<IndexResult>;
+  startIndexJob(previewToken: string): Promise<IndexJob>;
+  indexJobStatus(jobId: string): Promise<IndexJob>;
+  cancelIndexJob(jobId: string): Promise<IndexJob>;
+}
+
+export interface IndexRunOptions {
+  onProgress?: (job: IndexJob) => void;
+  isCancelled?: () => boolean;
+  pollIntervalMs?: number;
+  wait?: (ms: number) => Promise<void>;
 }
 
 export type SafeIndexOutcome =
   | { status: "cancelled"; preview: IndexPreview }
+  | { status: "cancelled-by-user"; preview: IndexPreview; job: IndexJob }
   | { status: "completed"; preview: IndexPreview; result: IndexResult };
 
 type UnknownRecord = Record<string, unknown>;
@@ -63,6 +92,10 @@ function text(value: unknown, fallback = ""): string {
 
 function count(value: unknown): number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : 0;
+}
+
+function timestamp(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
 }
 
 function strings(value: unknown): string[] {
@@ -134,9 +167,56 @@ export function normalizeIndexResult(value: unknown): IndexResult {
   };
 }
 
+export function normalizeIndexJob(value: unknown): IndexJob {
+  const job = record(value);
+  const failed = record(job.failed);
+  const result = job.result;
+  return {
+    jobId: text(job.job_id ?? job.jobId),
+    repositoryId: text(job.repository_id ?? job.repositoryId),
+    revisionId: text(job.revision_id ?? job.revisionId),
+    // An unreadable state must never look finished, so polling continues instead of claiming an outcome.
+    state: text(job.state, "running"),
+    phase: text(job.phase, "analyzing"),
+    totalBatches: count(job.total_batches ?? job.totalBatches),
+    uploadedBatches: count(job.uploaded_batches ?? job.uploadedBatches),
+    totalSources: count(job.total_sources ?? job.totalSources),
+    verifiedSources: count(job.verified_sources ?? job.verifiedSources),
+    failed: Object.fromEntries(Object.entries(failed).map(([key, reason]) => [key, text(reason, "Unknown failure")])),
+    startedAt: timestamp(job.started_at ?? job.startedAt),
+    updatedAt: timestamp(job.updated_at ?? job.updatedAt),
+    error: text(job.error) || undefined,
+    result: result !== null && typeof result === "object" ? normalizeIndexResult(result) : undefined,
+    durable: job.durable === true,
+    message: text(job.message)
+  };
+}
+
+/** Only a running job may be polled again; every other state is what the service actually settled on. */
+function jobIsRunning(job: IndexJob): boolean {
+  return job.state === "running";
+}
+
+/** Repeat the service's own reasons, so the user never sees an invented explanation. */
+function jobReportedReasons(job: IndexJob): string {
+  const failed = Object.entries(job.failed);
+  const listed = failed.slice(0, 5).map(([sourceId, reason]) => `${sourceId} (${reason})`);
+  if (failed.length > listed.length) listed.push(`…and ${failed.length - listed.length} more`);
+  return [
+    job.error ?? "",
+    job.message,
+    listed.length ? `Failed sources: ${listed.join("; ")}` : ""
+  ].filter((part) => part.trim()).join(" ");
+}
+
+function jobCounts(job: IndexJob): string {
+  return `${job.uploadedBatches}/${job.totalBatches} batches uploaded, ${job.verifiedSources}/${job.totalSources} sources verified.`;
+}
+
 export async function runSafeIndexing(
   client: IndexingClient,
-  confirm: (preview: IndexPreview) => Promise<boolean>
+  confirm: (preview: IndexPreview) => Promise<boolean>,
+  options: IndexRunOptions = {}
 ): Promise<SafeIndexOutcome> {
   const preview = await client.previewIndex();
   if (preview.uploadsPerformed) {
@@ -151,8 +231,66 @@ export async function runSafeIndexing(
   if (!await confirm(preview)) {
     return { status: "cancelled", preview };
   }
-  const result = await client.indexRepository(preview.previewToken);
-  return { status: "completed", preview, result };
+  const pollIntervalMs = options.pollIntervalMs ?? 1000;
+  const wait = options.wait ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  let job = await client.startIndexJob(preview.previewToken);
+  options.onProgress?.(job);
+  let cancelRequested = false;
+  while (jobIsRunning(job)) {
+    if (!cancelRequested && options.isCancelled?.()) {
+      cancelRequested = true;
+      // Ask once, then keep polling: only the service can say whether the job really stopped.
+      job = await client.cancelIndexJob(job.jobId);
+      options.onProgress?.(job);
+      continue;
+    }
+    await wait(pollIntervalMs);
+    job = await client.indexJobStatus(job.jobId);
+    options.onProgress?.(job);
+  }
+  if (job.state === "completed" && job.result) {
+    return { status: "completed", preview, result: job.result };
+  }
+  if (job.state === "cancelled") {
+    return { status: "cancelled-by-user", preview, job };
+  }
+  const reasons = jobReportedReasons(job);
+  const ending = job.state === "completed"
+    ? "completed without an indexing result"
+    : `ended ${job.state} in phase ${job.phase}`;
+  throw new Error(`The HydraDB indexing job ${ending}. ${jobCounts(job)}${reasons ? ` ${reasons}` : ""}`.trim());
+}
+
+export function formatIndexJobProgress(job: IndexJob): string {
+  if (job.phase === "clearing_stale_graphs") {
+    return "Clearing stale exact relations before upload";
+  }
+  if (job.phase === "uploading") {
+    return `Uploading ${job.uploadedBatches}/${job.totalBatches} batches · ${job.verifiedSources}/${job.totalSources} sources verified`;
+  }
+  if (job.phase === "verifying") {
+    return `Verifying ${job.verifiedSources}/${job.totalSources} uploaded sources`;
+  }
+  if (job.phase === "deleting") {
+    return "Removing source cards that the new revision replaced";
+  }
+  if (job.phase === "done") {
+    return "Finishing the revision";
+  }
+  return "Analyzing the selected project and deriving its revision…";
+}
+
+export function cancelledIndexSummary(job: IndexJob): string {
+  const reasons = jobReportedReasons(job);
+  const remoteState = job.result?.sync.currentStateIndeterminate === false
+    ? "The service reports that cancellation happened before any HydraDB write."
+    : `Part of revision ${job.revisionId || "the candidate revision"} may already be in HydraDB.`;
+  return [
+    `Indexing was cancelled in phase ${job.phase}.`,
+    `The service reports ${jobCounts(job)}`,
+    remoteState,
+    reasons
+  ].filter((part) => part.trim()).join(" ");
 }
 
 export function formatIndexPreview(preview: IndexPreview, visibleSourceLimit = 16): string {

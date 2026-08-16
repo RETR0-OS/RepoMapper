@@ -11,6 +11,7 @@ import {
   credentialErrorResponse,
   credentialResponse,
   managedErrorResponse,
+  ManagedProtocolError,
   managedResponse,
   MANAGED_SERVICE_PROTOCOL,
   parseManagedServiceLine,
@@ -239,7 +240,14 @@ export class ManagedRuntime implements vscode.Disposable, vscode.UriHandler {
     });
 
     await waitFor(async () => {
-      if (child.exitCode !== null) throw new Error("Managed service exited during startup.");
+      if (child.exitCode !== null) {
+        // The service prints its own traceback to the output channel. Naming that channel
+        // is the only way the user can reach the real reason from a notification.
+        throw new Error(
+          `Managed service exited with code ${child.exitCode} during startup. `
+          + "Open the \"Repository Map Service\" output channel for the reason."
+        );
+      }
       return await this.probeVersion(port);
     }, START_TIMEOUT_MS);
   }
@@ -249,6 +257,12 @@ export class ManagedRuntime implements vscode.Disposable, vscode.UriHandler {
     try {
       message = parseManagedServiceLine(line);
     } catch (error) {
+      if (error instanceof ManagedProtocolError && error.noise) {
+        // Never copy arbitrary child output into the extension log: a buggy
+        // dependency could have printed a credential or source excerpt.
+        this.output.warn("Managed service wrote non-protocol output; content was suppressed.");
+        return;
+      }
       this.output.error(error instanceof Error ? error.message : "Managed service IPC failed.");
       this.child?.kill();
       return;

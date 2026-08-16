@@ -13,7 +13,10 @@ export const AGENT_EVENT_TYPES = [
   "hydradb_sync_started",
   "hydradb_revision_ready",
   "lens_drift_detected",
-  "session_completed"
+  "session_completed",
+  "traversal_entered",
+  "traversal_followed",
+  "traversal_abandoned"
 ] as const;
 
 export type AgentEventType = typeof AGENT_EVENT_TYPES[number];
@@ -47,6 +50,23 @@ export interface ObserveCompleteResponse {
 export interface ObserveRecordedResponse {
   status: string;
   event?: AgentEvent;
+}
+
+export type TraversalAction = "enter" | "follow" | "abandon";
+
+export interface TraversalStep {
+  eventId: string;
+  action: TraversalAction;
+  timestamp: string;
+  nodeIds: string[];
+  edgeIds: string[];
+  trackIndex: number;
+  stepIndex: number;
+}
+
+export interface TraversalState {
+  tracks: TraversalStep[][];
+  activeTrackIndex: number;
 }
 
 export class ObserveEventIntegrityError extends Error {
@@ -360,7 +380,10 @@ const labels: Record<AgentEventType, [string, string]> = {
   hydradb_sync_started: ["HydraDB sync started", "A repository revision sync was explicitly started."],
   hydradb_revision_ready: ["HydraDB revision ready", "HydraDB reported a verified repository revision ready."],
   lens_drift_detected: ["System Lens drift returned", "A grounded System Lens comparison returned drift."],
-  session_completed: ["Follow session completed", "Observable repository activity collection completed."]
+  session_completed: ["Follow session completed", "Observable repository activity collection completed."],
+  traversal_entered: ["Traversal entered", "The agent entered a new graph point."],
+  traversal_followed: ["Traversal followed", "The agent followed an edge to a new entity."],
+  traversal_abandoned: ["Traversal abandoned", "The agent abandoned the current path."]
 };
 
 export function eventToTimeline(event: AgentEvent): TimelineEvent {
@@ -384,6 +407,7 @@ type ObservableNodeState = "returned" | "selected" | "opened" | "edited";
 type ObservableEdgeState = "returned" | "selected" | "opened";
 
 function nodeState(event: AgentEvent): ObservableNodeState | undefined {
+  if (event.type === "traversal_entered" || event.type === "traversal_followed") return "returned";
   if (event.type === "workspace_entity_changed") return "edited";
   if (event.type === "evidence_opened") return "opened";
   if (event.type === "context_selected" || event.type === "user_context_pinned") return "selected";
@@ -392,6 +416,7 @@ function nodeState(event: AgentEvent): ObservableNodeState | undefined {
 }
 
 function edgeState(event: AgentEvent): ObservableEdgeState | undefined {
+  if (event.type === "traversal_followed") return "returned";
   if (event.type === "evidence_opened") return "opened";
   if (event.type === "context_selected" || event.type === "user_context_pinned") return "selected";
   if (event.type === "hydradb_result_returned" || event.type === "path_hop_replayed") return "returned";
@@ -438,6 +463,63 @@ export function applyObserveEvents(baseView: GraphView, events: readonly AgentEv
   };
 }
 
+export function deriveTraversalState(events: readonly AgentEvent[]): TraversalState {
+  const tracks: TraversalStep[][] = [];
+  let currentTrack: TraversalStep[] = [];
+  let trackIndex = 0;
+
+  for (const event of events) {
+    if (event.type === "traversal_entered") {
+      if (currentTrack.length > 0) {
+        tracks.push(currentTrack);
+        trackIndex += 1;
+        currentTrack = [];
+      }
+      currentTrack.push({
+        eventId: event.eventId,
+        action: "enter",
+        timestamp: event.timestamp,
+        nodeIds: [...event.entityIds],
+        edgeIds: [...event.relationshipIds],
+        trackIndex,
+        stepIndex: currentTrack.length
+      });
+    } else if (event.type === "traversal_followed") {
+      currentTrack.push({
+        eventId: event.eventId,
+        action: "follow",
+        timestamp: event.timestamp,
+        nodeIds: [...event.entityIds],
+        edgeIds: [...event.relationshipIds],
+        trackIndex,
+        stepIndex: currentTrack.length
+      });
+    } else if (event.type === "traversal_abandoned") {
+      currentTrack.push({
+        eventId: event.eventId,
+        action: "abandon",
+        timestamp: event.timestamp,
+        nodeIds: [...event.entityIds],
+        edgeIds: [...event.relationshipIds],
+        trackIndex,
+        stepIndex: currentTrack.length
+      });
+      tracks.push(currentTrack);
+      trackIndex += 1;
+      currentTrack = [];
+    }
+  }
+
+  if (currentTrack.length > 0) {
+    tracks.push(currentTrack);
+  }
+
+  return {
+    tracks,
+    activeTrackIndex: tracks.length > 0 ? tracks.length - 1 : 0
+  };
+}
+
 export function createObserveWaitingView(sessionId: string, revisionId: string): GraphView {
   return {
     viewId: "",
@@ -452,5 +534,22 @@ export function createObserveWaitingView(sessionId: string, revisionId: string):
     budget: { requestedNodes: 0, returnedNodes: 0, requestedEdges: 0, returnedEdges: 0, truncated: false },
     preview: false,
     summary: "Following explicit repository events. Waiting for a stored HydraDB result view."
+  };
+}
+
+export function createTraversalWaitingView(sessionId: string, revisionId: string): GraphView {
+  return {
+    viewId: "",
+    revision: revisionId,
+    mode: "observe",
+    depth: "symbol",
+    nodes: [],
+    edges: [],
+    timeline: [],
+    warnings: ["Waiting for agent traversal. The canvas will populate as the agent navigates the graph."],
+    hydradb: { available: true, graphContext: true, origin: `traversal session ${sessionId}` },
+    budget: { requestedNodes: 0, returnedNodes: 0, requestedEdges: 0, returnedEdges: 0, truncated: false },
+    preview: false,
+    summary: "Waiting for agent traversal."
   };
 }

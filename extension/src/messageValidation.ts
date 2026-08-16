@@ -66,6 +66,9 @@ export function parseWebviewMessage(value: unknown): WebviewToHostMessage | unde
       selectedId: typeof value.selectedId === "string" && value.selectedId.length <= 1000 ? value.selectedId : undefined
     };
   }
+  if (value.type === "configureAgents") {
+    return { type: "configureAgents" };
+  }
   if (value.type === "persistDisplayState" && typeof value.key === "string" && safeDisplayStateKey(value.key)) {
     try {
       if (JSON.stringify(value.value).length <= 50_000) {

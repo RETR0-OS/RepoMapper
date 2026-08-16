@@ -128,6 +128,43 @@ export function deriveViewStatus(view: GraphView, health: ServiceHealth): ViewSt
   };
 }
 
+/**
+ * Explain an empty graph with the stage that emptied it.
+ *
+ * "Try a narrower question" is correct advice for exactly one cause: HydraDB
+ * answered, and it found nothing to ground. For a timeout, a refusal, a revision
+ * conflict, or a dropped hop, that advice sends the user to change the one thing
+ * that was never wrong. So the service's own outcome chooses the sentence.
+ */
+export function emptyGraphMessage(view: GraphView): string {
+  if (view.preview) {
+    return "This is an interaction preview. No HydraDB result is being shown.";
+  }
+  const outcome = view.diagnostics?.outcome;
+  const reason = view.diagnostics?.reason ?? view.warnings[0];
+  const explained: Record<string, string> = {
+    hydradb_unavailable: "HydraDB did not answer this query.",
+    sync_indeterminate: "The current collection is indeterminate after a failed index.",
+    revision_conflict: "HydraDB returned more than one revision, so no mixed result was shown.",
+    entity_kind_mismatch: "HydraDB did not return the specialized records this view needs.",
+    no_chunks: "HydraDB matched no repository source for this question.",
+    no_graph_context: "HydraDB matched sources but returned no graph relation for them.",
+    all_groups_ungrounded: "HydraDB returned relations that cite sources outside this result, so their revision could not be proven.",
+    hops_not_grounded: "HydraDB returned relations, but no source card proved the entities they name."
+  };
+  const explanation = outcome ? explained[outcome] : undefined;
+  if (!explanation) {
+    return reason
+      ?? "No bounded graph slice was returned. Try a narrower question or literal symbol search.";
+  }
+  const advice = outcome === "no_chunks"
+    ? " Try a narrower question or a literal symbol search."
+    : outcome === "hops_not_grounded" || outcome === "all_groups_ungrounded"
+      ? " Index this project again to restore the grounding."
+      : "";
+  return `${explanation}${advice}${reason && reason !== explanation ? ` (${reason})` : ""}`;
+}
+
 export function groundedViewContext(view: GraphView | undefined, health: ServiceHealth): GroundedViewContext | undefined {
   if (
     !view

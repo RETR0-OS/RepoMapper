@@ -58,20 +58,34 @@ export interface ProjectAttachment {
   signature: string;
 }
 
+/** A line the managed service wrote that this extension cannot use. */
+export class ManagedProtocolError extends Error {
+  public constructor(
+    message: string,
+    /** True when the line is not JSON at all, so it is unstructured output rather than a protocol break. */
+    public readonly noise = false
+  ) {
+    super(message);
+    this.name = "ManagedProtocolError";
+  }
+}
+
 export function parseManagedServiceLine(line: string): ManagedServiceMessage {
-  if (Buffer.byteLength(line, "utf8") > MAX_IPC_LINE) throw new Error("Managed service message is too large.");
+  if (Buffer.byteLength(line, "utf8") > MAX_IPC_LINE) {
+    throw new ManagedProtocolError("Managed service message is too large.");
+  }
   let parsed: unknown;
   try {
     parsed = JSON.parse(line);
   } catch {
-    throw new Error("Managed service returned invalid JSON.");
+    throw new ManagedProtocolError("Managed service returned invalid JSON.", true);
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("Managed service returned an invalid message.");
+    throw new ManagedProtocolError("Managed service returned an invalid message.");
   }
   const value = parsed as Record<string, unknown>;
   if (value.protocol !== MANAGED_IPC_PROTOCOL || typeof value.type !== "string") {
-    throw new Error("Managed service protocol does not match this extension.");
+    throw new ManagedProtocolError("Managed service protocol does not match this extension.");
   }
   if (value.type === "service_hello" && Number.isSafeInteger(value.pid) && Number(value.pid) > 0) {
     return value as unknown as ServiceHello;
@@ -97,7 +111,7 @@ export function parseManagedServiceLine(line: string): ManagedServiceMessage {
     && value.projects.every(validOAuthProject)) {
     return value as unknown as OAuthConsentRequest;
   }
-  throw new Error("Managed service returned an unsupported message.");
+  throw new ManagedProtocolError("Managed service returned an unsupported message.");
 }
 
 export function serviceStartMessage(
@@ -105,15 +119,17 @@ export function serviceStartMessage(
   controlKey: string,
   options: { apiUrl?: string; collection?: string; evolutionCollection?: string } = {}
 ): string {
+  // The bundled service owns the HydraDB defaults. Send a field only when the
+  // caller sets one, so the API URL keeps a single source of truth.
   return frame({
     protocol: MANAGED_IPC_PROTOCOL,
     type: "service_start",
     repository_root: scope.repositoryRoot,
     repository_id: scope.repositoryId,
     control_key: controlKey,
-    api_url: options.apiUrl ?? "https://api.hydradb.com/v2",
-    collection: options.collection ?? "current",
-    evolution_collection: options.evolutionCollection ?? "evolution"
+    ...(options.apiUrl ? { api_url: options.apiUrl } : {}),
+    ...(options.collection ? { collection: options.collection } : {}),
+    ...(options.evolutionCollection ? { evolution_collection: options.evolutionCollection } : {})
   });
 }
 

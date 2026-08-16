@@ -28,11 +28,12 @@ import { GraphPanel } from "./graphPanel.js";
 import { formatIdentityMigration, previewIdentityMigration } from "./identityMigration.js";
 import { ManagedRuntime } from "./managedRuntime.js";
 import {
+  cancelledIndexSummary,
   failedIndexSummary,
+  formatIndexJobProgress,
   formatIndexPreview,
   readyIndexSummary,
-  runSafeIndexing,
-  type IndexingClient
+  runSafeIndexing
 } from "./indexing.js";
 import { RepositorySidebar } from "./sidebar.js";
 import { resolveCurrentProject } from "./projectResolver.js";
@@ -103,14 +104,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       throw new Error("Open a local workspace folder to use Repository Map.");
     }
     const configuration = vscode.workspace.getConfiguration("hydra");
-    return runtime.client(configuration.get<number>("indexTimeoutMs", 120000));
+    return runtime.client(configuration.get<number>("indexTimeoutMs", 300000));
   };
   const panel = new GraphPanel(context, updateHealth, repositoryScope, (forWrite) => {
     if (!runtime) throw new Error("Open a local workspace folder to use Repository Map.");
     const configuration = vscode.workspace.getConfiguration("hydra");
     return runtime.client(forWrite
-      ? configuration.get<number>("indexTimeoutMs", 120000)
-      : configuration.get<number>("requestTimeoutMs", 5000));
+      ? configuration.get<number>("indexTimeoutMs", 300000)
+      : configuration.get<number>("requestTimeoutMs", 120000));
   });
   const checkpoint = async (
     client: EvolutionClient,
@@ -454,29 +455,38 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ["hydra.followAgent", () => show("observe")],
     ["hydra.refresh", () => panel.refresh()],
     ["hydra.indexRepository", async () => {
-      const progressClient: IndexingClient = {
-        previewIndex: async () => await vscode.window.withProgress({
-          location: vscode.ProgressLocation.Notification,
-          title: "Analyzing the selected project and deriving its revision…",
-          cancellable: false
-        }, () => configuredClient().previewIndex()),
-        indexRepository: async (previewToken) => await vscode.window.withProgress({
-          location: vscode.ProgressLocation.Notification,
-          title: "Revalidating and uploading the confirmed revision to HydraDB…",
-          cancellable: false
-        }, () => configuredClient().indexRepository(previewToken))
-      };
       try {
-        const outcome = await runSafeIndexing(progressClient, async (preview) => {
-          const action = await vscode.window.showInformationMessage(
-            `Upload automatic revision ${preview.revisionId} from the selected project?`,
-            { modal: true, detail: formatIndexPreview(preview) },
-            "Upload to HydraDB"
-          );
-          return action === "Upload to HydraDB";
+        const outcome = await vscode.window.withProgress({
+          location: vscode.ProgressLocation.Notification,
+          title: "Indexing this project with HydraDB",
+          cancellable: true
+        }, async (progress, token) => {
+          progress.report({ message: "Analyzing the selected project and deriving its revision…" });
+          let reported = "";
+          return await runSafeIndexing(configuredClient(), async (preview) => {
+            const action = await vscode.window.showInformationMessage(
+              `Upload automatic revision ${preview.revisionId} from the selected project?`,
+              { modal: true, detail: formatIndexPreview(preview) },
+              "Upload to HydraDB"
+            );
+            return action === "Upload to HydraDB";
+          }, {
+            onProgress: (job) => {
+              // Only repeat a message that changed, so the notification does not flicker on every poll.
+              const message = formatIndexJobProgress(job);
+              if (message === reported) return;
+              reported = message;
+              progress.report({ message });
+            },
+            isCancelled: () => token.isCancellationRequested
+          });
         });
         if (outcome.status === "cancelled") {
           void vscode.window.showInformationMessage("Indexing cancelled. No source cards were uploaded.");
+          return;
+        }
+        if (outcome.status === "cancelled-by-user") {
+          void vscode.window.showWarningMessage(cancelledIndexSummary(outcome.job));
           return;
         }
         await panel.refresh();

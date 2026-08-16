@@ -6,6 +6,7 @@ import {
   credentialErrorResponse,
   credentialResponse,
   MANAGED_IPC_PROTOCOL,
+  ManagedProtocolError,
   MANAGED_SERVICE_PROTOCOL,
   parseManagedServiceLine,
   serviceStartMessage
@@ -30,6 +31,14 @@ describe("managed private protocol", () => {
     });
     expect(frame).not.toContain("api_key");
     expect(frame).not.toContain("database");
+    // The service owns the HydraDB defaults; a wrong URL here would break every read.
+    expect(parsed).not.toHaveProperty("api_url");
+    expect(parsed).not.toHaveProperty("collection");
+    expect(parsed).not.toHaveProperty("evolution_collection");
+    expect(JSON.parse(serviceStartMessage(scope, "x".repeat(43), {
+      apiUrl: "https://api.hydradb.com",
+      collection: "revision_a"
+    }))).toMatchObject({ api_url: "https://api.hydradb.com", collection: "revision_a" });
     expect(parseManagedServiceLine(JSON.stringify({
       protocol: MANAGED_IPC_PROTOCOL,
       type: "service_hello",
@@ -41,6 +50,21 @@ describe("managed private protocol", () => {
     expect(() => parseManagedServiceLine("not-json")).toThrow(/invalid JSON/i);
     expect(() => parseManagedServiceLine(JSON.stringify({ protocol: "old", type: "service_hello", pid: 1 }))).toThrow(/protocol/i);
     expect(() => parseManagedServiceLine("x".repeat(32_769))).toThrow(/too large/i);
+  });
+
+  it("marks unstructured service output as noise but protocol breaks as fatal", () => {
+    const accessLog = 'INFO:     127.0.0.1:52601 - "GET /version HTTP/1.1" 200 OK';
+    expect(() => parseManagedServiceLine(accessLog)).toThrow(ManagedProtocolError);
+    try {
+      parseManagedServiceLine(accessLog);
+    } catch (error) {
+      expect((error as ManagedProtocolError).noise).toBe(true);
+    }
+    try {
+      parseManagedServiceLine(JSON.stringify({ protocol: "old", type: "service_hello", pid: 1 }));
+    } catch (error) {
+      expect((error as ManagedProtocolError).noise).toBe(false);
+    }
   });
 
   it("accepts only bounded project choices for native OAuth consent", () => {

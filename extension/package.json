@@ -29,6 +29,7 @@
     "check": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "diagnose": "node ../scripts/diagnose_managed.mjs",
     "package": "vsce package"
   },
   "contributes": {
@@ -209,17 +210,17 @@
         },
         "hydra.requestTimeoutMs": {
           "type": "number",
-          "default": 5000,
+          "default": 120000,
           "minimum": 500,
-          "maximum": 30000,
-          "description": "Timeout for local service requests."
+          "maximum": 300000,
+          "description": "Timeout for local service read requests. Every view runs a HydraDB thinking-mode query with graph context, which takes tens of seconds on a large repository. Keep this above the service's own 90 s HydraDB budget, or the view is cancelled before HydraDB answers."
         },
         "hydra.indexTimeoutMs": {
           "type": "number",
-          "default": 120000,
+          "default": 300000,
           "minimum": 5000,
-          "maximum": 600000,
-          "description": "Timeout for repository analysis and HydraDB indexing requests."
+          "maximum": 1800000,
+          "description": "Timeout for repository analysis and for each indexing job status request. It does not bound the whole upload, which runs as a background job in the local service."
         }
       }
     }

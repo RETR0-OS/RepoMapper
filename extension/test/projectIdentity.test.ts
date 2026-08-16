@@ -49,5 +49,6 @@ describe("project identity", () => {
     const stored = await readFile(path.join(root, ".hydra-graph", "identity.json"), "utf8");
     expect(stored).not.toContain("database");
     expect(stored).not.toContain("api_key");
+    expect(await readFile(path.join(root, ".hydra-graph", ".gitignore"), "utf8")).toBe("*\n");
   });
 });

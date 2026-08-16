@@ -5,6 +5,7 @@ import type { RepositoryScope } from "./workspaceScope.js";
 
 const IDENTITY_VERSION = 1;
 const REPOSITORY_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const RUNTIME_IGNORE = "*\n";
 
 export interface ProjectIdentityRecord {
   version: 1;
@@ -123,6 +124,15 @@ export async function writeProjectIdentity(repositoryRoot: string, record: Proje
   const root = await fs.realpath(repositoryRoot);
   const directory = path.join(root, ".hydra-graph");
   await fs.mkdir(directory, { recursive: true });
+  try {
+    await fs.writeFile(path.join(directory, ".gitignore"), RUNTIME_IGNORE, {
+      encoding: "utf8",
+      flag: "wx",
+      mode: 0o600
+    });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  }
   const target = path.join(directory, "identity.json");
   const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`;
   await fs.writeFile(temporary, `${JSON.stringify(record, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });

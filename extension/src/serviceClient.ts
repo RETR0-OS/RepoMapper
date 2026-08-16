@@ -1,5 +1,5 @@
 import type { GraphDepth, GraphView, ServiceHealth, ViewMode, ViewRequestContext } from "./types.js";
-import { normalizeIndexPreview, normalizeIndexResult, type IndexPreview, type IndexResult } from "./indexing.js";
+import { normalizeIndexJob, normalizeIndexPreview, type IndexJob, type IndexPreview } from "./indexing.js";
 import {
   normalizeCheckpoint,
   normalizeLens,
@@ -57,6 +57,38 @@ export function requireLoopbackServiceUrl(value: string): string {
     throw new ServiceError("Repository service URL cannot contain credentials, query parameters, or fragments.");
   }
   return url.toString().replace(/\/+$/, "");
+}
+
+/**
+ * Keep the managed runtime's own failure reason. A crashed service, a failed integrity
+ * check, or a lost port lock each explain themselves, and that sentence must reach the
+ * user instead of a generic transport message.
+ */
+async function runtimeStep(provider: () => Promise<string>): Promise<string> {
+  try {
+    return await provider();
+  } catch (error) {
+    if (error instanceof ServiceError) throw error;
+    throw new ServiceError(
+      error instanceof Error && error.message.trim()
+        ? error.message.trim()
+        : "Repository service runtime could not start.",
+      undefined,
+      error
+    );
+  }
+}
+
+/** Return the service's own failure reason, so a status code alone never hides the cause. */
+async function failureDetail(response: Response): Promise<string> {
+  try {
+    const parsed = JSON.parse(await response.text()) as unknown;
+    if (!parsed || typeof parsed !== "object") return "";
+    const detail = (parsed as Record<string, unknown>).detail;
+    return typeof detail === "string" && detail.trim() ? ` ${detail.trim().slice(0, 200)}` : "";
+  } catch {
+    return "";
+  }
 }
 
 export class RepositoryServiceClient {
@@ -126,13 +158,24 @@ export class RepositoryServiceClient {
     return normalizeIndexPreview(response);
   }
 
-  public async indexRepository(previewToken: string): Promise<IndexResult> {
-    const response = await this.request<unknown>("/api/index", {
+  public async startIndexJob(previewToken: string): Promise<IndexJob> {
+    return normalizeIndexJob(await this.request<unknown>("/api/index", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ preview_token: previewToken })
-    });
-    return normalizeIndexResult(response);
+    }));
+  }
+
+  public async indexJobStatus(jobId: string): Promise<IndexJob> {
+    return normalizeIndexJob(await this.request<unknown>(`/api/index/jobs/${encodeURIComponent(jobId)}`, { method: "GET" }));
+  }
+
+  public async cancelIndexJob(jobId: string): Promise<IndexJob> {
+    return normalizeIndexJob(await this.request<unknown>(`/api/index/jobs/${encodeURIComponent(jobId)}/cancel`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({})
+    }));
   }
 
   public async checkpoint(slot: CheckpointSlot, revisionId: string): Promise<CheckpointResponse> {
@@ -219,40 +262,69 @@ export class RepositoryServiceClient {
   }
 
   private async request<T>(path: string, init: RequestInit): Promise<T> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.options.timeoutMs);
     try {
-      const headers = new Headers(init.headers);
-      if (this.options.authorizationProvider) {
-        headers.set("Authorization", await this.options.authorizationProvider());
-      }
-      if (this.options.repositoryScope) {
-        headers.set(
-          "X-Hydra-Repository-Root",
-          encodeURIComponent(this.options.repositoryScope.repositoryRoot)
-        );
-        headers.set("X-Hydra-Repository-Id", this.options.repositoryScope.repositoryId);
-      }
-      const configuredBaseUrl = this.options.baseUrlProvider
-        ? requireLoopbackServiceUrl(await this.options.baseUrlProvider())
-        : this.baseUrl;
+      return await this.attempt<T>(path, init);
+    } catch (error) {
+      // Only HTTP 401 proves the project grant is stale; timeouts and dropped connections must keep the session.
+      if (!(error instanceof ServiceError) || error.status !== 401) throw error;
+      this.options.sessionInvalidator?.();
+      // A retry may only replay a body that was never consumed by the first attempt.
+      if (init.body !== undefined && init.body !== null && typeof init.body !== "string") throw error;
+      return await this.attempt<T>(path, init);
+    }
+  }
+
+  private async attempt<T>(path: string, init: RequestInit): Promise<T> {
+    // The runtime reports why it could not start, and that reason is the only actionable
+    // one. It is resolved outside the transport handler below, which would otherwise
+    // replace every cause with the generic "service is unavailable" sentence.
+    //
+    // Starting the runtime also runs before the abort timer, so its cost is not part of
+    // the request budget. A slow handshake therefore looks like a slow service. Both
+    // durations are measured, and both are named in the timeout message.
+    const handshakeStart = Date.now();
+    const headers = new Headers(init.headers);
+    if (this.options.authorizationProvider) {
+      headers.set("Authorization", await runtimeStep(this.options.authorizationProvider));
+    }
+    if (this.options.repositoryScope) {
+      headers.set(
+        "X-Hydra-Repository-Root",
+        encodeURIComponent(this.options.repositoryScope.repositoryRoot)
+      );
+      headers.set("X-Hydra-Repository-Id", this.options.repositoryScope.repositoryId);
+    }
+    const configuredBaseUrl = this.options.baseUrlProvider
+      ? requireLoopbackServiceUrl(await runtimeStep(this.options.baseUrlProvider))
+      : this.baseUrl;
+    const handshakeMs = Date.now() - handshakeStart;
+
+    const controller = new AbortController();
+    // Every attempt gets its own budget, so a retry never inherits the first attempt's expired timer.
+    const timeout = setTimeout(() => controller.abort(), this.options.timeoutMs);
+    const requestStart = Date.now();
+    try {
       const response = await this.fetchImpl(`${configuredBaseUrl}${path}`, {
         ...init,
         headers,
         signal: controller.signal
       });
       if (!response.ok) {
-        if (response.status === 401) this.options.sessionInvalidator?.();
-        throw new ServiceError(`Repository service returned ${response.status}.`, response.status);
+        throw new ServiceError(
+          `Repository service returned ${response.status}.${await failureDetail(response)}`,
+          response.status
+        );
       }
       return (await response.json()) as T;
     } catch (error) {
       if (error instanceof ServiceError) {
         throw error;
       }
-      this.options.sessionInvalidator?.();
+      const requestMs = Date.now() - requestStart;
       const message = error instanceof Error && error.name === "AbortError"
-        ? `Repository service timed out after ${this.options.timeoutMs} ms.`
+        ? `Repository service timed out after ${requestMs} ms `
+          + `of the ${this.options.timeoutMs} ms budget for ${path}`
+          + `${handshakeMs > 0 ? `, plus ${handshakeMs} ms to start the runtime` : ""}.`
         : "Repository service is unavailable.";
       throw new ServiceError(message, undefined, error);
     } finally {

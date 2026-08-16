@@ -122,3 +122,25 @@ function agentEnvironment(): NodeJS.ProcessEnv {
   }
   return environment;
 }
+
+export async function hasConfiguredAgent(
+  mcpUrl: string,
+  cwd: string,
+  runner: CommandRunner = runCommand
+): Promise<boolean> {
+  const registrations = agentRegistrations(mcpUrl);
+  const detected = await detectAgentRegistrations(registrations, cwd, runner);
+  return detected.length > 0;
+}
+
+export async function isAgentInstalled(
+  cwd: string,
+  runner: CommandRunner = runCommand
+): Promise<boolean> {
+  for (const executable of ["codex", "claude"]) {
+    const result = await runner(executable, ["--version"], { cwd, timeoutMs: 5_000 })
+      .catch(() => ({ exitCode: -1, output: "" }));
+    if (result.exitCode === 0) return true;
+  }
+  return false;
+}
