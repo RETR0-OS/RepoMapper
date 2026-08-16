@@ -93,7 +93,7 @@ export async function runCommand(
   });
 }
 
-function requireManagedMcpUrl(value: string): string {
+export function requireManagedMcpUrl(value: string): string {
   let parsed: URL;
   try {
     parsed = new URL(value);
@@ -115,7 +115,7 @@ function boundedOutput(value: string): string {
   return value.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 500);
 }
 
-function agentEnvironment(): NodeJS.ProcessEnv {
+export function agentEnvironment(): NodeJS.ProcessEnv {
   const environment = { ...process.env };
   for (const key of Object.keys(environment)) {
     if (key.toUpperCase().startsWith("HYDRA_DB_")) delete environment[key];

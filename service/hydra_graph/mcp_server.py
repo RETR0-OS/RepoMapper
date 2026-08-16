@@ -323,7 +323,8 @@ def create_mcp_server(
         }
 
     @server.tool(
-        description="Signal entry into a graph point. Starts a new traversal track from the named entity."
+        description="""Signal entry into a graph point. 
+        Starts a new traversal track from the named entity."""
     )
     def traversal_enter(
         entity: str,
@@ -333,7 +334,8 @@ def create_mcp_server(
         scoped = current_services()
         resolved_session = _observe_session_id(scoped, session_id)
         if not resolved_session:
-            return {"status": "no_session", "warning": "No active Observe session. Start one before traversing."}
+            return {"status": "no_session", 
+            "warning": "No active Observe session. Start one before traversing."}
         result = scoped.queries.repository_query(
             QueryRequest(
                 question=f"{entity} {path}".strip() if path else entity,
@@ -361,7 +363,8 @@ def create_mcp_server(
         return result
 
     @server.tool(
-        description="Follow an edge from one entity to another. Signals the agent is navigating deeper along a relationship."
+        description="""Follow an edge from one entity to another. 
+        Signals the agent is navigating deeper along a relationship."""
     )
     def traversal_follow(
         from_entity: str,
@@ -372,7 +375,9 @@ def create_mcp_server(
         scoped = current_services()
         resolved_session = _observe_session_id(scoped, session_id)
         if not resolved_session:
-            return {"status": "no_session", "warning": "No active Observe session. Start one before traversing."}
+            return {"status": "no_session", 
+            "warning": "No active Observe session. Start one before traversing."
+        }
         result = scoped.queries.repository_query(
             QueryRequest(
                 question=to_entity,
@@ -404,13 +409,16 @@ def create_mcp_server(
             revision_id=session.revision_id,
             entity_ids=entity_ids[:100],
             relationship_ids=relationship_ids[:100],
-            hydradb_query_metadata={"from_entity": from_entity, "edge_predicate": edge_predicate, "to_entity": to_entity},
+            hydradb_query_metadata={"from_entity": from_entity, 
+            "edge_predicate": edge_predicate, 
+            "to_entity": to_entity},
         )
         remember(scoped, result, ViewMode.EXPLORE)
         return result
 
     @server.tool(
-        description="Abandon the current traversal path. Signals the agent gathered enough context or hit a dead end."
+        description="""Abandon the current traversal path. 
+        Signals the agent gathered enough context or hit a dead end."""
     )
     def traversal_abandon(
         reason: str | None = None,
@@ -419,7 +427,8 @@ def create_mcp_server(
         scoped = current_services()
         resolved_session = _observe_session_id(scoped, session_id)
         if not resolved_session:
-            return {"status": "no_session", "warning": "No active Observe session. Start one before traversing."}
+            return {"status": "no_session", 
+            "warning": "No active Observe session. Start one before traversing."}
         session = scoped.observe_sessions.require(resolved_session, active=True)
         scoped.events.emit(
             "traversal_abandoned",
