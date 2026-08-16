@@ -10,6 +10,7 @@ from typing import Any
 
 from pydantic import Field, model_validator
 
+from .hydradb import MAX_ADDITIONAL_METADATA_BYTES
 from .ids import content_hash, evidence_id, source_id
 from .models import (
     FrozenModel,
@@ -28,6 +29,19 @@ MAX_PREDICATE = 256
 MAX_RELATION_CONTEXT = 2_000
 MAX_CODE_EXCERPT_CHARS = 12_000
 RELATION_EVIDENCE_SCHEMA = "hack-hydra.relation-evidence.v1"
+_LOCAL_ONLY_ADDITIONAL_METADATA = frozenset(
+    {
+        # These fields remain on SourceCard for deterministic local evidence and
+        # evolution round trips. HydraDB already receives equivalent data in the
+        # source title/content, graph evidence, or other metadata fields.
+        "display_name",
+        "evidence_id",
+        "excerpt_hash",
+        "graph_ir_version",
+        "record_json",
+    }
+)
+_OPTIONAL_HYDRA_ADDITIONAL_METADATA = ("signature",)
 
 
 class HydraEntity(FrozenModel):
@@ -46,7 +60,7 @@ class HydraRelation(FrozenModel):
 
 
 class HydraSourceGraph(FrozenModel):
-    entities: dict[str, HydraEntity]
+    entities: dict[str, HydraEntity] = Field(min_length=1)
     relations: tuple[HydraRelation, ...]
 
     @model_validator(mode="after")
@@ -173,10 +187,13 @@ def _source_graph(
     repository_id: str,
 ) -> HydraSourceGraph:
     exact_edges = [edge for edge in owned_edges if edge.quality is RelationQuality.EXACT]
-    entity_ids = {node_id for edge in exact_edges for node_id in (edge.source_id, edge.target_id)}
-    # An unconnected entity would be discarded by HydraDB. Keeping an empty
-    # graph is explicit and prevents automatic extraction without inventing a
-    # self-relation solely to preserve the focal node.
+    # Keep the focal repository node in the local card even when it has no exact
+    # relations. The payload builder omits that relation-free graph at the API
+    # boundary instead of inventing a self-relation.
+    entity_ids = {
+        owner.id,
+        *(node_id for edge in exact_edges for node_id in (edge.source_id, edge.target_id)),
+    }
     entities = {
         node_identifier: HydraEntity(
             name=_hydra_entity_name(nodes[node_identifier]),
@@ -251,6 +268,7 @@ def build_source_cards(graph: GraphIR, repository_root: str | Path) -> tuple[Sou
             "relation_quality": "exact",
             "is_generated": node.is_generated,
             "is_test": bool(node.attributes.get("is_test", False)),
+            "is_entry_point": bool(node.attributes.get("is_entry_point", False)),
         }
         additional: dict[str, str | int | bool | None] = {
             "path": node.path,
@@ -293,31 +311,70 @@ def build_source_cards(graph: GraphIR, repository_root: str | Path) -> tuple[Sou
 def build_graph_payload(
     cards: tuple[SourceCard, ...] | list[SourceCard],
 ) -> dict[str, dict[str, Any]]:
-    """Return the exact object to JSON-encode for HydraDB `graph_payload`."""
+    """Return valid exact BYOG entries for HydraDB `graph_payload`.
+
+    HydraDB requires every keyed source graph to contain both entities and a
+    relation. Relation-free cards remain in ``app_knowledge`` for retrieval,
+    but they are omitted here instead of inventing or duplicating an edge.
+    """
 
     return {
         card.source_id: card.graph.model_dump(mode="json", exclude_none=True)
         for card in sorted(cards, key=lambda item: item.source_id)
+        if card.graph.relations
     }
 
 
 def build_app_knowledge(cards: tuple[SourceCard, ...] | list[SourceCard]) -> list[dict[str, Any]]:
     """Build the app-source records paired with `build_graph_payload`."""
 
-    return [
-        {
-            "id": card.source_id,
-            "title": card.title
-            or str(card.additional_metadata.get("display_name") or card.source_id),
-            "type": card.source_type,
-            "content": {"text": card.content},
-            "metadata": card.metadata,
-            "additional_metadata": {
-                key: value for key, value in card.additional_metadata.items() if value is not None
-            },
-        }
-        for card in sorted(cards, key=lambda item: item.source_id)
-    ]
+    sources: list[dict[str, Any]] = []
+    for card in sorted(cards, key=lambda item: item.source_id):
+        sources.append(
+            {
+                "id": card.source_id,
+                "title": card.title
+                or str(card.additional_metadata.get("display_name") or card.source_id),
+                "type": card.source_type,
+                "content": {"text": card.content},
+                "metadata": card.metadata,
+                "additional_metadata": _hydra_additional_metadata(card),
+            }
+        )
+    return sources
+
+
+def _hydra_additional_metadata(card: SourceCard) -> dict[str, str | int | bool]:
+    """Project rich local card metadata into HydraDB's bounded wire field."""
+
+    projected = {
+        key: value
+        for key, value in card.additional_metadata.items()
+        if value is not None and key not in _LOCAL_ONLY_ADDITIONAL_METADATA
+    }
+    for optional_key in _OPTIONAL_HYDRA_ADDITIONAL_METADATA:
+        if _additional_metadata_size(projected) <= MAX_ADDITIONAL_METADATA_BYTES:
+            break
+        projected.pop(optional_key, None)
+    size = _additional_metadata_size(projected)
+    if size > MAX_ADDITIONAL_METADATA_BYTES:
+        raise ValueError(
+            f"Source card {card.source_id} additional_metadata requires {size} serialized "
+            f"bytes after removing redundant fields; HydraDB allows "
+            f"{MAX_ADDITIONAL_METADATA_BYTES}"
+        )
+    return projected
+
+
+def _additional_metadata_size(metadata: dict[str, str | int | bool]) -> int:
+    return len(
+        json.dumps(
+            metadata,
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    )
 
 
 def graph_payload_json(cards: tuple[SourceCard, ...] | list[SourceCard]) -> str:

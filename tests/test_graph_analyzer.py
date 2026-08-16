@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from pathlib import Path
 
-from hydra_graph.analyzer import analyze_repository
-from hydra_graph.models import NodeKind, RelationPredicate, RelationQuality
+from hydra_graph.analyzer import PythonAnalyzer, analyze_repository
+from hydra_graph.ids import content_hash, evidence_id
+from hydra_graph.models import Evidence, NodeKind, RelationPredicate, RelationQuality
 
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "sample_repo"
 
@@ -166,3 +168,40 @@ def test_relative_submodule_import_targets_the_declared_module(tmp_path: Path) -
     relations = _relation_names(graph)
     assert ("pkg.api", RelationPredicate.IMPORTS, "pkg.service") in relations
     assert ("pkg.api.call", RelationPredicate.CALLS, "pkg.service.work") in relations
+
+
+def test_collect_edge_drops_a_self_relation(tmp_path: Path) -> None:
+    """A self-relation must never reach GraphEdge.
+
+    GraphEdge rejects one, and the analyzer builds every edge in a single pass, so
+    one self-relation would fail the whole revision with a 500 during indexing.
+    """
+
+    source = tmp_path / "module.py"
+    source.write_text("def work():\n    return 1\n", encoding="utf-8")
+    graph = analyze_repository(tmp_path, repository_id="selfedge", revision_id="r1")
+    node = next(item for item in graph.nodes if item.display_name == "work")
+    evidence = Evidence(
+        id=evidence_id(
+            path="module.py",
+            start_line=1,
+            start_column=0,
+            end_line=2,
+            end_column=12,
+            excerpt_hash=content_hash("def work():"),
+        ),
+        path="module.py",
+        start_line=1,
+        start_column=0,
+        end_line=2,
+        end_column=12,
+        excerpt_hash=content_hash("def work():"),
+        explanation="module.py:1 calls work",
+    )
+    analyzer = PythonAnalyzer("selfedge", "r1")
+    edges: defaultdict[tuple, list[Evidence]] = defaultdict(list)
+
+    analyzer._collect_edge(edges, node, RelationPredicate.CALLS, node, node.id, evidence)
+
+    assert not edges
+    assert analyzer._materialize_edges(edges) == []

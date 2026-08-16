@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 from hydra_graph.analyzer import analyze_repository
 from hydra_graph.api import ServiceContainer, create_app
-from hydra_graph.cards import build_source_cards
+from hydra_graph.cards import build_app_knowledge, build_source_cards
 from hydra_graph.config import HydraDBConfig
 from hydra_graph.diff import compare_graphs
 from hydra_graph.events import EventBus
@@ -117,6 +117,7 @@ def _graphs(root: Path) -> tuple[GraphIR, GraphIR]:
 
 
 def _card_response(cards: Any) -> dict[str, Any]:
+    wire_sources = {source["id"]: source for source in build_app_knowledge(list(cards))}
     chunks = [
         {
             "chunk_uuid": f"chunk-{card.source_id}",
@@ -126,7 +127,7 @@ def _card_response(cards: Any) -> dict[str, Any]:
             "source_title": card.title,
             "relevancy_score": 1.0 - index / 1000,
             "metadata": card.metadata,
-            "additional_metadata": card.additional_metadata,
+            "additional_metadata": wire_sources[card.source_id]["additional_metadata"],
         }
         for index, card in enumerate(cards)
     ]
@@ -140,7 +141,7 @@ def _card_response(cards: Any) -> dict[str, Any]:
                     "title": card.title,
                     "type": card.source_type,
                     "metadata": card.metadata,
-                    "additional_metadata": card.additional_metadata,
+                    "additional_metadata": wire_sources[card.source_id]["additional_metadata"],
                 }
                 for card in cards
             ],

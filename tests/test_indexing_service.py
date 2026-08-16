@@ -4,10 +4,12 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from hydra_graph import indexing_service
 from hydra_graph.discovery import discover_files
 from hydra_graph.indexing_service import (
     IndexPreviewConflict,
     IndexPreviewStore,
+    discovery_matches,
     prepare_automatic_index,
 )
 
@@ -78,6 +80,55 @@ def test_preview_token_is_project_bound_single_use_and_snapshot_bound(tmp_path: 
     changed = prepare_automatic_index(tmp_path, repository_id)
     with pytest.raises(IndexPreviewConflict, match="changed"):
         store.consume(second, changed)
+
+
+def test_discovery_matches_only_when_paths_and_content_agree(tmp_path: Path) -> None:
+    write_app(tmp_path)
+    original = discover_files(tmp_path)
+
+    assert discovery_matches(original, discover_files(tmp_path)) is True
+
+    write_app(tmp_path, 5)
+    assert discovery_matches(original, discover_files(tmp_path)) is False
+
+    write_app(tmp_path)
+    (tmp_path / "extra.py").write_text("value = 1\n", encoding="utf-8")
+    assert discovery_matches(original, discover_files(tmp_path)) is False
+
+
+def test_prepared_index_cache_holds_one_entry_and_is_released(tmp_path: Path) -> None:
+    write_app(tmp_path)
+    repository_id = "local:example:00000000-0000-4000-8000-000000000000"
+    prepared = prepare_automatic_index(tmp_path, repository_id)
+    store = IndexPreviewStore(tmp_path, repository_id)
+
+    first = store.issue(prepared).token
+    assert store.prepared_for(first) is prepared
+    assert store.prepared_for("other-token") is None
+
+    # Card text is far too large to pool, so a new preview replaces the old one.
+    second = store.issue(prepared).token
+    assert store.prepared_for(first) is None
+    assert store.prepared_for(second) is prepared
+
+    store.consume(second, prepared)
+    assert store.prepared_for(second) is None
+
+
+def test_expired_preview_releases_the_cached_prepared_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_app(tmp_path)
+    repository_id = "local:example:00000000-0000-4000-8000-000000000000"
+    prepared = prepare_automatic_index(tmp_path, repository_id)
+    store = IndexPreviewStore(tmp_path, repository_id)
+    monkeypatch.setattr(indexing_service, "PREVIEW_TOKEN_TTL_SECONDS", -1)
+
+    token = store.issue(prepared).token
+
+    assert store.prepared_for(token) is None
+    with pytest.raises(IndexPreviewConflict, match="expired"):
+        store.consume(token, prepared)
 
 
 def test_internal_state_is_never_analyzed_or_revisioned(tmp_path: Path) -> None:

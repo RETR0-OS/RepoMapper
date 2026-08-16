@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import uuid
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,11 +14,17 @@ from threading import Lock
 from typing import Any, TextIO
 
 from .config import DEFAULT_API_URL
+from .diagnostics import log_event
 from .hydradb import CredentialProvider, HydraCredentials, HydraDBUnavailable
 from .ids import normalize_repository_id
 
 MANAGED_PROTOCOL = "hack-hydra.managed-ipc.v2"
 MAX_IPC_LINE = 32_768
+# One repository query reads the sync status two or three times, and each read asked
+# VS Code whether credentials exist. The answer changes only when the user edits the
+# project binding, so a short cache removes the repeated round trips without letting
+# a removed binding look configured for longer than a moment.
+CONFIGURED_CACHE_SECONDS = 2.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,7 +87,12 @@ class ManagedIpc:
 
     def request(self, message_type: str, **payload: Any) -> dict[str, Any]:
         request_id = uuid.uuid4().hex
+        # One lock serializes every round trip, and VS Code answers on a single
+        # thread, so this wait is a real part of the time a query costs.
+        started = time.monotonic()
+        waited_for_lock = 0.0
         with self._lock:
+            waited_for_lock = (time.monotonic() - started) * 1_000
             self._write(
                 {
                     "protocol": MANAGED_PROTOCOL,
@@ -90,6 +102,12 @@ class ManagedIpc:
                 }
             )
             response = self._read()
+        log_event(
+            "ipc",
+            type=message_type,
+            ms=(time.monotonic() - started) * 1_000,
+            lock_ms=waited_for_lock,
+        )
         if response.get("protocol") != MANAGED_PROTOCOL:
             raise HydraDBUnavailable("Managed credential channel returned an invalid protocol")
         if response.get("request_id") != request_id or response.get("type") != "response":
@@ -131,23 +149,44 @@ class ManagedIpc:
 class ManagedCredentialProvider(CredentialProvider):
     """Acquire one credential lease from VS Code for each HydraDB operation."""
 
-    def __init__(self, channel: ManagedIpc) -> None:
+    def __init__(
+        self,
+        channel: ManagedIpc,
+        *,
+        monotonic: Callable[[], float] = time.monotonic,
+    ) -> None:
         self._channel = channel
+        self._monotonic = monotonic
+        self._configured: dict[str, tuple[float, bool]] = {}
+        self._configured_lock = Lock()
 
     def configured(self, repository_id: str) -> bool:
+        project = normalize_repository_id(repository_id)
+        now = self._monotonic()
+        with self._configured_lock:
+            cached = self._configured.get(project)
+            if cached is not None and cached[0] > now:
+                return cached[1]
         try:
-            response = self._channel.request(
-                "credential_status", repository_id=normalize_repository_id(repository_id)
-            )
+            response = self._channel.request("credential_status", repository_id=project)
         except HydraDBUnavailable:
+            self._forget(project)
             return False
-        return response.get("configured") is True
+        answer = response.get("configured") is True
+        with self._configured_lock:
+            self._configured[project] = (now + CONFIGURED_CACHE_SECONDS, answer)
+        return answer
 
     @contextmanager
     def acquire(self, repository_id: str) -> Iterator[HydraCredentials]:
-        response = self._channel.request(
-            "credential_request", repository_id=normalize_repository_id(repository_id)
-        )
+        project = normalize_repository_id(repository_id)
+        try:
+            response = self._channel.request("credential_request", repository_id=project)
+        except HydraDBUnavailable:
+            # A refused lease is the strongest proof that the binding is gone, so the
+            # cached "configured" answer must not outlive it.
+            self._forget(project)
+            raise
         api_key = response.get("api_key")
         database = response.get("database")
         if (
@@ -163,3 +202,7 @@ class ManagedCredentialProvider(CredentialProvider):
             yield credentials
         finally:
             del credentials
+
+    def _forget(self, repository_id: str) -> None:
+        with self._configured_lock:
+            self._configured.pop(repository_id, None)

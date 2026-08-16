@@ -20,7 +20,7 @@ from .checkpoints import CheckpointSlot, CheckpointStore
 from .diff import compare_graphs
 from .discovery import discover_files
 from .events import EventBus
-from .hydradb import HydraDBClient, HydraDBError, response_data
+from .hydradb import HydraDBClient, HydraDBError, accepted_ingest_ids, response_data
 from .models import GraphEdge, GraphNode
 from .query import QUERY_RESPONSE_SCHEMA, QueryRequest, QueryService, normalize_query_response
 from .views import ViewDepth, ViewMode, ViewStore, build_product_view
@@ -481,7 +481,7 @@ class EvolutionService:
             max_paths=min(10, max_results),
             max_relations=max_relations,
             expected_revision=revision if revision != "current" else None,
-            expected_entity_kind=entity_kind,
+            expected_entity_kinds=(entity_kind,),
         )
         result["response_schema"] = QUERY_RESPONSE_SCHEMA
         result.setdefault("records", [])
@@ -592,14 +592,12 @@ class EvolutionService:
             try:
                 for batch in _batches(cards, self.batch_size):
                     attempted = True
-                    response = response_data(
-                        self.client.ingest_evolution(
-                            app_knowledge=build_app_knowledge(batch),
-                            graph_payload=build_graph_payload(batch),
-                            upsert=True,
-                        )
+                    response = self.client.ingest_evolution(
+                        app_knowledge=build_app_knowledge(batch),
+                        graph_payload=build_graph_payload(batch),
+                        upsert=True,
                     )
-                    returned = {str(item) for item in response.get("ids", [])}
+                    returned = accepted_ingest_ids(response)
                     expected = {card.source_id for card in batch}
                     if returned != expected:
                         raise _IndeterminateWrite("HydraDB did not confirm every source ID")
@@ -647,11 +645,18 @@ class EvolutionService:
 
     def _wait_until_completed(self, source_ids: Sequence[str]) -> dict[str, str]:
         deadline = self._monotonic() + self.client.config.poll_timeout_seconds
+        # Ask only about sources that have not finished. A completed source cannot
+        # change state, so re-asking would make every cycle cost the whole write.
+        pending = list(dict.fromkeys(source_ids))
+        status_batch_size = self.client.config.status_batch_size
         while True:
             statuses: dict[str, Mapping[str, Any]] = {}
-            for index in range(0, len(source_ids), self.batch_size):
+            for index in range(0, len(pending), status_batch_size):
                 data = response_data(
-                    self.client.status(source_ids[index : index + self.batch_size])
+                    self.client.status(
+                        pending[index : index + status_batch_size],
+                        collection=self.client.config.evolution_collection,
+                    )
                 )
                 statuses.update(
                     {
@@ -660,7 +665,7 @@ class EvolutionService:
                         if isinstance(item, Mapping)
                     }
                 )
-            missing = set(source_ids).difference(statuses)
+            missing = set(pending).difference(statuses)
             if missing:
                 return {item: "status missing" for item in missing}
             failed = {
@@ -670,14 +675,15 @@ class EvolutionService:
             }
             if failed:
                 return failed
-            if all(item.get("indexing_status") == "completed" for item in statuses.values()):
+            pending = [
+                source_id
+                for source_id in pending
+                if statuses[source_id].get("indexing_status") != "completed"
+            ]
+            if not pending:
                 return {}
             if self._monotonic() >= deadline:
-                return {
-                    source_id: "indexing timed out"
-                    for source_id, item in statuses.items()
-                    if item.get("indexing_status") != "completed"
-                }
+                return {source_id: "indexing timed out" for source_id in pending}
             self._sleep(self.client.config.poll_interval_seconds)
 
     def _hydradb_status(self, write_attempted: bool) -> dict[str, Any]:
@@ -853,9 +859,7 @@ def _validated_records(
             or metadata.get("entity_kind") != entity_kind
         ):
             raise ValueError("evolution chunk does not match the requested record kind")
-        record_json = additional.get("record_json")
-        if not isinstance(record_json, str):
-            raise ValueError("evolution chunk has no machine-readable record")
+        record_json = _record_json_from_chunk(chunk, additional)
         parsed.append((metadata, additional, json.loads(record_json)))
     if not parsed:
         return []
@@ -937,6 +941,22 @@ def _validated_records(
         affected_lens_ids=summary.affected_lens_ids,
     )
     return [event.model_dump(mode="json")]
+
+
+def _record_json_from_chunk(chunk: Mapping[str, Any], additional: Mapping[str, Any]) -> str:
+    """Read legacy metadata records or the canonical record embedded in content."""
+
+    legacy = additional.get("record_json")
+    if isinstance(legacy, str):
+        return legacy
+    content = chunk.get("chunk_content")
+    if not isinstance(content, str):
+        raise ValueError("evolution chunk has no machine-readable record")
+    marker = "\nRecord JSON:\n"
+    _, found, record_json = content.rpartition(marker)
+    if not found or not record_json.strip():
+        raise ValueError("evolution chunk has no machine-readable record")
+    return record_json.strip()
 
 
 def _degrade_record_result(result: dict[str, Any], warning: str) -> dict[str, Any]:

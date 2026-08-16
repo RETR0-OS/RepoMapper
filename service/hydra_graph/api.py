@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
+import math
 import os
+import threading
+import time
 import uuid
 from collections.abc import AsyncIterator, Iterator, Mapping
 from contextlib import asynccontextmanager
@@ -22,6 +26,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .analyzer import analyze_repository
 from .cards import SourceCard, build_source_cards
 from .config import HydraDBConfig
+from .diagnostics import configure_logging, log_event
 from .discovery import DiscoveryReport, discover_files
 from .events import (
     EventBus,
@@ -32,12 +37,28 @@ from .events import (
     ObserveSessions,
 )
 from .evolution_service import EvolutionService
-from .hydradb import CredentialProvider, HydraDBClient, HydraDBError
+from .hydradb import (
+    CredentialProvider,
+    HydraDBAPIError,
+    HydraDBClient,
+    HydraDBError,
+    HydraDBUnavailable,
+    hydradb_reason,
+)
 from .ids import normalize_relative_path, normalize_repository_id
+from .index_jobs import (
+    JOB_CANCELLED,
+    JOB_COMPLETED,
+    JOB_FAILED,
+    IndexJob,
+    IndexJobActive,
+    IndexJobStore,
+)
 from .indexing_service import (
     IndexPreviewConflict,
     IndexPreviewStore,
     PreparedIndex,
+    discovery_matches,
     prepare_automatic_index,
 )
 from .models import GraphNode
@@ -45,6 +66,8 @@ from .query import QUERY_RESPONSE_SCHEMA, QueryService
 from .security import MANAGED_SERVICE_PROTOCOL, MAX_REQUEST_BYTES, ManagedSecurity
 from .sync import SyncService
 from .views import ViewDepth, ViewMode, ViewRequest, ViewService, build_product_view
+
+logger = logging.getLogger(__name__)
 
 
 class APIModel(BaseModel):
@@ -57,10 +80,11 @@ class QueryBody(APIModel):
     revision: str = "current"
     max_nodes: int = Field(default=50, ge=1, le=500)
     max_edges: int = Field(default=80, ge=0, le=1_000)
-    max_context_chars: int = Field(default=7_000, ge=1, le=100_000)
+    max_context_chars: int = Field(default=100_000, ge=1, le=100_000)
     query_by: Literal["hybrid", "text"] = "hybrid"
     mode: Literal["fast", "thinking"] = "thinking"
     graph_context: bool = True
+    tests: Literal["last", "mixed", "only"] = "last"
     session_id: str | None = None
 
 
@@ -136,6 +160,7 @@ class ServiceContainer:
     observe_sessions: ObserveSessions | None = None
     credential_provider: CredentialProvider | None = None
     index_previews: IndexPreviewStore | None = None
+    index_jobs: IndexJobStore | None = None
 
 
 class RepositoryScopes:
@@ -222,6 +247,7 @@ def create_container(
     repository_root: str | Path | None = None,
     credential_provider: CredentialProvider | None = None,
 ) -> ServiceContainer:
+    configure_logging()
     resolved_config = config or HydraDBConfig.from_env()
     resolved_repository_id = (
         repository_id
@@ -290,6 +316,7 @@ def _build_container(
         repository_id=resolved_repository_id,
         events=events,
         verified_revision=lambda: sync.status["ready_revision"],
+        byog_source_ids=sync.verified_byog_source_ids,
         current_state_indeterminate=lambda: (
             sync.status["status"] == "indexing" or bool(sync.status["current_state_indeterminate"])
         ),
@@ -323,6 +350,7 @@ def _build_container(
         observe_sessions=ObserveSessions(events),
         credential_provider=credential_provider,
         index_previews=IndexPreviewStore(root, resolved_repository_id),
+        index_jobs=IndexJobStore(),
     )
 
 
@@ -333,6 +361,7 @@ def create_app(
     mcp_oauth_provider: Any | None = None,
     mcp_issuer_url: str | None = None,
 ) -> FastAPI:
+    configure_logging()
     services = container or create_container()
     if services.observe_sessions is None:
         services.observe_sessions = ObserveSessions(services.events)
@@ -431,6 +460,26 @@ def create_app(
         finally:
             current_services.reset(token)
 
+    # Added last, so it runs first and measures the whole request, including the
+    # scope middleware above. Only the path is recorded: a question travels in the
+    # query string of a view request, and that must never reach a log.
+    @app.middleware("http")
+    async def trace_request(request: Request, call_next: Any) -> Any:
+        started = time.monotonic()
+        status = "error"
+        try:
+            response = await call_next(request)
+            status = response.status_code
+            return response
+        finally:
+            log_event(
+                "http",
+                method=request.method,
+                path=request.url.path,
+                status=status,
+                ms=(time.monotonic() - started) * 1_000,
+            )
+
     services = ScopedServiceProxy(current_services)  # type: ignore[assignment]
 
     @app.get("/version")
@@ -522,8 +571,22 @@ def create_app(
                 mode="fast",
                 metadata_filters={"repository_id": services.sync.repository_id},
             )
+        except HydraDBUnavailable as exc:
+            # Separate a local credential problem from a refusal by HydraDB, because
+            # the two need different corrections from the person doing setup.
+            raise HTTPException(
+                status_code=503,
+                detail="HydraDB credentials are not available for this project.",
+            ) from exc
+        except HydraDBAPIError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"HydraDB refused the read request. {hydradb_reason(exc)}",
+            ) from exc
         except HydraDBError as exc:
-            raise HTTPException(status_code=503, detail="HydraDB read access failed.") from exc
+            raise HTTPException(
+                status_code=503, detail="HydraDB refused the read request."
+            ) from exc
         return {"status": "connected", "write_performed": False}
 
     @app.post("/api/query")
@@ -734,14 +797,14 @@ def create_app(
                     "Observe following is presentation state; observable events remain available."
                 )
             }
-        focus = body.question or body.selected_id
-        question = f"Expand the HydraDB-backed repository context for {focus}." if focus else None
+        # The focus is a real symbol or node id. Wrapping it in a sentence would send
+        # that sentence to semantic retrieval and match prose instead of the symbol.
         view = services.views.load(
             ViewRequest(
                 mode=mode,
                 revision=body.revision,
                 depth=body.depth,
-                question=question,
+                question=body.question or body.selected_id,
             )
         )
         return {"message": f"Loaded a bounded {mode.value} result from HydraDB.", "view": view}
@@ -750,7 +813,7 @@ def create_app(
     def sidebar() -> dict[str, Any]:
         return {
             "current_symbol": None,
-            "entrypoints": [],
+            "entrypoints": _entrypoints(services),
             "lenses": [],
             "changes": [],
             "activity": services.events.recent()[-20:],
@@ -796,22 +859,80 @@ def create_app(
 
     @app.post("/api/index/preview")
     def index_preview(_: IndexPreviewBody) -> dict[str, Any]:
-        prepared = prepare_automatic_index(services.repository_root, services.sync.repository_id)
-        store = _require_index_previews(services)
+        # The concrete container is resolved here as well, because the proxy
+        # cannot hold the lazily created preview store that /api/index reads.
+        scoped = current_services.get()
+        prepared = _prepare_index_or_report(scoped)
+        store = _require_index_previews(scoped)
         preview_ref = store.issue(prepared)
-        return _automatic_index_preview(services, prepared, preview_ref.token)
+        return _automatic_index_preview(scoped, prepared, preview_ref.token)
 
-    @app.post("/api/index")
+    @app.post("/api/index", status_code=202)
     def index_repository(body: IndexConfirmBody) -> dict[str, Any]:
-        prepared = prepare_automatic_index(services.repository_root, services.sync.repository_id)
-        store = _require_index_previews(services)
+        # The worker thread does not inherit the request ContextVar, so the
+        # concrete container for this request is resolved here and handed to the
+        # thread. A ScopedServiceProxy would silently act on another workspace.
+        scoped = current_services.get()
+        jobs = _require_index_jobs(scoped)
+        running = jobs.active(scoped.sync.repository_id)
+        if running is not None:
+            # Checked before analysis so a duplicate confirmation costs neither
+            # a full re-analysis nor the caller's still-valid preview token.
+            raise HTTPException(
+                status_code=409, detail="An index job is already running for this project."
+            )
+        prepared = _prepared_index_for_token(scoped, body.preview_token)
+        store = _require_index_previews(scoped)
         try:
             store.consume(body.preview_token, prepared)
         except IndexPreviewConflict as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        preview = _automatic_index_preview(services, prepared, body.preview_token)
-        result = services.sync.sync(prepared.cards, revision_id=prepared.revision_id).as_dict()
-        return {"preview": preview, "sync": result}
+        preview = _automatic_index_preview(scoped, prepared, body.preview_token)
+        try:
+            job = jobs.start(
+                repository_id=scoped.sync.repository_id,
+                revision_id=prepared.revision_id,
+                total_batches=math.ceil(len(prepared.cards) / max(1, scoped.sync.batch_size)),
+                total_sources=len(prepared.cards),
+            )
+        except IndexJobActive as exc:
+            raise HTTPException(
+                status_code=409, detail="An index job is already running for this project."
+            ) from exc
+        worker = threading.Thread(
+            target=_run_index_job,
+            kwargs={
+                "services": scoped,
+                "jobs": jobs,
+                "job": job,
+                "prepared": prepared,
+                "preview": preview,
+            },
+            name=f"hydra-index-{job.job_id}",
+            daemon=True,
+        )
+        # Capture the accepted state before a very small job can finish on the
+        # worker and race the response serialization.
+        accepted = job.as_dict()
+        worker.start()
+        return accepted
+
+    @app.get("/api/index/jobs/{job_id}")
+    def get_index_job(job_id: str) -> dict[str, Any]:
+        jobs = _require_index_jobs(current_services.get())
+        job = jobs.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Index job was not found.")
+        return job.as_dict()
+
+    @app.post("/api/index/jobs/{job_id}/cancel")
+    def cancel_index_job(job_id: str, _: EmptyBody | None = None) -> dict[str, Any]:
+        jobs = _require_index_jobs(current_services.get())
+        job = jobs.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Index job was not found.")
+        jobs.cancel(job_id)
+        return job.as_dict()
 
     @app.post("/api/evolution/checkpoints/{slot}")
     def capture_checkpoint(
@@ -863,6 +984,114 @@ def create_app(
 
     app.mount("/", mcp_app, name="mcp")
     return app
+
+
+def _prepare_index_or_report(services: ServiceContainer) -> PreparedIndex:
+    """Analyze the repository, and name a failure instead of a bare 500.
+
+    Analysis reads every discovered file, so one unusual source can stop it. An
+    unnamed 500 gives the person nothing to act on, so the failure type and its
+    bounded message are reported. The full traceback stays in the service log.
+    """
+
+    try:
+        return prepare_automatic_index(services.repository_root, services.sync.repository_id)
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001 - reported, then re-raised as HTTP 500
+        raise HTTPException(
+            status_code=500,
+            detail=f"Repository analysis failed. {type(exc).__name__}: {str(exc)[:300]}",
+        ) from exc
+
+
+def _prepared_index_for_token(services: ServiceContainer, token: str) -> PreparedIndex:
+    """Reuse the preview's analysis when the discovered files still match disk.
+
+    Analysis reads every discovered file and takes tens of seconds on a large
+    repository, so repeating it for the confirmation doubles the wait for no new
+    information. Discovery alone is cheap, so it is re-run and compared: an equal
+    file set with equal content hashes cannot produce different cards. Any other
+    outcome falls back to a full analysis, and ``store.consume`` still compares
+    snapshot hashes, so a changed project is still refused with 409.
+    """
+
+    store = _require_index_previews(services)
+    cached = store.prepared_for(token)
+    if cached is not None:
+        try:
+            discovery = discover_files(services.repository_root)
+        except OSError:
+            return _prepare_index_or_report(services)
+        if discovery_matches(cached.discovery, discovery):
+            return cached
+    return _prepare_index_or_report(services)
+
+
+def _run_index_job(
+    *,
+    services: ServiceContainer,
+    jobs: IndexJobStore,
+    job: IndexJob,
+    prepared: PreparedIndex,
+    preview: dict[str, Any],
+) -> None:
+    """Run one confirmed index in the background and record its outcome.
+
+    Only the concrete container passed in is used: this runs outside the request
+    ContextVar, so reading the scoped proxy here could target another workspace.
+    """
+
+    job_id = job.job_id
+
+    def progress(phase: str, done: int, total: int) -> None:
+        fields: dict[str, Any] = {"phase": phase}
+        if phase == "uploading":
+            fields.update(uploaded_batches=done, total_batches=total)
+        elif phase == "verifying":
+            fields.update(verified_sources=done, total_sources=total)
+        jobs.update(job_id, **fields)
+
+    try:
+        result = services.sync.sync(
+            prepared.cards,
+            revision_id=prepared.revision_id,
+            progress=progress,
+            should_cancel=lambda: jobs.is_cancelled(job_id),
+        ).as_dict()
+    except Exception as exc:  # noqa: BLE001 - a thread failure must stay reportable
+        # Nothing else can observe this thread, so the traceback is logged and
+        # the job carries a bounded named reason instead of disappearing.
+        logger.exception("Index job %s failed", job_id)
+        jobs.finish(
+            job_id,
+            state=JOB_FAILED,
+            error=f"Indexing failed. {type(exc).__name__}: {str(exc)[:300]}",
+        )
+        return
+    failed = result.get("failed")
+    failed_map = dict(failed) if isinstance(failed, Mapping) else {}
+    jobs.update(job_id, failed=failed_map)
+    if result.get("status") == "ready":
+        state = JOB_COMPLETED
+        error = None
+    elif "__cancelled__" in failed_map:
+        state = JOB_CANCELLED
+        error = None
+    else:
+        state = JOB_FAILED
+        warning = result.get("warning")
+        error = (
+            str(warning)[:500]
+            if isinstance(warning, str) and warning.strip()
+            else f"Indexing ended with sync status {result.get('status', 'unknown')}."
+        )
+    jobs.finish(
+        job_id,
+        state=state,
+        result={"preview": preview, "sync": result},
+        error=error,
+    )
 
 
 def _require_evolution(services: ServiceContainer) -> EvolutionService:
@@ -1158,6 +1387,54 @@ def _empty_evolution_view(
     return _view_from_evolution_result(services, result, mode, depth, max_nodes, max_edges)
 
 
+def _entrypoints(services: ServiceContainer) -> list[dict[str, Any]]:
+    """List where this repository starts executing, or nothing at all.
+
+    The sidebar is orientation, not an answer, so an unavailable HydraDB or an index
+    written before entry-point detection returns an empty list rather than an error.
+    """
+
+    from .query import QueryRequest
+
+    try:
+        result = services.queries.repository_query(
+            QueryRequest(
+                question="entry point",
+                max_results=20,
+                max_context_chars=1,
+                max_paths=0,
+                max_relations=0,
+                query_by="text",
+                mode="fast",
+                graph_context=False,
+                tests="mixed",
+                entry_points_only=True,
+            )
+        )
+    except (ValueError, RuntimeError):
+        return []
+    if result.get("status") != "ready":
+        return []
+    listed: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for source in result.get("sources", []):
+        node_id = str(source.get("node_id") or "")
+        if not node_id or node_id in seen:
+            continue
+        seen.add(node_id)
+        listed.append(
+            {
+                "node_id": node_id,
+                "display_name": source.get("qualified_name") or source.get("title"),
+                "path": source.get("path"),
+                "span": source.get("span"),
+                "entity_kind": source.get("entity_kind"),
+                "revision_id": source.get("revision"),
+            }
+        )
+    return listed[:20]
+
+
 def _query_request_from_api(body: QueryBody):
     # Kept local to avoid turning Pydantic transport models into query-domain
     # models or allowing extension defaults to bypass service validation.
@@ -1173,6 +1450,7 @@ def _query_request_from_api(body: QueryBody):
         query_by=body.query_by,
         mode=body.mode,
         graph_context=body.graph_context,
+        tests=body.tests,
         session_id=body.session_id,
     )
 
@@ -1183,6 +1461,12 @@ def _require_index_previews(services: ServiceContainer) -> IndexPreviewStore:
             services.repository_root, services.sync.repository_id
         )
     return services.index_previews
+
+
+def _require_index_jobs(services: ServiceContainer) -> IndexJobStore:
+    if services.index_jobs is None:
+        services.index_jobs = IndexJobStore()
+    return services.index_jobs
 
 
 def _automatic_index_preview(

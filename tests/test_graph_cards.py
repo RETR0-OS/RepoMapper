@@ -16,6 +16,7 @@ from hydra_graph.cards import (
     build_source_cards,
     graph_payload_json,
 )
+from hydra_graph.hydradb import MAX_ADDITIONAL_METADATA_BYTES
 from hydra_graph.ids import edge_id
 from hydra_graph.models import GraphEdge, GraphIR, RelationPredicate, RelationQuality
 from pydantic import ValidationError
@@ -42,6 +43,7 @@ def test_cards_contain_grounded_source_and_filterable_metadata() -> None:
         "relation_quality": "exact",
         "is_generated": False,
         "is_test": False,
+        "is_entry_point": False,
     }
     assert greeter.additional_metadata["path"] == "app/service.py"
     assert greeter.additional_metadata["start_line"] == 5
@@ -108,9 +110,17 @@ def test_byog_shape_uses_source_ids_and_globally_unambiguous_names() -> None:
     cards = build_source_cards(graph, FIXTURE)
     payload = build_graph_payload(cards)
 
-    assert set(payload) == {card.source_id for card in cards}
-    for source_graph in payload.values():
+    expected = {card.source_id for card in cards if card.graph.relations}
+    assert set(payload) == expected
+    for card in cards:
+        if not card.graph.relations:
+            assert card.source_id not in payload
+            continue
+        source_graph = payload[card.source_id]
         assert set(source_graph) == {"entities", "relations"}
+        assert source_graph["entities"]
+        assert source_graph["relations"]
+        assert card.node_id in source_graph["entities"]
         for entity in source_graph["entities"].values():
             assert " [" in entity["name"] and " @ " in entity["name"]
             assert entity["namespace"] == "sample"
@@ -120,9 +130,59 @@ def test_byog_shape_uses_source_ids_and_globally_unambiguous_names() -> None:
             assert len(relation["context"]) <= 2_000
     assert graph_payload_json(cards) == graph_payload_json(list(reversed(cards)))
     app_sources = build_app_knowledge(cards)
-    assert {source["id"] for source in app_sources} == set(payload)
+    assert {source["id"] for source in app_sources} == {card.source_id for card in cards}
     assert all(source["type"] == "code_entity" for source in app_sources)
     assert all(source["content"]["text"] for source in app_sources)
+    assert all(
+        len(
+            json.dumps(source["additional_metadata"], separators=(",", ":"), sort_keys=True).encode(
+                "utf-8"
+            )
+        )
+        <= MAX_ADDITIONAL_METADATA_BYTES
+        for source in app_sources
+    )
+    assert all("evidence_id" not in source["additional_metadata"] for source in app_sources)
+    assert all("excerpt_hash" not in source["additional_metadata"] for source in app_sources)
+
+
+def test_hydra_metadata_projection_drops_an_oversized_optional_signature() -> None:
+    graph = analyze_repository(FIXTURE, repository_id="sample", revision_id="r1")
+    original = build_source_cards(graph, FIXTURE)[0]
+    card = original.model_copy(
+        update={
+            "additional_metadata": {
+                **original.additional_metadata,
+                "signature": "x" * 2_000,
+            }
+        }
+    )
+
+    source = build_app_knowledge([card])[0]
+
+    assert "signature" not in source["additional_metadata"]
+    assert card.additional_metadata["signature"] == "x" * 2_000
+
+
+def test_hydra_metadata_projection_refuses_oversized_required_fields() -> None:
+    graph = analyze_repository(FIXTURE, repository_id="sample", revision_id="r1")
+    original = build_source_cards(graph, FIXTURE)[0]
+    card = original.model_copy(
+        update={
+            "additional_metadata": {
+                **original.additional_metadata,
+                "path": "x" * 2_000,
+            }
+        }
+    )
+
+    with pytest.raises(ValueError, match="HydraDB allows 1024"):
+        build_app_knowledge([card])
+
+
+def test_hydra_source_graph_rejects_an_empty_entity_map() -> None:
+    with pytest.raises(ValidationError, match="at least 1 item"):
+        HydraSourceGraph(entities={}, relations=())
 
 
 def test_inferred_relations_never_enter_exact_cards_or_byog() -> None:

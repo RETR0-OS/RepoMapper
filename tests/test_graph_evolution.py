@@ -105,8 +105,21 @@ def test_change_cards_round_trip_every_fact_and_original_evidence(tmp_path: Path
     assert {page.page_index for page in pages} == set(range(1, len(pages) + 1))
     assert all(page.record_schema == CHANGE_EVENT_PAGE_SCHEMA for page in pages)
     assert all(len(card.content) <= 12_000 for card in cards)
-    assert {item["type"] for item in build_app_knowledge(list(cards))} == {"change_event"}
-    assert set(build_graph_payload(list(cards))) == {card.source_id for card in cards}
+    app_knowledge = build_app_knowledge(list(cards))
+    assert {item["type"] for item in app_knowledge} == {"change_event"}
+    assert all("record_json" not in item["additional_metadata"] for item in app_knowledge)
+    assert all(
+        len(
+            json.dumps(item["additional_metadata"], separators=(",", ":"), sort_keys=True).encode(
+                "utf-8"
+            )
+        )
+        <= 1_024
+        for item in app_knowledge
+    )
+    assert set(build_graph_payload(list(cards))) == {
+        card.source_id for card in cards if card.graph.relations
+    }
     # Machine records contain complete evidence objects; they are not reconstructed spans.
     rename_page = next(page for page in pages if page.fact.kind is ChangeKind.RENAME_HYPOTHESIS)
     assert rename_page.fact.before_nodes[0].evidence.evidence.id
@@ -157,7 +170,7 @@ def test_empty_delta_emits_only_explicit_summary_without_fabricated_edges(tmp_pa
     cards = build_change_event_cards(delta, before, after)
 
     assert len(cards) == 1
-    assert cards[0].graph.entities == {}
+    assert set(cards[0].graph.entities) == {cards[0].node_id}
     assert cards[0].graph.relations == ()
     record = json.loads(str(cards[0].additional_metadata["record_json"]))
     assert record["fact_count"] == 0
@@ -201,7 +214,7 @@ def test_system_lens_is_shared_exact_grounded_and_has_no_duplicate_byog(tmp_path
     assert lens.baseline_hops[0].evidence == call.evidence
     assert card.metadata["record_schema"] == SYSTEM_LENS_SCHEMA
     assert card.source_type == "system_lens"
-    assert card.graph.entities == {}
+    assert set(card.graph.entities) == {card.node_id}
     assert card.graph.relations == ()
     assert (
         build_system_lens_card(lens.model_copy(update={"name": "Renamed lens"})).source_id

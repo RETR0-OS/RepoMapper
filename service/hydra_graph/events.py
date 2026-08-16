@@ -26,6 +26,9 @@ EVENT_TYPES = {
     "hydradb_sync_started",
     "hydradb_revision_ready",
     "lens_drift_detected",
+    "traversal_entered",
+    "traversal_followed",
+    "traversal_abandoned",
     "session_completed",
 }
 

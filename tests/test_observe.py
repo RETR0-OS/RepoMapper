@@ -198,7 +198,13 @@ def test_mounted_mcp_query_uses_active_observe_session_and_shared_view_store(
         "path_hop_replayed",
     ]
     assert {event["revision_id"] for event in events.json()} == {"rev-abc"}
-    assert len(transport.calls) == 1
+    # Queries, then only stored-graph reads for the sources they returned.
+    assert all(
+        call["url"].endswith("/query")
+        if call["method"] == "POST"
+        else call["url"].endswith("/context/relations")
+        for call in transport.calls
+    )
 
 
 def test_observe_session_returns_opaque_canonical_root_fingerprint(

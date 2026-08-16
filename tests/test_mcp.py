@@ -69,6 +69,9 @@ def test_mcp_exposes_repository_specific_tool_contracts() -> None:
         "compare_repository_graph",
         "open_system_lens",
         "pin_context",
+        "traversal_enter",
+        "traversal_follow",
+        "traversal_abandon",
     }
 
 
@@ -87,7 +90,13 @@ def test_repository_query_returns_mocked_hydradb_rank_and_can_explain_edge() -> 
     )
     assert explanation["predicate"] == "CALLS"
     assert explanation["hydradb_origin"] == "byog"
-    assert len(transport.calls) == 1
+    # Queries, then only stored-graph reads for the sources they returned.
+    assert all(
+        call["url"].endswith("/query")
+        if call["method"] == "POST"
+        else call["url"].endswith("/context/relations")
+        for call in transport.calls
+    )
 
 
 def test_focus_symbol_plans_literal_hydradb_query_without_local_expansion() -> None:

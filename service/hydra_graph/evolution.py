@@ -622,7 +622,14 @@ def build_system_lens_card(lens: SystemLensRecord) -> SourceCard:
         },
         # Re-storing baseline triples would create a second canonical owner.
         # Their complete exact evidence remains in the structured Knowledge.
-        graph=HydraSourceGraph(entities={}, relations=()),
+        # The focal entity is still required because HydraDB refuses an empty
+        # BYOG entity map.
+        graph=_record_entity_graph(
+            repository_id=lens.repository_id,
+            node_id=lens.lens_id,
+            title=lens.name,
+            kind=NodeKind.SYSTEM_LENS,
+        ),
     )
 
 
@@ -844,7 +851,12 @@ def _change_summary_card(summary: ChangeEventSummary, graph_ir_version: str) -> 
             "page_index": 0,
             "page_count": summary.page_count,
         },
-        graph=HydraSourceGraph(entities={}, relations=()),
+        graph=_record_entity_graph(
+            repository_id=summary.repository_id,
+            node_id=summary.event_id,
+            title=f"Change {summary.before_revision_id} to {summary.after_revision_id}",
+            kind=NodeKind.CHANGE_EVENT,
+        ),
     )
 
 
@@ -1010,6 +1022,26 @@ def _change_fact_graph(repository_id: str, fact: ChangeFact) -> HydraSourceGraph
     return HydraSourceGraph(
         entities=entities,
         relations=tuple(sorted(relations, key=lambda item: (item.source, item.target))),
+    )
+
+
+def _record_entity_graph(
+    *, repository_id: str, node_id: str, title: str, kind: NodeKind
+) -> HydraSourceGraph:
+    """Build the local focal graph for one relation-free product record."""
+
+    suffix = f" [{kind.value.lower()}] [{node_id}]"
+    name = title if len(title) + len(suffix) <= 256 else title[: 256 - len(suffix)].rstrip()
+    return HydraSourceGraph(
+        entities={
+            node_id: HydraEntity(
+                name=f"{name}{suffix}",
+                type=kind.value,
+                namespace=repository_id,
+                identifier=node_id,
+            )
+        },
+        relations=(),
     )
 
 

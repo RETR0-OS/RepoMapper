@@ -111,7 +111,7 @@ def create_mcp_server(
         question: str,
         revision: str = "current",
         max_results: int = 8,
-        max_context_chars: int = 7_000,
+        max_context_chars: int = 100_000,
         relation_quality: list[str] | None = None,
         session_id: str | None = None,
     ) -> dict[str, Any]:
@@ -149,17 +149,14 @@ def create_mcp_server(
             raise ValueError("direction must be in, out, or both")
         if not 1 <= depth <= 8:
             raise ValueError("depth must be between 1 and 8")
-        details = [f"Focus on repository entity {symbol}."]
-        if path:
-            details.append(f"The known repository path is {path}.")
-        if relations:
-            details.append(f"Return HydraDB relations matching: {', '.join(relations)}.")
-        details.append(f"Direction: {direction}; requested depth: {depth}.")
+        # Only the symbol and its path are searched for. Direction, depth, and the
+        # relation list are selection rules; as prose they would become search terms
+        # and match whatever text resembles them.
         result = scoped.queries.repository_query(
             QueryRequest(
-                question=" ".join(details),
+                question=f"{symbol} {path}".strip() if path else symbol,
                 max_results=min(50, max(1, budget)),
-                max_context_chars=7_000,
+                max_context_chars=100_000,
                 max_paths=min(8, depth),
                 max_relations=max(0, budget),
                 query_by="text",
@@ -167,10 +164,16 @@ def create_mcp_server(
                 session_id=_observe_session_id(scoped, session_id),
             )
         )
+        removed = _select_hops(result, symbol=symbol, relations=relations, direction=direction)
         result["warnings"].append(
             "focus_symbol uses bounded HydraDB retrieval and may not enumerate every graph "
             "neighbor."
         )
+        if removed:
+            result["warnings"].append(
+                f"Hid {removed} returned hop(s) that did not match the requested relations or "
+                "direction. No stored fact was changed."
+            )
         remember(scoped, result, ViewMode.EXPLORE)
         return result
 
@@ -199,7 +202,7 @@ def create_mcp_server(
             QueryRequest(
                 question=f"{question.strip()}{endpoints}",
                 max_results=min(50, max(8, max_hops * max_paths)),
-                max_context_chars=12_000,
+                max_context_chars=100_000,
                 max_paths=max_paths,
                 max_relations=max_hops * max_paths,
                 max_hops_per_path=max_hops,
@@ -319,7 +322,160 @@ def create_mcp_server(
             "structural_graph_changed": False,
         }
 
+    @server.tool(
+        description="Signal entry into a graph point. Starts a new traversal track from the named entity."
+    )
+    def traversal_enter(
+        entity: str,
+        path: str | None = None,
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        scoped = current_services()
+        resolved_session = _observe_session_id(scoped, session_id)
+        if not resolved_session:
+            return {"status": "no_session", "warning": "No active Observe session. Start one before traversing."}
+        result = scoped.queries.repository_query(
+            QueryRequest(
+                question=f"{entity} {path}".strip() if path else entity,
+                max_results=12,
+                max_context_chars=100_000,
+                query_by="text",
+                mode="fast",
+                session_id=resolved_session,
+            )
+        )
+        entity_ids = tuple(
+            str(chunk.get("node_id"))
+            for chunk in result.get("chunks", [])
+            if chunk.get("node_id")
+        )
+        session = scoped.observe_sessions.require(resolved_session, active=True)
+        scoped.events.emit(
+            "traversal_entered",
+            session_id=resolved_session,
+            revision_id=session.revision_id,
+            entity_ids=entity_ids[:100],
+            hydradb_query_metadata={"entity": entity, "path": path},
+        )
+        remember(scoped, result, ViewMode.EXPLORE)
+        return result
+
+    @server.tool(
+        description="Follow an edge from one entity to another. Signals the agent is navigating deeper along a relationship."
+    )
+    def traversal_follow(
+        from_entity: str,
+        edge_predicate: str,
+        to_entity: str,
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        scoped = current_services()
+        resolved_session = _observe_session_id(scoped, session_id)
+        if not resolved_session:
+            return {"status": "no_session", "warning": "No active Observe session. Start one before traversing."}
+        result = scoped.queries.repository_query(
+            QueryRequest(
+                question=to_entity,
+                max_results=12,
+                max_context_chars=100_000,
+                max_relations=20,
+                query_by="text",
+                mode="fast",
+                relation_quality=("exact", "inferred"),
+                session_id=resolved_session,
+            )
+        )
+        entity_ids = tuple(
+            str(chunk.get("node_id"))
+            for chunk in result.get("chunks", [])
+            if chunk.get("node_id")
+        )
+        relationship_ids = tuple(
+            str(hop.get("relation", {}).get("id"))
+            for group in result.get("relations", [])
+            for hop in group.get("hops", [])
+            if hop.get("relation", {}).get("id")
+            and str(hop.get("relation", {}).get("predicate", "")).upper() == edge_predicate.upper()
+        )
+        session = scoped.observe_sessions.require(resolved_session, active=True)
+        scoped.events.emit(
+            "traversal_followed",
+            session_id=resolved_session,
+            revision_id=session.revision_id,
+            entity_ids=entity_ids[:100],
+            relationship_ids=relationship_ids[:100],
+            hydradb_query_metadata={"from_entity": from_entity, "edge_predicate": edge_predicate, "to_entity": to_entity},
+        )
+        remember(scoped, result, ViewMode.EXPLORE)
+        return result
+
+    @server.tool(
+        description="Abandon the current traversal path. Signals the agent gathered enough context or hit a dead end."
+    )
+    def traversal_abandon(
+        reason: str | None = None,
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        scoped = current_services()
+        resolved_session = _observe_session_id(scoped, session_id)
+        if not resolved_session:
+            return {"status": "no_session", "warning": "No active Observe session. Start one before traversing."}
+        session = scoped.observe_sessions.require(resolved_session, active=True)
+        scoped.events.emit(
+            "traversal_abandoned",
+            session_id=resolved_session,
+            revision_id=session.revision_id,
+            hydradb_query_metadata={"reason": reason} if reason else None,
+        )
+        return {"status": "abandoned", "reason": reason}
+
     return server
+
+
+def _select_hops(
+    result: dict[str, Any],
+    *,
+    symbol: str,
+    relations: Sequence[str] | None,
+    direction: str,
+) -> int:
+    """Keep only the hops the caller asked for, and report how many were hidden.
+
+    This selects among facts HydraDB already returned and proved. It removes nothing
+    from the repository and upgrades nothing: a hidden hop stays a stored fact, exactly
+    as clearing a predicate chip does in the panel.
+    """
+
+    wanted = {str(item).strip().upper() for item in relations or () if str(item).strip()}
+    if not wanted and direction == "both":
+        return 0
+    focus = {
+        str(chunk.get("node_id"))
+        for chunk in result.get("chunks", [])
+        if chunk.get("node_id")
+        and symbol.strip()
+        and str(chunk.get("qualified_name") or "").split(".")[-1] == symbol.strip().split(".")[-1]
+    }
+
+    def keep(hop: dict[str, Any]) -> bool:
+        predicate = str(hop.get("relation", {}).get("predicate") or "").upper()
+        if wanted and predicate not in wanted:
+            return False
+        if direction == "both" or not focus:
+            return True
+        side = "source" if direction == "out" else "target"
+        return str(hop.get(side, {}).get("id") or "") in focus
+
+    removed = 0
+    for name in ("paths", "relations"):
+        groups = []
+        for group in result.get(name, []):
+            hops = [hop for hop in group.get("hops", []) if keep(hop)]
+            removed += len(group.get("hops", [])) - len(hops)
+            if hops:
+                groups.append({**group, "hops": hops})
+        result[name] = groups
+    return removed
 
 
 def _observe_session_id(services: Any, session_id: str | None) -> str | None:

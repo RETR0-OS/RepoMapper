@@ -5,11 +5,12 @@ from __future__ import annotations
 import ast
 import tokenize
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from .discovery import DiscoveredFile, DiscoveryReport, discover_files
+from .entrypoints import EntryPoint, detect_entry_points
 from .ids import content_hash, edge_id, evidence_id, node_id
 from .models import (
     Evidence,
@@ -102,6 +103,28 @@ def _relative_module(current_module: str, module: str | None, level: int) -> str
     return ".".join(base)
 
 
+def _entry_reasons_by(
+    entry_points: Iterable[EntryPoint],
+    *,
+    key: Callable[[EntryPoint], str | None],
+    named: bool,
+) -> dict[str, list[str]]:
+    """Group entry-point reasons by one identity.
+
+    A record that names a symbol marks that symbol; a record that names none marks the
+    file. Without the split, the file holding a marked function would inherit the
+    function's reason and report a start that its own text does not show.
+    """
+
+    grouped: dict[str, set[str]] = {}
+    for item in entry_points:
+        identity = key(item)
+        if not identity or (item.qualified_name is not None) != named:
+            continue
+        grouped.setdefault(identity, set()).add(item.reason)
+    return {identity: sorted(reasons) for identity, reasons in grouped.items()}
+
+
 class PythonAnalyzer:
     """Build a Graph IR from Python's concrete syntax tree.
 
@@ -122,6 +145,14 @@ class PythonAnalyzer:
     ) -> GraphIR:
         report = discovery or discover_files(root)
         parsed_files, diagnostics = self._parse_files(report.files)
+        entry_points = detect_entry_points(
+            report,
+            python_modules={item.discovered.path: item.tree for item in parsed_files},
+        )
+        entry_paths = _entry_reasons_by(entry_points, key=lambda item: item.path, named=False)
+        entry_symbols = _entry_reasons_by(
+            entry_points, key=lambda item: item.qualified_name, named=True
+        )
         nodes: dict[str, GraphNode] = {}
         edges_by_key: dict[
             tuple[str, RelationPredicate, str, RelationQuality, str], list[Evidence]
@@ -129,7 +160,7 @@ class PythonAnalyzer:
 
         repository = self._repository_node(report)
         nodes[repository.id] = repository
-        file_nodes, package_nodes = self._structure_nodes(report)
+        file_nodes, package_nodes = self._structure_nodes(report, entry_paths)
         nodes.update({node.id: node for node in (*package_nodes, *file_nodes)})
 
         for package in package_nodes:
@@ -163,8 +194,13 @@ class PythonAnalyzer:
                 ),
             )
 
-        file_by_path = {node.path: node for node in file_nodes}
-        symbols = self._extract_symbols(parsed_files, file_by_path, nodes, edges_by_key)
+        # Import resolution must never reach a non-Python file: `import web.index`
+        # would otherwise resolve onto `web/index.js` and claim an exact edge that no
+        # parser proved.
+        file_by_path = {node.path: node for node in file_nodes if node.language == "python"}
+        symbols = self._extract_symbols(
+            parsed_files, file_by_path, nodes, edges_by_key, entry_symbols
+        )
         self._resolve_relations(parsed_files, file_by_path, symbols, edges_by_key)
         edges = self._materialize_edges(edges_by_key)
         return GraphIR(
@@ -229,31 +265,44 @@ class PythonAnalyzer:
             parser_version=FILESYSTEM_VERSION,
         )
 
-    def _structure_nodes(self, report: DiscoveryReport) -> tuple[list[GraphNode], list[GraphNode]]:
+    def _structure_nodes(
+        self, report: DiscoveryReport, entry_paths: Mapping[str, list[str]]
+    ) -> tuple[list[GraphNode], list[GraphNode]]:
         packages: set[str] = set()
         files: list[GraphNode] = []
         for discovered in report.files:
-            if discovered.language != "python":
+            is_python = discovered.language == "python"
+            reasons = entry_paths.get(discovered.path)
+            # A non-Python file becomes a node only when a manifest proves it starts the
+            # system. Indexing every other file would add nodes nothing can explain.
+            if not is_python and not reasons:
                 continue
             parent = PurePosixPath(discovered.path).parent
             while str(parent) != ".":
                 packages.add(str(parent))
                 parent = parent.parent
+            # A Python file is named by its module. Any other file keeps its path,
+            # because 'web/index.js' and 'web/index.py' would otherwise share one name.
+            qualified = _module_name(discovered.path) if is_python else discovered.path
             compact, logical = node_id(
                 repository_id=self.repository_id,
                 path=discovered.path,
                 language=discovered.language,
                 kind=NodeKind.FILE.value,
-                qualified_name=_module_name(discovered.path),
+                qualified_name=qualified,
                 signature_discriminator=None,
             )
+            attributes: dict[str, object] = {"is_test": discovered.is_test}
+            if reasons:
+                attributes["is_entry_point"] = True
+                attributes["entry_reasons"] = reasons
             files.append(
                 GraphNode(
                     id=compact,
                     logical_id=logical,
                     kind=NodeKind.FILE,
                     display_name=PurePosixPath(discovered.path).name,
-                    qualified_name=_module_name(discovered.path),
+                    qualified_name=qualified,
                     language=discovered.language,
                     path=discovered.path,
                     revision_id=self.revision_id,
@@ -261,7 +310,7 @@ class PythonAnalyzer:
                     parser=FILESYSTEM_PARSER,
                     parser_version=FILESYSTEM_VERSION,
                     is_generated=discovered.is_generated,
-                    attributes={"is_test": discovered.is_test},
+                    attributes=attributes,
                 )
             )
         package_nodes: list[GraphNode] = []
@@ -302,6 +351,7 @@ class PythonAnalyzer:
         edges_by_key: dict[
             tuple[str, RelationPredicate, str, RelationQuality, str], list[Evidence]
         ],
+        entry_symbols: Mapping[str, list[str]],
     ) -> list[_Symbol]:
         symbols: list[_Symbol] = []
         for parsed in parsed_files:
@@ -347,6 +397,15 @@ class PythonAnalyzer:
                     )
                     excerpt = _source_segment(parsed_file.source, syntax)
                     docstring = ast.get_docstring(syntax, clean=True)
+                    attributes: dict[str, object] = {
+                        "body_fingerprint": _body_fingerprint(syntax),
+                        "docstring": docstring,
+                        "is_test": kind is NodeKind.TEST,
+                    }
+                    entry_reasons = entry_symbols.get(qualified)
+                    if entry_reasons:
+                        attributes["is_entry_point"] = True
+                        attributes["entry_reasons"] = entry_reasons
                     graph_node = GraphNode(
                         id=compact,
                         logical_id=logical,
@@ -362,11 +421,7 @@ class PythonAnalyzer:
                         parser=PARSER_NAME,
                         parser_version=PARSER_VERSION,
                         is_generated=parsed_file.discovered.is_generated,
-                        attributes={
-                            "body_fingerprint": _body_fingerprint(syntax),
-                            "docstring": docstring,
-                            "is_test": kind is NodeKind.TEST,
-                        },
+                        attributes=attributes,
                     )
                     nodes[compact] = graph_node
                     symbol = _Symbol(
@@ -624,6 +679,11 @@ class PythonAnalyzer:
         owner_id: str,
         evidence: Evidence,
     ) -> None:
+        # A recursive call, or any other self-reference, is not a repository graph
+        # edge: GraphEdge rejects one. Drop it here so analysis never builds an
+        # invalid edge and fails the whole revision.
+        if source.id == target.id:
+            return
         key = (source.id, predicate, target.id, RelationQuality.EXACT, owner_id)
         if all(existing.id != evidence.id for existing in edges[key]):
             edges[key].append(evidence)

@@ -51,6 +51,9 @@ class IndexPreviewStore:
         self._root = repository_root.resolve()
         self._repository_id = repository_id
         self._records: OrderedDict[str, IndexPreviewRef] = OrderedDict()
+        # A prepared index holds every card's text, which reaches tens of
+        # megabytes on a large repository, so only the newest one is kept.
+        self._prepared: tuple[str, PreparedIndex] | None = None
         self._lock = RLock()
 
     def issue(self, prepared: PreparedIndex) -> IndexPreviewRef:
@@ -68,14 +71,26 @@ class IndexPreviewStore:
             self._prune(now)
             self._records[token] = record
             while len(self._records) > MAX_ACTIVE_PREVIEWS:
-                self._records.popitem(last=False)
+                evicted, _ = self._records.popitem(last=False)
+                self._release(evicted)
+            self._prepared = (token, prepared)
         return record
+
+    def prepared_for(self, token: str) -> PreparedIndex | None:
+        """Return the cached prepared index only when it belongs to that token."""
+
+        with self._lock:
+            self._prune(int(time.time()))
+            if self._prepared is None or self._prepared[0] != token:
+                return None
+            return self._prepared[1]
 
     def consume(self, token: str, prepared: PreparedIndex) -> IndexPreviewRef:
         now = int(time.time())
         with self._lock:
             self._prune(now)
             record = self._records.pop(token, None)
+            self._release(token)
         if record is None:
             raise IndexPreviewConflict("Index preview token is invalid, expired, or already used")
         if (
@@ -91,6 +106,11 @@ class IndexPreviewStore:
         for token, record in tuple(self._records.items()):
             if record.expires_at <= now:
                 self._records.pop(token, None)
+                self._release(token)
+
+    def _release(self, token: str) -> None:
+        if self._prepared is not None and self._prepared[0] == token:
+            self._prepared = None
 
 
 def prepare_automatic_index(repository_root: Path, repository_id: str) -> PreparedIndex:
@@ -123,6 +143,18 @@ def prepare_automatic_index(repository_root: Path, repository_id: str) -> Prepar
         node_count=len(graph.nodes),
         edge_count=len(graph.edges),
         diagnostics=graph.diagnostics,
+    )
+
+
+def discovery_matches(left: DiscoveryReport, right: DiscoveryReport) -> bool:
+    """Return whether two discoveries name the same files with the same content.
+
+    Discovery is roughly forty times cheaper than full analysis, so it can prove
+    that an already analyzed snapshot still describes what is on disk.
+    """
+
+    return tuple((item.path, item.content_hash) for item in left.files) == tuple(
+        (item.path, item.content_hash) for item in right.files
     )
 
 

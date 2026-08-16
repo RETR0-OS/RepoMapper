@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import shutil
+import subprocess
 from contextlib import suppress
 from pathlib import Path
 
+import pytest
 from hydra_graph.discovery import discover_files
 
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "sample_repo"
@@ -51,3 +54,27 @@ def test_secret_detection_does_not_reject_harmless_short_placeholders(tmp_path: 
     (tmp_path / "config.py").write_text('api_key = "example"\n', encoding="utf-8")
     report = discover_files(tmp_path)
     assert [item.path for item in report.files] == ["config.py"]
+
+
+def test_git_discovery_honors_nested_ignores_but_keeps_tracked_files(tmp_path: Path) -> None:
+    if shutil.which("git") is None:
+        pytest.skip("Git is required for the nested ignore contract")
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    (nested / ".gitignore").write_text("*.py\n", encoding="utf-8")
+    (nested / "ignored.py").write_text("ignored = True\n", encoding="utf-8")
+    (nested / "tracked.py").write_text("tracked = True\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "add", "-f", "nested/tracked.py"],
+        check=True,
+    )
+
+    report = discover_files(tmp_path)
+    paths = {item.path for item in report.files}
+    reasons = {item.path: item.reason for item in report.ignored}
+
+    assert "nested/tracked.py" in paths
+    assert "nested/ignored.py" not in paths
+    assert reasons["nested/ignored.py"] == "ignore-rule"
+    assert reasons["nested/.gitignore"] == "control-file"

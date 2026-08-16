@@ -5,7 +5,10 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 import random
+import re
+import sys
 import time
 import uuid
 from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -15,8 +18,10 @@ from typing import Any, Protocol
 from urllib import error, parse, request
 
 from .config import HydraDBConfig
+from .diagnostics import log_event
 
 JsonObject = dict[str, Any]
+MAX_ADDITIONAL_METADATA_BYTES = 1_024
 
 
 class HydraDBError(RuntimeError):
@@ -27,13 +32,30 @@ class HydraDBUnavailable(HydraDBError):
     """HydraDB cannot currently serve this operation."""
 
 
+class HydraDBTimeout(HydraDBUnavailable):
+    """HydraDB accepted the request but did not answer inside the client budget.
+
+    The server keeps working after the client stops reading, so a repeat of the
+    same request only pays the same cost again. This is separated from a refused
+    connection, which a retry can genuinely recover.
+    """
+
+
 class HydraDBAPIError(HydraDBError):
     """HydraDB returned an unsuccessful response."""
 
-    def __init__(self, message: str, *, code: str | None = None, status: int | None = None):
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str | None = None,
+        status: int | None = None,
+        retry_after_seconds: float | None = None,
+    ):
         super().__init__(message)
         self.code = code
         self.status = status
+        self.retry_after_seconds = retry_after_seconds
 
 
 class HydraDBContractError(HydraDBError, ValueError):
@@ -133,10 +155,20 @@ class UrllibTransport:
             raw = exc.read()
             payload = _decode_json(raw)
             code, message = _error_details(payload)
+            retry_after = _retry_after_seconds(exc.headers.get("Retry-After"), message)
             raise HydraDBAPIError(
-                message or f"HydraDB returned HTTP {exc.code}", code=code, status=exc.code
+                message or f"HydraDB returned HTTP {exc.code}",
+                code=code,
+                status=exc.code,
+                retry_after_seconds=retry_after,
             ) from exc
         except (error.URLError, TimeoutError, OSError) as exc:
+            # urlopen reports a read timeout as TimeoutError, and a connect timeout as a
+            # URLError that wraps one. Both mean the request was sent and the answer never
+            # arrived in time, which a retry cannot make faster.
+            reason = getattr(exc, "reason", None)
+            if isinstance(exc, TimeoutError) or isinstance(reason, TimeoutError):
+                raise HydraDBTimeout(f"HydraDB did not answer within {timeout:g} seconds") from exc
             raise HydraDBUnavailable("HydraDB is unavailable") from exc
         payload = _decode_json(raw)
         if not isinstance(payload, Mapping):
@@ -179,8 +211,9 @@ class HydraDBClient:
                 "collection": collection or self.config.collection,
                 "upsert": "true" if upsert else "false",
                 "app_knowledge": json.dumps(sources, separators=(",", ":")),
-                "graph_payload": json.dumps(graph_payload, separators=(",", ":")),
             }
+            if graph_payload:
+                form["graph_payload"] = json.dumps(graph_payload, separators=(",", ":"))
             return self._call("POST", "/context/ingest", credentials=credentials, form=form)
 
     def ingest_evolution(
@@ -264,14 +297,18 @@ class HydraDBClient:
             query_forceful_relations=query_forceful_relations,
         )
 
-    def status(self, ids: Sequence[str]) -> JsonObject:
+    def status(self, ids: Sequence[str], *, collection: str | None = None) -> JsonObject:
         clean_ids = _clean_ids(ids)
         with self._credentials() as credentials:
             return self._call(
                 "GET",
                 "/context/status",
                 credentials=credentials,
-                query={"database": credentials.database, "ids": ",".join(clean_ids)},
+                query={
+                    "database": credentials.database,
+                    "collection": collection or self.config.collection,
+                    "ids": ",".join(clean_ids),
+                },
             )
 
     def delete(self, ids: Sequence[str]) -> JsonObject:
@@ -282,9 +319,11 @@ class HydraDBClient:
                 credentials=credentials,
                 json_body={
                     "database": credentials.database,
+                    "collection": self.config.collection,
                     "ids": _clean_ids(ids),
                     "type": "knowledge",
                 },
+                extra_headers={"X-HydraDB-Delete-Status": "strict"},
             )
 
     def relations(
@@ -349,12 +388,15 @@ class HydraDBClient:
             "Accept": "application/json",
         }
         headers.update(extra_headers or {})
+        url = f"{self.config.api_url}{path}"
         attempts = self.config.max_retries + 1
         for attempt in range(attempts):
+            started = time.monotonic()
+            retry_after = 0.0
             try:
                 response = self._transport.request(
                     method=method,
-                    url=f"{self.config.api_url}{path}",
+                    url=url,
                     headers=headers,
                     query=query,
                     json_body=json_body,
@@ -363,18 +405,137 @@ class HydraDBClient:
                 )
                 result = dict(response)
                 _raise_envelope_error(result)
+                _trace_call(method, url, attempt, started, "ok")
                 return result
             except HydraDBAPIError as exc:
+                reason = f"api-error status={exc.status} code={exc.code} {exc}"[:300]
+                # Status and code come from the HydraDB response body, so both are
+                # safe to keep in the always-on line.
+                _trace_call(
+                    method,
+                    url,
+                    attempt,
+                    started,
+                    "api-error",
+                    detail=reason,
+                    status=exc.status,
+                    code=exc.code,
+                )
                 if exc.status not in {429, 500, 502, 503} or attempt == attempts - 1:
                     raise
-            except HydraDBUnavailable:
+                retry_after = exc.retry_after_seconds or 0.0
+            except HydraDBTimeout as exc:
+                # Retrying here would multiply one slow answer into several, and the
+                # caller would wait attempts x timeout before hearing anything at all.
+                _trace_call(
+                    method,
+                    url,
+                    attempt,
+                    started,
+                    "timeout",
+                    detail=f"timeout: {exc}",
+                    budget_s=self.config.request_timeout_seconds,
+                )
+                raise
+            except HydraDBUnavailable as exc:
+                _trace_call(
+                    method, url, attempt, started, "unavailable", detail=f"unavailable: {exc}"
+                )
                 if attempt == attempts - 1:
                     raise
-            delay = self.config.retry_backoff_seconds * (2**attempt)
+            backoff = self.config.retry_backoff_seconds * (2**attempt)
+            delay = max(backoff, retry_after)
             # Small jitter prevents callers from retrying in lockstep. Tests can
             # use a zero backoff and injected sleep for deterministic behavior.
-            self._sleep(delay + (random.random() * delay * 0.1 if delay else 0))
+            jitter = random.random() * backoff * 0.1 if backoff and not retry_after else 0.0
+            # A retry adds its own wait plus a further full timeout to the caller's
+            # wait, and only this line makes that cost visible from the panel.
+            log_event(
+                "hydradb.retry",
+                method=method,
+                url=url,
+                next_attempt=attempt + 2,
+                wait_s=delay + jitter,
+            )
+            self._sleep(delay + jitter)
         raise AssertionError("unreachable")
+
+
+def _retry_after_seconds(header: str | None, message: str | None) -> float | None:
+    """Read HydraDB's bounded retry delay from a header or error message."""
+
+    if header:
+        try:
+            return min(300.0, max(0.0, float(header.strip())))
+        except ValueError:
+            pass
+    match = re.search(
+        r"retry\s+(?:again\s+)?in\s+(\d+(?:\.\d+)?)\s*second(?:s|\(s\))?",
+        message or "",
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+    return min(300.0, max(0.0, float(match.group(1))))
+
+
+def _trace_call(
+    method: str,
+    url: str,
+    attempt: int,
+    started: float,
+    outcome: str,
+    *,
+    detail: str | None = None,
+    **fields: Any,
+) -> None:
+    """Write one request trace for every HydraDB call.
+
+    The always-on line holds the method, address, attempt, duration, outcome, and
+    fields that HydraDB itself authored. A locally raised failure wraps a socket
+    error whose text can name a host or a database, so that text stays in ``detail``
+    and reaches stderr only when HYDRA_DEBUG_HTTP asks for it.
+
+    Managed mode sends stderr to the VS Code "Repository Map Service" output
+    channel, so the user can see how long each attempt took and why it repeated.
+    """
+
+    elapsed_ms = (time.monotonic() - started) * 1_000
+    log_event(
+        "hydradb",
+        method=method,
+        url=url,
+        attempt=attempt + 1,
+        ms=elapsed_ms,
+        outcome=outcome,
+        **fields,
+    )
+    if not os.environ.get("HYDRA_DEBUG_HTTP"):
+        return
+    print(
+        f"[hydradb] {method} {url} attempt={attempt + 1} {elapsed_ms:.0f}ms {detail or outcome}",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
+def hydradb_reason(failure: HydraDBError) -> str:
+    """Return HydraDB's own bounded reason for refusing a request.
+
+    Only the status, code, and message that HydraDB returned are used. A local
+    credential is never part of a HydraDB error body, so nothing local is shown.
+    """
+
+    parts: list[str] = []
+    if isinstance(failure, HydraDBAPIError):
+        if failure.status is not None:
+            parts.append(f"HTTP {failure.status}")
+        if failure.code:
+            parts.append(str(failure.code)[:60])
+    message = str(failure).strip()[:200]
+    if message:
+        parts.append(message)
+    return " | ".join(parts) if parts else "HydraDB returned no reason."
 
 
 def response_data(response: Mapping[str, Any]) -> JsonObject:
@@ -384,6 +545,33 @@ def response_data(response: Mapping[str, Any]) -> JsonObject:
     if not isinstance(data, Mapping):
         raise HydraDBAPIError("HydraDB response data must be an object")
     return dict(data)
+
+
+def accepted_ingest_ids(response: Mapping[str, Any]) -> set[str]:
+    """Return source IDs that HydraDB explicitly accepted for asynchronous work.
+
+    Current API v2 responses use ``data.results``. The legacy ``data.ids``
+    shape remains accepted for older fixtures and injected transports.
+    """
+
+    data = response_data(response)
+    ids = data.get("ids")
+    if isinstance(ids, Sequence) and not isinstance(ids, (str, bytes)):
+        return {str(item) for item in ids if str(item).strip()}
+    results = data.get("results")
+    if not isinstance(results, Sequence) or isinstance(results, (str, bytes)):
+        return set()
+    accepted: set[str] = set()
+    for item in results:
+        if not isinstance(item, Mapping):
+            continue
+        source_id = str(item.get("id", "")).strip()
+        status = str(item.get("status", "")).lower()
+        raw_error = item.get("error")
+        error_message = str(raw_error).strip() if raw_error else ""
+        if source_id and not error_message and status not in {"errored", "failed", "rejected"}:
+            accepted.add(source_id)
+    return accepted
 
 
 def _validate_ingest(
@@ -396,6 +584,21 @@ def _validate_ingest(
         raise HydraDBContractError("Every app_knowledge source requires an id")
     if len(source_ids) != len(set(source_ids)):
         raise HydraDBContractError("app_knowledge source ids must be unique")
+    for source_id, source in zip(source_ids, sources, strict=True):
+        additional = source.get("additional_metadata", {})
+        if not isinstance(additional, Mapping):
+            raise HydraDBContractError(f"additional_metadata must be an object for {source_id}")
+        encoded = json.dumps(
+            additional,
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        if len(encoded) > MAX_ADDITIONAL_METADATA_BYTES:
+            raise HydraDBContractError(
+                f"additional_metadata for {source_id} exceeds HydraDB's "
+                f"{MAX_ADDITIONAL_METADATA_BYTES}-byte serialized limit"
+            )
     graph_ids = set(graph_payload)
     unknown = graph_ids.difference(source_ids)
     if unknown:
@@ -408,6 +611,10 @@ def _validate_ingest(
         relations = graph.get("relations", [])
         if not isinstance(entities, Mapping) or not isinstance(relations, Sequence):
             raise HydraDBContractError(f"Invalid graph_payload for {source_id}")
+        if not entities:
+            raise HydraDBContractError(f"graph_payload entities must be non-empty for {source_id}")
+        if not relations:
+            raise HydraDBContractError(f"graph_payload relations must be non-empty for {source_id}")
         if len(entities) > 5_000 or len(relations) > 10_000:
             raise HydraDBContractError(f"HydraDB BYOG limits exceeded for {source_id}")
         for entity in entities.values():

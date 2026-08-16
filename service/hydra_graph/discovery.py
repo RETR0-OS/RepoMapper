@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pathspec
 
@@ -111,6 +112,54 @@ def _read_ignore_lines(root: Path, names: Iterable[str]) -> list[str]:
     return lines
 
 
+def _git_visible_paths(root: Path) -> tuple[frozenset[str], frozenset[str]] | None:
+    """Return Git-visible files and their parent directories for this exact root.
+
+    Git itself is the authority for nested `.gitignore` files, negation rules,
+    repository-local excludes, global excludes, and the rule that tracked files
+    remain visible. A non-Git folder or unavailable Git binary uses the bounded
+    pathspec fallback instead.
+    """
+
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(root),
+                "ls-files",
+                "-z",
+                "--cached",
+                "--others",
+                "--exclude-standard",
+                "--",
+                ".",
+            ],
+            capture_output=True,
+            check=False,
+            shell=False,
+            timeout=10,
+        )
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    files: set[str] = set()
+    directories: set[str] = set()
+    for raw_path in result.stdout.split(b"\0"):
+        if not raw_path:
+            continue
+        try:
+            relative = normalize_relative_path(os.fsdecode(raw_path))
+        except ValueError:
+            continue
+        files.add(relative)
+        for parent in PurePosixPath(relative).parents:
+            if str(parent) != ".":
+                directories.add(str(parent))
+    return frozenset(files), frozenset(directories)
+
+
 def _is_secret_name(path: Path) -> bool:
     lowered = path.name.lower()
     return (
@@ -153,7 +202,18 @@ def discover_files(
     if max_file_bytes < 1:
         raise ValueError("max_file_bytes must be positive")
 
-    ignore_lines = _read_ignore_lines(repository_root, (".gitignore", ".hydraignore"))
+    git_visibility = _git_visible_paths(repository_root)
+    # Git resolves every nested ignore source when it owns this workspace. A
+    # non-Git folder still gets root .gitignore and .hydraignore behavior.
+    ignore_names = (
+        (".hydraignore",)
+        if git_visibility is not None
+        else (
+            ".gitignore",
+            ".hydraignore",
+        )
+    )
+    ignore_lines = _read_ignore_lines(repository_root, ignore_names)
     ignore_lines.extend(str(pattern) for pattern in deny_globs)
     spec = pathspec.PathSpec.from_lines("gitwildmatch", ignore_lines)
 
@@ -169,7 +229,11 @@ def discover_files(
                 ignored.append(IgnoredPath(relative, "symlink"))
             elif name in _ALWAYS_IGNORED_DIRECTORIES:
                 ignored.append(IgnoredPath(relative, "default-ignore"))
-            elif spec.match_file(f"{relative}/"):
+            elif (
+                git_visibility is not None
+                and relative not in git_visibility[1]
+                or spec.match_file(f"{relative}/")
+            ):
                 ignored.append(IgnoredPath(relative, "ignore-rule"))
             else:
                 kept_directories.append(name)
@@ -183,6 +247,9 @@ def discover_files(
                 continue
             if name in _CONTROL_FILES:
                 ignored.append(IgnoredPath(relative, "control-file"))
+                continue
+            if git_visibility is not None and relative not in git_visibility[0]:
+                ignored.append(IgnoredPath(relative, "ignore-rule"))
                 continue
             if spec.match_file(relative):
                 ignored.append(IgnoredPath(relative, "ignore-rule"))

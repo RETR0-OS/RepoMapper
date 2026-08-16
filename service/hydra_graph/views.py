@@ -8,6 +8,7 @@ from collections import OrderedDict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
+from pathlib import PurePosixPath
 from typing import Any
 
 from pydantic import ValidationError
@@ -17,6 +18,9 @@ from .models import Evidence, GraphEdge, GraphNode
 from .query import QueryRequest, QueryService
 
 PRODUCT_VIEW_SCHEMA = "hack-hydra.product-view.v2"
+# A node of one of these kinds names a place, not a declaration inside a file, so it
+# carries no line span and it reads best as its own file or directory name.
+CONTAINER_KINDS = frozenset({"REPOSITORY", "PACKAGE", "MODULE", "FILE"})
 
 
 class ViewMode(StrEnum):
@@ -74,15 +78,19 @@ class ViewService:
         self.store = store or ViewStore()
 
     def load(self, request: ViewRequest) -> dict[str, Any]:
-        question = request.question or _default_question(request.mode, request.depth)
+        plan = retrieval_plan(request.mode, request.depth, request.question)
         query = self.query_service.repository_query(
             QueryRequest(
-                question=question,
+                question=plan.question,
                 revision=request.revision,
                 max_results=min(50, max(4, request.max_nodes)),
                 max_paths=max(1, min(10, request.max_edges)),
                 max_relations=request.max_edges,
-                entity_kind=_specialized_entity_kind(request.mode),
+                entity_kinds=plan.entity_kinds,
+                strict_entity_kinds=plan.strict_kinds,
+                query_by=plan.query_by,
+                mode=plan.mode,
+                tests=plan.tests,
                 session_id=request.session_id,
             )
         )
@@ -137,6 +145,7 @@ def build_product_view(
             "edges": [],
             "aggregates": [],
             "hydradb": _view_hydradb(query),
+            "diagnostics": _view_diagnostics(query),
             "warnings": warnings or ["HydraDB is unavailable."],
             "budget": {
                 "requested_nodes": max_nodes,
@@ -180,6 +189,17 @@ def build_product_view(
         "edges": returned_edges,
         "aggregates": aggregates[:max_edges],
         "hydradb": _view_hydradb(query),
+        "diagnostics": _view_diagnostics(
+            query,
+            # A hop that HydraDB proved can still be dropped here, because a node
+            # needs a source card with a path, a hash, a parser, and a span.
+            view_outcome=(
+                "hops_not_grounded" if not nodes and (symbol_nodes or omitted_hops) else None
+            ),
+            dropped_hops=omitted_hops,
+            nodes=len(nodes),
+            edges=len(returned_edges),
+        ),
         "warnings": warnings,
         "budget": {
             "requested_nodes": max_nodes,
@@ -195,11 +215,21 @@ def _symbol_graph(
     query: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
     chunks = [item for item in query.get("chunks", []) if isinstance(item, Mapping)]
-    chunk_by_id = {str(item.get("chunk_id")): item for item in chunks}
-    chunk_by_node = {str(item.get("node_id")): item for item in chunks if item.get("node_id")}
-    chunk_by_logical = {
-        str(item.get("logical_id")): item for item in chunks if item.get("logical_id")
-    }
+    sources = [item for item in query.get("sources", []) if isinstance(item, Mapping)]
+    grounding = [*chunks, *sources]
+    chunk_by_id: dict[str, Mapping[str, Any]] = {}
+    chunk_by_node: dict[str, Mapping[str, Any]] = {}
+    chunk_by_logical: dict[str, Mapping[str, Any]] = {}
+    for item in grounding:
+        chunk_id = item.get("chunk_id")
+        if chunk_id:
+            chunk_by_id.setdefault(str(chunk_id), item)
+        for source_chunk_id in item.get("chunk_ids", []):
+            chunk_by_id.setdefault(str(source_chunk_id), item)
+        if item.get("node_id"):
+            chunk_by_node.setdefault(str(item["node_id"]), item)
+        if item.get("logical_id"):
+            chunk_by_logical.setdefault(str(item["logical_id"]), item)
     nodes: OrderedDict[str, dict[str, Any]] = OrderedDict()
     edges: OrderedDict[str, dict[str, Any]] = OrderedDict()
     omitted_hops = 0
@@ -254,6 +284,21 @@ def _symbol_graph(
     return list(nodes.values()), list(edges.values()), omitted_hops
 
 
+def _display_name(qualified_name: str, path: str, kind: str) -> str:
+    """Return a short label built from this repository's own source card.
+
+    HydraDB may return any name for an entity, and a name that ends in a file
+    extension reduces to that extension alone: every node then reads "py". The card
+    is the record this repository wrote and verified, so the label comes from it.
+    """
+
+    candidate = qualified_name.split(" [", 1)[0].strip()
+    file_name = PurePosixPath(path.replace("\\", "/")).name
+    if kind in CONTAINER_KINDS or "/" in candidate or not candidate:
+        return file_name or candidate or kind.title()
+    return candidate.rsplit(".", 1)[-1] or candidate
+
+
 def _entity_node(
     entity: Mapping[str, Any], chunk: Mapping[str, Any] | None
 ) -> dict[str, Any] | None:
@@ -261,7 +306,6 @@ def _entity_node(
         return None
     entity_id = _entity_id(entity)
     name = str(entity.get("name") or entity_id)
-    display_name = name.split(" [", 1)[0].split(".")[-1]
     required = ("node_id", "path", "content_hash", "parser", "parser_version", "revision")
     if not entity_id or not all(chunk.get(key) for key in required):
         return None
@@ -269,14 +313,15 @@ def _entity_node(
         return None
     kind = str(chunk.get("entity_kind") or entity.get("kind") or "").upper()
     span = chunk.get("span") if isinstance(chunk.get("span"), Mapping) else None
-    if kind not in {"REPOSITORY", "PACKAGE", "MODULE", "FILE"} and span is None:
+    if kind not in CONTAINER_KINDS and span is None:
         return None
+    qualified_name = str(chunk.get("qualified_name") or name.split(" [", 1)[0])
     candidate = {
         "id": entity_id,
         "logical_id": str(chunk.get("logical_id") or entity.get("logical_id") or entity_id),
         "kind": kind,
-        "display_name": display_name,
-        "qualified_name": str(chunk.get("qualified_name") or name.split(" [", 1)[0]),
+        "display_name": _display_name(qualified_name, str(chunk["path"]), kind),
+        "qualified_name": qualified_name,
         "language": chunk.get("language"),
         "path": str(chunk["path"]),
         "span": span,
@@ -493,6 +538,33 @@ def _group_node(group_id: str, path: str, depth: ViewDepth, revision: str) -> di
     }
 
 
+def _view_diagnostics(
+    query: Mapping[str, Any],
+    *,
+    view_outcome: str | None = None,
+    **counts: int,
+) -> dict[str, Any]:
+    """Carry the query funnel into the view and add the view's own counts.
+
+    The panel needs the stage that emptied the graph, not only the fact that it is
+    empty. Nothing here holds repository content, so the view stays safe to log.
+    """
+
+    source = _mapping(query.get("diagnostics"))
+    outcome = view_outcome or source.get("outcome") or query.get("status") or "unavailable"
+    diagnostics: dict[str, Any] = {"outcome": str(outcome)}
+    reason = source.get("reason")
+    if reason:
+        diagnostics["reason"] = str(reason)
+    funnel = {**_mapping(source.get("funnel")), **counts}
+    if funnel:
+        diagnostics["funnel"] = {str(key): int(value) for key, value in funnel.items()}
+    stage_ms = _mapping(source.get("stage_ms"))
+    if stage_ms:
+        diagnostics["stage_ms"] = {str(key): float(value) for key, value in stage_ms.items()}
+    return diagnostics
+
+
 def _view_hydradb(query: Mapping[str, Any]) -> dict[str, Any]:
     source = _mapping(query.get("hydradb"))
     return {
@@ -507,35 +579,66 @@ def _view_hydradb(query: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _default_question(mode: ViewMode, depth: ViewDepth) -> str:
-    prompts = {
-        ViewMode.REPOSITORY: (
-            f"Return the concrete repository structure at {depth.value} depth and its exact "
-            "relations."
-        ),
-        ViewMode.EXPLORE: (
-            "Return a bounded concrete repository neighborhood for the current focus."
-        ),
-        ViewMode.TRACE: "Trace the main request or event flow across concrete repository entities.",
-        ViewMode.OBSERVE: (
-            "Return the repository path and context most recently requested by the coding agent."
-        ),
-        ViewMode.COMPARE: (
-            "Return graph change events and changed repository relations for the current task."
-        ),
-        ViewMode.PRESERVE: (
-            "Return saved system lenses and their grounded current repository paths."
-        ),
-    }
-    return prompts[mode]
+@dataclass(frozen=True, slots=True)
+class RetrievalPlan:
+    """How one mode asks HydraDB for the records it needs."""
+
+    question: str
+    entity_kinds: tuple[str, ...] = ()
+    strict_kinds: bool = False
+    query_by: str = "hybrid"
+    mode: str = "thinking"
+    tests: str = "last"
 
 
-def _specialized_entity_kind(mode: ViewMode) -> str | None:
+# The kinds each depth is made of. Asking for these by metadata returns the structure
+# itself, which no wording of a question can reliably retrieve.
+_STRUCTURE_KINDS: dict[ViewDepth, tuple[str, ...]] = {
+    ViewDepth.PACKAGE: ("REPOSITORY", "PACKAGE", "FILE"),
+    ViewDepth.FILE: ("PACKAGE", "FILE"),
+    ViewDepth.SYMBOL: ("CLASS", "FUNCTION", "METHOD", "INTERFACE", "TYPE", "ROUTE", "ENTRYPOINT"),
+}
+
+
+def retrieval_plan(mode: ViewMode, depth: ViewDepth, question: str | None) -> RetrievalPlan:
+    """Turn a mode into filters instead of instruction prose.
+
+    A sentence such as "Return the concrete repository structure" is sent to semantic
+    retrieval, which can only match cards whose text resembles it. It therefore returns
+    whatever code discusses structure, not the structure. Intent that a filter can carry
+    must travel as a filter; the query text is reserved for the user's own words and for
+    real symbol names.
+    """
+
+    asked = (question or "").strip()
     if mode is ViewMode.COMPARE:
-        return "CHANGE_EVENT"
+        return RetrievalPlan(
+            question=asked or "repository change events",
+            entity_kinds=("CHANGE_EVENT",),
+            strict_kinds=True,
+            tests="mixed",
+        )
     if mode is ViewMode.PRESERVE:
-        return "SYSTEM_LENS"
-    return None
+        return RetrievalPlan(
+            question=asked or "saved system lens",
+            entity_kinds=("SYSTEM_LENS",),
+            strict_kinds=True,
+            tests="mixed",
+        )
+    if mode is ViewMode.REPOSITORY and not asked:
+        return RetrievalPlan(
+            question="repository",
+            entity_kinds=_STRUCTURE_KINDS[depth],
+            query_by="text",
+            mode="fast",
+        )
+    if mode is ViewMode.EXPLORE and asked:
+        # A focus request names a real symbol, so literal matching finds that symbol
+        # rather than the prose that resembles the request.
+        return RetrievalPlan(question=asked, query_by="text")
+    if not asked:
+        return RetrievalPlan(question="repository")
+    return RetrievalPlan(question=asked)
 
 
 def _entity_id(entity: Mapping[str, Any]) -> str:
