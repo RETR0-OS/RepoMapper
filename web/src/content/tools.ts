@@ -20,7 +20,11 @@ export const mcpScopes = [
 ]
 
 export const agentCommands = {
-  codex: "codex mcp add argus --url http://127.0.0.1:<port>/mcp",
-  claude:
-    "claude mcp add --transport http --scope local argus http://127.0.0.1:<port>/mcp",
+  codex: "codex mcp add repository-map --url http://127.0.0.1:<port>/mcp",
+  claude: [
+    "claude mcp add --transport http --scope local repository-map http://127.0.0.1:<port>/mcp",
+    "",
+    "# Registering is not signing in. Authorize the server before a headless run:",
+    "claude mcp login repository-map",
+  ].join("\n"),
 }

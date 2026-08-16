@@ -100,7 +100,7 @@ export const howToUse = {
     {
       title: "Open the map",
       description:
-        "Start with Repository for orientation, then move into Explore, Trace, Observe, Compare, and Preserve as you work.",
+        "Start with Repository for orientation, then move into Explore, Trace, Observe, Compare, Preserve, and Contrast as you work.",
     },
   ],
 }
@@ -120,6 +120,14 @@ export const honestEvidence = {
         "API keys and database bindings live only in VS Code SecretStorage. The service is loopback-only. MCP uses OAuth 2.1 with PKCE S256, short-lived access tokens, and rotating refresh tokens, with read-only scopes by default.",
     },
   ],
+}
+
+export const closingCta = {
+  headline: "Stop reading diffs. Start reading the graph.",
+  subhead:
+    "Install the extension, point it at a HydraDB database, and see the repository your agent is actually working in — every node, edge, and retrieval grounded in source.",
+  primaryCta: "Download the extension",
+  secondaryCta: "Read the docs",
 }
 
 export const download = {

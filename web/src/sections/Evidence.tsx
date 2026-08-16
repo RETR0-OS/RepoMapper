@@ -1,39 +1,49 @@
 import { Reveal } from "@/components/motion/Reveal"
+import { Section, SectionHeader } from "@/components/layout/Section"
 import { Inspector } from "@/components/product/Inspector"
 import { evidence } from "@/content/copy"
 
 export function Evidence() {
   return (
-    <section id="evidence" className="py-24 md:py-32">
-      <div className="mx-auto max-w-6xl px-6">
-        <Reveal>
-          <span className="inline-block rounded-full border border-border bg-panel px-3 py-1 font-mono text-[11px] tracking-widest text-lime uppercase">
-            {evidence.eyebrow}
-          </span>
-        </Reveal>
+    <Section id="evidence" tone="default" size="md">
+      <SectionHeader index="04" eyebrow={evidence.eyebrow} headline={evidence.headline} align="left" />
 
-        <Reveal delay={0.05}>
-          <h2 className="mt-5 max-w-3xl text-3xl font-semibold tracking-tight text-foreground md:text-5xl">
-            {evidence.headline}
-          </h2>
-        </Reveal>
+      <div className="mt-12 grid grid-cols-1 items-center gap-10 md:grid-cols-2">
+        <Reveal delay={0.1}>
+          <div>
+            <p className="max-w-lg text-lg text-muted-foreground">{evidence.subhead}</p>
 
-        <div className="mt-12 grid grid-cols-1 items-center gap-10 md:grid-cols-2">
-          <Reveal delay={0.1}>
-            <div>
-              <p className="max-w-lg text-lg text-muted-foreground">{evidence.subhead}</p>
+            {/* The two stroke samples belong together as a map legend, so they get
+                one bordered block rather than two loose rows. */}
+            <div className="mt-8 rounded-xl border border-border bg-panel p-4">
+              <div className="font-mono text-[11px] tracking-widest text-muted-foreground uppercase">
+                Edge key
+              </div>
 
-              <div className="mt-8 flex flex-col gap-3">
-                <div className="flex items-center gap-3">
-                  <svg width="28" height="2" viewBox="0 0 28 2" aria-hidden="true">
+              <div className="mt-3 flex flex-col divide-y divide-border border-t border-border">
+                <div className="flex items-center gap-3 py-3">
+                  <svg
+                    width="28"
+                    height="2"
+                    viewBox="0 0 28 2"
+                    aria-hidden="true"
+                    className="shrink-0"
+                  >
                     <line x1="0" y1="1" x2="28" y2="1" stroke="var(--cyan-accent)" strokeWidth="2" />
                   </svg>
                   <span className="font-mono text-xs tracking-wide text-cyan-accent uppercase">
                     Exact — deterministic mechanism, named extractor
                   </span>
                 </div>
-                <div className="flex items-center gap-3">
-                  <svg width="28" height="2" viewBox="0 0 28 2" aria-hidden="true">
+
+                <div className="flex items-center gap-3 py-3">
+                  <svg
+                    width="28"
+                    height="2"
+                    viewBox="0 0 28 2"
+                    aria-hidden="true"
+                    className="shrink-0"
+                  >
                     <line
                       x1="0"
                       y1="1"
@@ -50,13 +60,13 @@ export function Evidence() {
                 </div>
               </div>
             </div>
-          </Reveal>
+          </div>
+        </Reveal>
 
-          <Reveal delay={0.15}>
-            <Inspector fields={evidence.inspectorFields} />
-          </Reveal>
-        </div>
+        <Reveal delay={0.15}>
+          <Inspector fields={evidence.inspectorFields} />
+        </Reveal>
       </div>
-    </section>
+    </Section>
   )
 }

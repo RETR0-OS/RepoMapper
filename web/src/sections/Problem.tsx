@@ -1,42 +1,40 @@
-import { AlertCircle } from "lucide-react"
 import { Reveal, Stagger, StaggerItem } from "@/components/motion/Reveal"
+import { Section, SectionHeader } from "@/components/layout/Section"
 import { problem } from "@/content/copy"
 
 export function Problem() {
   return (
-    <section id="problem" className="py-24 md:py-32">
-      <div className="mx-auto max-w-6xl px-6">
-        <Reveal>
-          <span className="inline-block rounded-full border border-border bg-panel px-3 py-1 font-mono text-[11px] tracking-widest text-lime uppercase">
-            {problem.eyebrow}
-          </span>
-        </Reveal>
+    <Section id="problem" tone="band" size="md">
+      <SectionHeader
+        index="01"
+        eyebrow={problem.eyebrow}
+        headline={problem.headline}
+        sub={problem.subhead}
+        align="center"
+      />
 
-        <Reveal delay={0.05}>
-          <h2 className="mt-5 max-w-3xl text-3xl font-semibold tracking-tight text-foreground md:text-5xl">
-            {problem.headline}
-          </h2>
-        </Reveal>
+      {/* The losses read as a ledger, not a bullet list — a numbered two-column
+          table makes the count itself part of the argument. */}
+      <Stagger as="ul" className="mt-14 grid grid-cols-1 gap-x-10 md:grid-cols-2">
+        {problem.losses.map((loss, index) => (
+          <StaggerItem
+            key={loss}
+            as="li"
+            className="flex items-start gap-4 border-t border-border py-4"
+          >
+            <span className="font-mono text-xs text-muted-foreground/60 tabular-nums">
+              {String(index + 1).padStart(2, "0")}
+            </span>
+            <span className="font-mono text-sm text-foreground">{loss}</span>
+          </StaggerItem>
+        ))}
+      </Stagger>
 
-        <Reveal delay={0.1}>
-          <p className="mt-6 max-w-2xl text-lg text-muted-foreground">{problem.subhead}</p>
-        </Reveal>
-
-        <Stagger as="ul" className="mt-8 flex max-w-2xl flex-col gap-3">
-          {problem.losses.map((loss) => (
-            <StaggerItem key={loss} as="li" className="flex items-start gap-3">
-              <AlertCircle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-              <span className="font-mono text-sm text-foreground">{loss}</span>
-            </StaggerItem>
-          ))}
-        </Stagger>
-
-        <Reveal delay={0.1}>
-          <p className="mt-10 max-w-2xl text-base text-muted-foreground italic">
-            {problem.closing}
-          </p>
-        </Reveal>
-      </div>
-    </section>
+      <Reveal delay={0.1}>
+        <blockquote className="mx-auto mt-14 max-w-2xl border-l-2 border-lime pl-5 text-xl text-foreground md:text-2xl">
+          {problem.closing}
+        </blockquote>
+      </Reveal>
+    </Section>
   )
 }

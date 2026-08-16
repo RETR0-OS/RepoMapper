@@ -131,6 +131,18 @@
   background-size: auto, 26px 26px, 26px 26px;
 }
 
+/* The hero's product mock sits on a tilted plane that flattens as you scroll.
+   The perspective has to live on the parent, not the transformed element. */
+.perspective-hero {
+  perspective: 1200px;
+}
+
+/* Fades the bottom of the hero mock into the section below it, so the tilted
+   panel does not end on a hard horizontal edge. */
+.hero-mask {
+  mask-image: linear-gradient(to bottom, black 0%, black 72%, transparent 100%);
+}
+
 /* Fine grain overlay — the page's one texture flourish, applied once at the
    document root, never per-section. */
 .grain-overlay {

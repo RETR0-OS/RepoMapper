@@ -8,15 +8,19 @@ export const docsIntro = {
 export const contrastView = {
   name: "Contrast",
   verb: "Measure",
+  purpose: "Measure the same question asked with and without Argus.",
+  landing:
+    "Ask one question and it runs twice with the same agent and the same model — once on the harness alone, once on that same harness with Argus added. Both columns are live runs, and every figure comes from the agent's own usage report.",
   description:
-    "The same question, answered twice by the same agent and the same model. The base run uses only Claude Code's built-in Grep, Glob, Read, and Bash. The Argus run answers through the loopback MCP endpoint with repository_query, trace_flow, and focus_symbol. Both runs are live — neither column is a fixture or a recording.",
+    "The same question, answered twice by the same agent and the same model. The base run uses the tools its harness already gives it. The Argus run is that same harness with the loopback MCP endpoint added, so it can also call repository_query, trace_flow, and focus_symbol. The two sides differ by addition only — nothing is taken away to make Argus look better. Both runs are live; neither column is a fixture or a recording.",
   measured:
-    "Each column reports the agent's own measured usage: tools available, tool calls, files read, turns, input/output/cache tokens, thinking tokens, duration, and cost in USD. The numbers come from the agent CLI's usage report, not from an Argus estimate.",
+    "Each column reports the agent's own measured usage: tools available, tool calls, files read, turns, input/output/cache tokens, thinking tokens, duration, and cost in USD. The numbers come from the agent CLI's usage report, not from an Argus estimate. Each side also shows the answer it finished with, so you can weigh quality against cost instead of reading token counts alone.",
   caveats: [
-    "The Argus side denies the built-in search tools by default, so the comparison measures retrieval and not tool choice. This is shown in the panel and can be switched off.",
+    "Because the Argus run keeps its own tools, a better answer doesn't prove an Argus tool produced it. The tool-call list shows what the agent actually used.",
     "Write, Edit, and NotebookEdit are denied on both sides. Contrast is read-only.",
     "Agent runs are not deterministic. The panel reports the run it made; it does not average runs or claim a general result.",
     "The spawned agent never receives HydraDB credentials. Every HYDRA_DB_* environment variable is stripped before the process starts.",
+    "The Argus side needs the repository-map MCP server both registered and signed in for that project. These are two separate steps, and an unauthenticated server is dropped silently — leaving that run with no Argus tools at all.",
     "Contrast needs the claude CLI installed and signed in, and each run costs real money because it is two real agent runs.",
   ],
 }
@@ -47,12 +51,12 @@ export const gettingStarted: { headline: string; steps: DocStep[] } = {
     {
       title: "Open Argus",
       description:
-        "Start with Repository for orientation, then move into Explore, Trace, Observe, Compare, and Preserve as you work. Selecting a node opens its file at the exact line.",
+        "Start with Repository for orientation, then move into Explore, Trace, Observe, Compare, Preserve, and Contrast as you work. Selecting a node opens its file at the exact line.",
     },
     {
       title: "Connect Codex or Claude Code (optional)",
       description:
-        "Run \"Configure Agents\" to detect installed CLIs and register the loopback MCP endpoint. First access opens a native consent dialog — nothing is written to agent config beyond the current URL.",
+        "Run \"Configure Agents\" to detect installed CLIs and register the loopback MCP endpoint. Nothing is written to agent config beyond the current URL. Registering and signing in are separate steps: approve the consent prompt on first access, or run the sign-in command yourself. Contrast needs a signed-in server, because a headless run can't answer a consent prompt.",
     },
     {
       title: "Re-index after meaningful changes",

@@ -4,12 +4,12 @@ import { Nav } from "@/sections/Nav"
 import { Hero } from "@/sections/Hero"
 import { Problem } from "@/sections/Problem"
 import { TruthRule } from "@/sections/TruthRule"
-import { ModeScroll } from "@/sections/ModeScroll"
 import { ViewsBento } from "@/sections/ViewsBento"
 import { Evidence } from "@/sections/Evidence"
 import { HowToUse } from "@/sections/HowToUse"
 import { HonestEvidence } from "@/sections/HonestEvidence"
 import { Faq } from "@/sections/Faq"
+import { ClosingCta } from "@/sections/ClosingCta"
 import { Footer } from "@/sections/Footer"
 
 // Both pull in react-syntax-highlighter (CodeBlock/Terminal), which is the
@@ -32,12 +32,15 @@ export function App() {
         Skip to content
       </a>
       <Nav />
+      {/* Order matters twice over. The product (ViewsBento) sits directly after
+          the problem, so a reader meets the tool before the trust argument.
+          And the sections alternate default/band surfaces all the way down —
+          see Section's `tone` prop — so no two neighbours look alike. */}
       <main>
         <Hero />
         <Problem />
-        <TruthRule />
-        <ModeScroll />
         <ViewsBento />
+        <TruthRule />
         <Evidence />
         <Suspense fallback={<SectionFallback />}>
           <Agents />
@@ -48,6 +51,7 @@ export function App() {
           <Download />
         </Suspense>
         <Faq />
+        <ClosingCta />
       </main>
       <Footer />
     </TooltipProvider>
