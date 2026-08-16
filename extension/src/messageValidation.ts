@@ -2,7 +2,7 @@ import type { GraphDepth, SourceRange, ViewMode, WebviewToHostMessage } from "./
 import { safeDisplayStateKey } from "./webview/graphState.js";
 
 type UnknownRecord = Record<string, unknown>;
-const modes = new Set<ViewMode>(["repository", "explore", "trace", "observe", "compare", "preserve"]);
+const modes = new Set<ViewMode>(["repository", "explore", "trace", "observe", "compare", "preserve", "contrast"]);
 const depths = new Set<GraphDepth>(["package", "file", "symbol"]);
 
 function isRecord(value: unknown): value is UnknownRecord {
@@ -68,6 +68,9 @@ export function parseWebviewMessage(value: unknown): WebviewToHostMessage | unde
   }
   if (value.type === "configureAgents") {
     return { type: "configureAgents" };
+  }
+  if (value.type === "cancelContrast") {
+    return { type: "cancelContrast" };
   }
   if (value.type === "persistDisplayState" && typeof value.key === "string" && safeDisplayStateKey(value.key)) {
     try {

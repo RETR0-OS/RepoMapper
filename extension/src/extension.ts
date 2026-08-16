@@ -112,6 +112,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return runtime.client(forWrite
       ? configuration.get<number>("indexTimeoutMs", 300000)
       : configuration.get<number>("requestTimeoutMs", 120000));
+  }, async () => {
+    if (!runtime) throw new Error("Open a local workspace folder to use Argus.");
+    return await runtime.mcpUrl();
   });
   const checkpoint = async (
     client: EvolutionClient,
@@ -564,5 +567,5 @@ export function deactivate(): void {
 }
 
 function isMode(value: unknown): value is ViewMode {
-  return typeof value === "string" && ["repository", "explore", "trace", "observe", "compare", "preserve"].includes(value);
+  return typeof value === "string" && ["repository", "explore", "trace", "observe", "compare", "preserve", "contrast"].includes(value);
 }

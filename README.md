@@ -21,7 +21,7 @@ API keys, project database names, installation keys, and OAuth grant records liv
 
 ## What is included
 
-- Six views: Repository, Explore, Trace, Observe, Compare, and Preserve.
+- Seven views: Repository, Explore, Trace, Observe, Compare, Preserve, and Contrast.
 - A deterministic Python analyzer with stable IDs and line-addressable evidence.
 - Confirmed HydraDB indexing with automatic Git or content-digest revisions.
 - A bundled, hash-verified loopback service managed by the extension.
@@ -34,7 +34,7 @@ flowchart LR
     Project["Opened VS Code project"] --> Extension["Argus extension"]
     Extension --> Analyzer["Bundled Python analyzer"]
     Analyzer --> HydraDB["HydraDB Knowledge"]
-    HydraDB --> Views["Six repository views"]
+    HydraDB --> Views["Seven repository views"]
     HydraDB --> MCP["OAuth-protected /mcp"]
     MCP --> Agents["Codex and Claude Code"]
 ```

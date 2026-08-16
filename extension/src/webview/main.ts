@@ -7,6 +7,7 @@ import type {
   GraphNode,
   GraphView,
   HostToWebviewMessage,
+  ContrastState,
   ServiceHealth,
   SourceRange,
   ViewMode,
@@ -14,6 +15,14 @@ import type {
 } from "../types.js";
 import { DEFAULT_TRANSFORM, nextSelection, visibleEdges, zoomAtPoint, type Transform } from "./graphState.js";
 import { computeLayout, edgePath, type NodePositions, type Point } from "./layout.js";
+import {
+  comparable,
+  contrastMetrics,
+  contrastTextAlternative,
+  emptyContrastState,
+  statusLabel,
+  toolCallLabel
+} from "./contrastState.js";
 
 interface VsCodeApi {
   postMessage(message: WebviewToHostMessage): void;
@@ -34,7 +43,8 @@ const MODES: Array<{ id: ViewMode; label: string; hint: string }> = [
   { id: "trace", label: "Trace", hint: "Follow a returned system path" },
   { id: "observe", label: "Observe", hint: "Watch agent navigate the graph" },
   { id: "compare", label: "Compare", hint: "Review verified structural change" },
-  { id: "preserve", label: "Preserve", hint: "Maintain grounded System Lenses" }
+  { id: "preserve", label: "Preserve", hint: "Maintain grounded System Lenses" },
+  { id: "contrast", label: "Contrast", hint: "Run one question with and without Argus" }
 ];
 
 const PRIMARY_LABELS: Record<ViewMode, string> = {
@@ -43,7 +53,8 @@ const PRIMARY_LABELS: Record<ViewMode, string> = {
   trace: "Replay path",
   observe: "Pause traversal",
   compare: "Review changes",
-  preserve: "Accept drift"
+  preserve: "Accept drift",
+  contrast: "Cancel contrast"
 };
 
 const app = document.querySelector<HTMLElement>("#app");
@@ -143,7 +154,30 @@ app.innerHTML = `
           <div class="section-heading"><h2 id="timeline-title">Path timeline</h2><span>Observable events only</span></div>
           <ol id="timeline" class="timeline"></ol>
         </section>
-        <details class="text-alternative" open>
+        <section id="contrast-panel" class="contrast-panel" aria-label="Contrast between a base agent and Argus" hidden>
+          <p id="contrast-note" class="contrast-note" role="status" aria-live="polite"></p>
+          <button id="contrast-gate-button" type="button" class="button button-primary" hidden>Configure agents</button>
+          <div id="contrast-metrics" class="contrast-metrics" role="status" aria-live="polite"></div>
+          <div id="contrast-split" class="contrast-split">
+            <section class="graph-card contrast-column" aria-labelledby="contrast-base-title">
+              <div class="section-heading"><h2 id="contrast-base-title">Base agent</h2><span id="contrast-base-status"></span></div>
+              <div id="contrast-base-answer" class="contrast-answer" hidden></div>
+              <p id="contrast-base-tools" class="contrast-tools"></p>
+              <ol id="contrast-base-calls" class="contrast-calls"></ol>
+            </section>
+            <section class="graph-card contrast-column" aria-labelledby="contrast-argus-title">
+              <div class="section-heading"><h2 id="contrast-argus-title">With Argus</h2><span id="contrast-argus-status"></span></div>
+              <div id="contrast-argus-answer" class="contrast-answer" hidden></div>
+              <p id="contrast-argus-tools" class="contrast-tools"></p>
+              <ol id="contrast-argus-calls" class="contrast-calls"></ol>
+            </section>
+          </div>
+          <details id="contrast-text-alternative" class="text-alternative" open>
+            <summary>Accessible contrast trajectory list</summary>
+            <ol id="contrast-text"></ol>
+          </details>
+        </section>
+        <details id="path-alternative" class="text-alternative" open>
           <summary>Accessible path and relation list</summary>
           <ol id="path-list"></ol>
         </details>
@@ -185,8 +219,39 @@ const elements = {
   pathList: required<HTMLOListElement>("path-list"),
   inspector: required("inspector-content"),
   qualityBadge: required("quality-badge"),
-  toast: required("toast")
+  toast: required("toast"),
+  graphCard: document.querySelector<HTMLElement>(".graph-card")!,
+  pathAlternative: required("path-alternative"),
+  contrastPanel: required("contrast-panel"),
+  contrastNote: required("contrast-note"),
+  contrastGateButton: required<HTMLButtonElement>("contrast-gate-button"),
+  contrastMetrics: required("contrast-metrics"),
+  contrastSplit: required("contrast-split"),
+  contrastTextAlternative: required("contrast-text-alternative"),
+  contrastText: required<HTMLOListElement>("contrast-text"),
+  contrastSides: {
+    base: {
+      status: required("contrast-base-status"),
+      answer: required("contrast-base-answer"),
+      tools: required("contrast-base-tools"),
+      calls: required<HTMLOListElement>("contrast-base-calls")
+    },
+    argus: {
+      status: required("contrast-argus-status"),
+      answer: required("contrast-argus-answer"),
+      tools: required("contrast-argus-tools"),
+      calls: required<HTMLOListElement>("contrast-argus-calls")
+    }
+  }
 };
+
+let contrast: ContrastState = emptyContrastState();
+/**
+ * Set when Contrast cannot run because no coding agent CLI is configured. It
+ * has to be rendered inside the Contrast panel itself, because that mode hides
+ * the graph card that the shared agent gate normally uses.
+ */
+let contrastGateMessage: string | undefined;
 
 bindEvents();
 renderAll();
@@ -214,7 +279,26 @@ window.addEventListener("message", (event: MessageEvent<HostToWebviewMessage>) =
     renderHeader();
     if (message.message) showToast(message.message);
   } else if (message.type === "agentGate") {
-    renderAgentGate(message.message);
+    // Contrast hides the graph card the shared gate renders into, so it needs
+    // its own visible gate instead of the empty-state one.
+    if (view.mode === "contrast") {
+      contrastGateMessage = message.message;
+      renderContrast();
+    } else {
+      renderAgentGate(message.message);
+    }
+  } else if (message.type === "contrast") {
+    contrastGateMessage = undefined;
+    contrast = message.contrast;
+    health = message.health;
+    // A contrast payload is only ever sent for the Contrast mode. Switching
+    // here means no caller can post one that silently renders nothing.
+    if (view.mode !== "contrast") {
+      view = { ...view, mode: "contrast", nodes: [], edges: [], timeline: [] };
+      positions = computeLayout(view.nodes, view.mode);
+      selectedId = undefined;
+    }
+    renderAll();
   } else if (message.type === "actionResult") {
     showToast(message.message);
     if (message.view) {
@@ -243,6 +327,10 @@ function bindEvents(): void {
     }
   });
   elements.retryButton.addEventListener("click", () => vscode.postMessage({ type: "retry" }));
+  elements.contrastGateButton.addEventListener("click", () => {
+    contrastGateMessage = undefined;
+    vscode.postMessage({ type: "configureAgents" });
+  });
   elements.inferredToggle.addEventListener("change", () => {
     showInferred = elements.inferredToggle.checked;
     renderGraph();
@@ -325,6 +413,93 @@ function renderAll(): void {
   renderTimeline();
   renderPathList();
   renderInspector();
+  renderContrast();
+}
+
+/**
+ * Contrast shows measured agent runs instead of a graph, so it takes over the
+ * canvas column rather than sitting beside it.
+ */
+function renderContrast(): void {
+  const active = view.mode === "contrast";
+  elements.contrastPanel.hidden = !active;
+  elements.graphCard.hidden = active;
+  elements.timelinePanel.hidden = active || view.timeline.length === 0;
+  elements.pathAlternative.hidden = active;
+  // Contrast never reads HydraDB, so the shared "HydraDB is unavailable" banner
+  // is not about anything Contrast depends on. renderStatus() sets it for every
+  // mode; this mode alone must clear it.
+  if (active) elements.degradedBanner.hidden = true;
+  if (!active) return;
+
+  const gated = Boolean(contrastGateMessage);
+  elements.contrastGateButton.hidden = !gated;
+  elements.contrastMetrics.hidden = gated;
+  elements.contrastSplit.hidden = gated;
+  elements.contrastTextAlternative.hidden = gated;
+  if (contrastGateMessage) {
+    elements.contrastNote.textContent = contrastGateMessage;
+    return;
+  }
+
+  elements.contrastNote.textContent = contrast.message
+    ?? "Ask a question. It runs twice: once on the harness alone, once on the harness with Argus added.";
+
+  renderContrastMetrics();
+  for (const side of ["base", "argus"] as const) {
+    const trace = contrast[side];
+    const target = elements.contrastSides[side];
+    target.status.textContent = statusLabel(trace);
+    target.answer.hidden = !trace.answer;
+    target.answer.textContent = trace.answer ?? "";
+    target.tools.textContent = trace.toolsAvailable.length
+      ? `Tools available: ${trace.toolsAvailable.join(", ")}`
+      : "Tools available: not reported yet.";
+    target.calls.replaceChildren(...trace.toolCalls.map((call) => {
+      const item = document.createElement("li");
+      item.className = "contrast-call";
+      item.textContent = toolCallLabel(call);
+      return item;
+    }));
+  }
+  elements.contrastText.replaceChildren(...contrastTextAlternative(contrast).map((line) => {
+    const item = document.createElement("li");
+    item.textContent = line;
+    return item;
+  }));
+}
+
+function renderContrastMetrics(): void {
+  // Before a run starts there are no numbers to show. An empty bordered box
+  // reads as a broken input, not an empty state, so it must not render at all.
+  elements.contrastMetrics.hidden = contrast.status === "idle";
+  if (contrast.status === "idle") {
+    elements.contrastMetrics.replaceChildren();
+    return;
+  }
+  const rows = contrastMetrics(contrast).map((metric) => {
+    const row = document.createElement("dl");
+    row.className = "evidence-row contrast-metric";
+    const label = document.createElement("dt");
+    label.textContent = metric.label;
+    const value = document.createElement("dd");
+    value.textContent = `${metric.base} → ${metric.argus}`;
+    const delta = document.createElement("dd");
+    delta.className = `contrast-delta${metric.argusLower ? " is-lower" : ""}`;
+    delta.textContent = metric.delta;
+    row.append(label, value, delta);
+    return row;
+  });
+  if (!comparable(contrast)) {
+    const caveat = document.createElement("p");
+    caveat.className = "contrast-caveat";
+    caveat.textContent = contrast.status === "running"
+      ? "Both runs are still going. These figures are not final."
+      : "One side did not complete, so this is not a fair comparison.";
+    elements.contrastMetrics.replaceChildren(caveat, ...rows);
+    return;
+  }
+  elements.contrastMetrics.replaceChildren(...rows);
 }
 
 function renderModes(): void {
@@ -696,6 +871,14 @@ function selectEdge(edge: GraphEdge, openSource: boolean, reportSelection = open
 }
 
 function runPrimaryAction(): void {
+  if (view.mode === "contrast") {
+    if (contrast.status !== "running") {
+      showToast("Type a question and press Enter to run a contrast.");
+      return;
+    }
+    vscode.postMessage({ type: "cancelContrast" });
+    return;
+  }
   if (view.mode === "repository") {
     if (selectedKind === "node" && selectedId) {
       vscode.postMessage({ type: "changeMode", mode: "explore" });
@@ -947,6 +1130,46 @@ function svg<K extends keyof SVGElementTagNameMap>(tag: K): SVGElementTagNameMap
   return document.createElementNS("http://www.w3.org/2000/svg", tag);
 }
 
+/**
+ * A plausible finished contrast for the standalone browser preview. It is
+ * labelled as preview data and is never presented as a measured run.
+ */
+function previewContrast(question: string): ContrastState {
+  return {
+    question,
+    status: "done",
+    message: "Standalone preview data. No agent was run and no token was measured.",
+    base: {
+      side: "base", status: "completed", turns: 17,
+      toolsAvailable: ["Bash", "Glob", "Grep", "Read", "WebFetch", "WebSearch"],
+      mcpServers: [],
+      toolCalls: [
+        { name: "Bash", detail: "ls && git status --short" },
+        { name: "Grep", detail: "authorize|policy" },
+        { name: "Read", detail: "eval_app/api.py" },
+        { name: "Grep", detail: "def load_policy" },
+        { name: "Read", detail: "eval_app/auth.py" },
+        { name: "Read", detail: "eval_app/store.py" }
+      ],
+      filesRead: ["eval_app/api.py", "eval_app/auth.py", "eval_app/store.py"],
+      usage: { inputTokens: 20, outputTokens: 4506, cacheReadTokens: 370213, cacheCreationTokens: 51286, thinkingTokens: 1217 },
+      costUsd: 0.8113, durationMs: 72084
+    },
+    argus: {
+      side: "argus", status: "completed", turns: 2,
+      toolsAvailable: [
+        "Bash", "Glob", "Grep", "Read", "WebFetch", "WebSearch",
+        "mcp__repository-map__repository_query", "mcp__repository-map__trace_flow", "mcp__repository-map__focus_symbol"
+      ],
+      mcpServers: ["repository-map"],
+      toolCalls: [{ name: "mcp__repository-map__trace_flow", detail: question }],
+      filesRead: [],
+      usage: { inputTokens: 18, outputTokens: 612, cacheReadTokens: 24180, cacheCreationTokens: 9840, thinkingTokens: 190 },
+      costUsd: 0.0721, durationMs: 9120
+    }
+  };
+}
+
 function createBrowserApi(): VsCodeApi {
   let state: unknown;
   return {
@@ -960,6 +1183,11 @@ function createBrowserApi(): VsCodeApi {
         window.dispatchEvent(new MessageEvent("message", { data: {
           type: "view", view: createPreviewView(message.mode, view.depth ?? "file"), health
         } satisfies HostToWebviewMessage }));
+        if (message.mode === "contrast") {
+          window.dispatchEvent(new MessageEvent("message", { data: {
+            type: "contrast", contrast: previewContrast("Preview question"), health
+          } satisfies HostToWebviewMessage }));
+        }
       } else if (message.type === "changeDepth") {
         window.dispatchEvent(new MessageEvent("message", { data: {
           type: "view", view: createPreviewView(view.mode, message.depth), health
@@ -972,6 +1200,14 @@ function createBrowserApi(): VsCodeApi {
         window.dispatchEvent(new MessageEvent("message", { data: {
           type: "observeStatus", active: true, paused: message.paused, bufferedCount: 0,
           message: message.paused ? "Visual following paused. Observable events will remain buffered." : "Following observable preview events."
+        } satisfies HostToWebviewMessage }));
+      } else if (message.type === "query" && view.mode === "contrast") {
+        window.dispatchEvent(new MessageEvent("message", { data: {
+          type: "contrast", contrast: previewContrast(message.question), health
+        } satisfies HostToWebviewMessage }));
+      } else if (message.type === "cancelContrast") {
+        window.dispatchEvent(new MessageEvent("message", { data: {
+          type: "contrast", contrast: previewContrast("Preview question"), health
         } satisfies HostToWebviewMessage }));
       } else if (message.type === "query" || message.type === "primaryAction") {
         window.dispatchEvent(new MessageEvent("message", { data: {

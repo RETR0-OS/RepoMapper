@@ -45,4 +45,22 @@ describe("webview message validation", () => {
   ])("rejects invalid Observe interaction %j", (message) => {
     expect(parseWebviewMessage(message)).toBeUndefined();
   });
+
+  it("accepts Contrast as a mode", () => {
+    expect(parseWebviewMessage({ type: "changeMode", mode: "contrast" })).toEqual({
+      type: "changeMode", mode: "contrast"
+    });
+  });
+
+  it("accepts bounded Contrast control messages", () => {
+    expect(parseWebviewMessage({ type: "cancelContrast" })).toEqual({ type: "cancelContrast" });
+  });
+
+  it.each([
+    // The tool restriction was removed, so its message must no longer be honoured.
+    { type: "setContrastRestriction", restrict: false },
+    { type: "changeMode", mode: "contrasts" }
+  ])("rejects invalid Contrast control %j", (message) => {
+    expect(parseWebviewMessage(message)).toBeUndefined();
+  });
 });

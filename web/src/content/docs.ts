@@ -2,7 +2,23 @@ export const docsIntro = {
   eyebrow: "Documentation",
   headline: "Everything you need to run Argus.",
   subhead:
-    "A practical reference for installing the extension, reading the six views, connecting a coding agent, and understanding exactly what the product does and doesn't promise.",
+    "A practical reference for installing the extension, reading the seven views, connecting a coding agent, and understanding exactly what the product does and doesn't promise.",
+}
+
+export const contrastView = {
+  name: "Contrast",
+  verb: "Measure",
+  description:
+    "The same question, answered twice by the same agent and the same model. The base run uses only Claude Code's built-in Grep, Glob, Read, and Bash. The Argus run answers through the loopback MCP endpoint with repository_query, trace_flow, and focus_symbol. Both runs are live — neither column is a fixture or a recording.",
+  measured:
+    "Each column reports the agent's own measured usage: tools available, tool calls, files read, turns, input/output/cache tokens, thinking tokens, duration, and cost in USD. The numbers come from the agent CLI's usage report, not from an Argus estimate.",
+  caveats: [
+    "The Argus side denies the built-in search tools by default, so the comparison measures retrieval and not tool choice. This is shown in the panel and can be switched off.",
+    "Write, Edit, and NotebookEdit are denied on both sides. Contrast is read-only.",
+    "Agent runs are not deterministic. The panel reports the run it made; it does not average runs or claim a general result.",
+    "The spawned agent never receives HydraDB credentials. Every HYDRA_DB_* environment variable is stripped before the process starts.",
+    "Contrast needs the claude CLI installed and signed in, and each run costs real money because it is two real agent runs.",
+  ],
 }
 
 export interface DocStep {

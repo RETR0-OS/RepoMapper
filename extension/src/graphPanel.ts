@@ -4,6 +4,7 @@ import { createPreviewView } from "./previewData.js";
 import { formatLens, lensPreviewMatches, lensWriteIsReady, previewThenConfirm } from "./evolution.js";
 import { parseWebviewMessage } from "./messageValidation.js";
 import { isAgentInstalled } from "./agentSetup.js";
+import { emptyTrace, startAgentRun, type AgentRunHandle } from "./agentRun.js";
 import {
   applyObserveEvents,
   BoundedPoller,
@@ -22,6 +23,7 @@ import { RepositoryServiceClient, ServiceError } from "./serviceClient.js";
 import { validateSourceRange } from "./sourceNavigation.js";
 import { groundedViewContext, reconcileHealthWithView, type GroundedViewContext } from "./statusState.js";
 import type {
+  ContrastState,
   GraphDepth,
   GraphView,
   HostToWebviewMessage,
@@ -55,13 +57,22 @@ export class GraphPanel implements vscode.Disposable {
   private observePollPromise: Promise<void> | undefined;
   private observeMultiRootWarningShown = false;
   private health: ServiceHealth = { state: "unavailable" };
+  private contrast: ContrastState = {
+    question: "",
+    status: "idle",
+    base: emptyTrace("base"),
+    argus: emptyTrace("argus")
+  };
+  private contrastRuns: AgentRunHandle[] = [];
+  private contrastGeneration = 0;
   private readonly disposables: vscode.Disposable[] = [];
 
   public constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly onHealthChanged: (health: ServiceHealth) => void,
     private readonly repositoryScope: RepositoryScope | undefined,
-    private readonly clientFactory: (forWrite: boolean) => RepositoryServiceClient
+    private readonly clientFactory: (forWrite: boolean) => RepositoryServiceClient,
+    private readonly mcpUrlProvider?: () => Promise<string>
   ) {
     const watcher = vscode.workspace.createFileSystemWatcher("**/*");
     this.disposables.push(
@@ -169,6 +180,8 @@ export class GraphPanel implements vscode.Disposable {
 
   public dispose(): void {
     void this.stopObserveFollowing();
+    // An agent run outlives the panel unless it is killed here.
+    this.cancelContrast();
     this.panel?.dispose();
     this.disposables.forEach((disposable) => disposable.dispose());
   }
@@ -231,12 +244,21 @@ export class GraphPanel implements vscode.Disposable {
           await this.context.workspaceState.update(`hydra.display.${message.key}`, message.value);
         }
         break;
+      case "cancelContrast":
+        this.cancelContrast();
+        break;
     }
   }
 
   private async loadView(): Promise<void> {
     if (this.mode === "observe") {
       await this.startObserveFollowing();
+      return;
+    }
+    if (this.mode === "contrast") {
+      // Contrast has nothing to load. It shows whatever the last run measured
+      // until a question starts a new one.
+      this.postContrast();
       return;
     }
     this.post({ type: "loading", mode: this.mode, message: `Loading ${this.mode} view…` });
@@ -261,6 +283,12 @@ export class GraphPanel implements vscode.Disposable {
       this.post({ type: "error", message: "Enter a repository question first.", recoverable: true });
       return;
     }
+    // Contrast owns the question box while it is the active mode. Falling
+    // through to Trace here would silently swap the view out from under it.
+    if (this.mode === "contrast") {
+      await this.runContrast(trimmed);
+      return;
+    }
     if (this.mode === "observe") await this.stopObserveFollowing();
     this.mode = "trace";
     this.viewContext = {};
@@ -282,7 +310,104 @@ export class GraphPanel implements vscode.Disposable {
     }
   }
 
+  /**
+   * Contrast has no graph, but the webview still switches modes through a view.
+   * Sending an empty one keeps the tab row, header and status on the normal
+   * path instead of giving Contrast its own way of becoming active.
+   */
+  private contrastView(): GraphView {
+    return {
+      viewId: "contrast",
+      revision: this.currentView?.revision ?? this.health.revision ?? "unknown",
+      mode: "contrast",
+      nodes: [],
+      edges: [],
+      timeline: [],
+      warnings: [],
+      budget: { requestedNodes: 0, returnedNodes: 0, requestedEdges: 0, returnedEdges: 0 },
+      preview: false,
+      summary: "Ask a question to run it twice: once with the agent's own tools, once through Argus."
+    };
+  }
+
+  private postContrast(): void {
+    if (this.currentView?.mode !== "contrast") {
+      this.currentView = this.contrastView();
+      this.post({ type: "view", view: this.currentView, health: this.health });
+    }
+    this.post({ type: "contrast", contrast: this.contrast, health: this.health });
+  }
+
+  private cancelContrast(): void {
+    if (this.contrast.status !== "running") return;
+    this.contrastGeneration += 1;
+    for (const run of this.contrastRuns) run.cancel();
+    this.contrastRuns = [];
+  }
+
+  /**
+   * Runs the same question twice: once with the agent's own tools only, and
+   * once through the Argus MCP endpoint. Both runs are real. Nothing here
+   * estimates a number the agent did not report.
+   */
+  private async runContrast(question: string): Promise<void> {
+    if (this.contrast.status === "running") {
+      this.post({ type: "error", message: "A contrast is already running. Cancel it first.", recoverable: true });
+      return;
+    }
+    const cwd = this.repositoryScope?.repositoryRoot;
+    if (!cwd) {
+      this.post({ type: "error", message: "Open a local workspace folder to run a contrast.", recoverable: true });
+      return;
+    }
+    if (!(await isAgentInstalled(cwd))) {
+      this.post({ type: "agentGate", message: "Contrast needs the Claude Code CLI. Install it and sign in, then try again." });
+      return;
+    }
+    let mcpUrl: string;
+    try {
+      mcpUrl = await (this.mcpUrlProvider?.() ?? Promise.reject(new Error("no provider")));
+    } catch {
+      this.post({ type: "error", message: "The Argus MCP endpoint is not available yet. Wait for the service to start.", recoverable: true });
+      return;
+    }
+
+    const generation = ++this.contrastGeneration;
+    this.contrast = {
+      question,
+      status: "running",
+      base: emptyTrace("base"),
+      argus: emptyTrace("argus"),
+      message: "Both sides keep every tool the harness gives them. The Argus side also has the Argus tools."
+    };
+    this.postContrast();
+
+    const update = (side: "base" | "argus") => (trace: typeof this.contrast.base): void => {
+      // A cancelled or superseded run must not keep writing into the panel.
+      if (generation !== this.contrastGeneration) return;
+      this.contrast = { ...this.contrast, [side]: trace };
+      this.postContrast();
+    };
+
+    const baseRun = startAgentRun({ side: "base", question, cwd }, update("base"));
+    const argusRun = startAgentRun(
+      { side: "argus", question, cwd, mcpUrl },
+      update("argus")
+    );
+    this.contrastRuns = [baseRun, argusRun];
+
+    const [base, argus] = await Promise.all([baseRun.completed, argusRun.completed]);
+    if (generation !== this.contrastGeneration) return;
+    this.contrastRuns = [];
+    this.contrast = { ...this.contrast, status: "done", base, argus };
+    this.postContrast();
+  }
+
   private async runPrimaryAction(mode: ViewMode, selectedId?: string): Promise<void> {
+    if (mode === "contrast") {
+      this.cancelContrast();
+      return;
+    }
     if (mode === "preserve") {
       await this.acceptPreserveDrift(selectedId);
       return;

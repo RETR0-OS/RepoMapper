@@ -172,7 +172,7 @@ export function normalizeGraphView(value: unknown, fallbackMode: ViewMode): Grap
   return {
     viewId: textValue(view.view_id ?? view.viewId, `view-${fallbackMode}`),
     revision,
-    mode: ["repository", "explore", "trace", "observe", "compare", "preserve"].includes(mode) ? mode : fallbackMode,
+    mode: ["repository", "explore", "trace", "observe", "compare", "preserve", "contrast"].includes(mode) ? mode : fallbackMode,
     depth: (textValue(view.depth) as GraphView["depth"]) || undefined,
     nodes: rawNodes.map((node) => normalizeNode(node, revision)),
     edges: rawEdges.map((edge) => normalizeEdge(edge, revision)),

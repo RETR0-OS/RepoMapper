@@ -1,4 +1,4 @@
-export type ViewMode = "repository" | "explore" | "trace" | "observe" | "compare" | "preserve";
+export type ViewMode = "repository" | "explore" | "trace" | "observe" | "compare" | "preserve" | "contrast";
 export type GraphDepth = "package" | "file" | "symbol";
 export type RelationQuality = "exact" | "inferred" | "semantic" | "unknown";
 export type ServiceState = "ready" | "indexing" | "unverified" | "unavailable" | "failed";
@@ -130,6 +130,55 @@ export interface SidebarSnapshot {
   health: ServiceHealth;
 }
 
+/**
+ * Contrast runs one coding agent twice over the same question: once with only
+ * its own built-in tools, and once through the Argus MCP endpoint. These types
+ * live here rather than in agentRun.ts because the webview bundle must not
+ * reach a module that imports node:child_process.
+ */
+export type ContrastSide = "base" | "argus";
+
+export type AgentRunStatus = "starting" | "running" | "completed" | "failed" | "cancelled";
+
+/** A tool name plus a bounded, content-free hint of what it was pointed at. */
+export interface AgentToolCall {
+  name: string;
+  detail: string;
+}
+
+/** Reported by the agent itself. Argus never estimates these. */
+export interface AgentUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  thinkingTokens: number;
+}
+
+export interface AgentRunTrace {
+  side: ContrastSide;
+  status: AgentRunStatus;
+  model?: string;
+  toolsAvailable: string[];
+  mcpServers: string[];
+  toolCalls: AgentToolCall[];
+  filesRead: string[];
+  turns: number;
+  usage?: AgentUsage;
+  costUsd?: number;
+  durationMs?: number;
+  answer?: string;
+  error?: string;
+}
+
+export interface ContrastState {
+  question: string;
+  status: "idle" | "running" | "done";
+  base: AgentRunTrace;
+  argus: AgentRunTrace;
+  message?: string;
+}
+
 export type HostToWebviewMessage =
   | { type: "view"; view: GraphView; health: ServiceHealth }
   | { type: "loading"; mode: ViewMode; message: string }
@@ -137,7 +186,8 @@ export type HostToWebviewMessage =
   | { type: "sourceOpened"; itemId: string }
   | { type: "observeStatus"; active: boolean; paused: boolean; bufferedCount: number; sessionId?: string; message?: string }
   | { type: "actionResult"; action: string; message: string; view?: GraphView }
-  | { type: "agentGate"; message: string };
+  | { type: "agentGate"; message: string }
+  | { type: "contrast"; contrast: ContrastState; health: ServiceHealth };
 
 export type WebviewToHostMessage =
   | { type: "ready" }
@@ -150,4 +200,5 @@ export type WebviewToHostMessage =
   | { type: "primaryAction"; mode: ViewMode; selectedId?: string }
   | { type: "retry" }
   | { type: "persistDisplayState"; key: string; value: unknown }
-  | { type: "configureAgents" };
+  | { type: "configureAgents" }
+  | { type: "cancelContrast" };

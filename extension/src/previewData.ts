@@ -86,7 +86,10 @@ const modeNodes: Record<ViewMode, string[]> = {
   trace: ["preview:client", "preview:host", "preview:panel", "preview:navigate"],
   observe: ["preview:client", "preview:host", "preview:panel", "preview:navigate", "preview:webview"],
   compare: ["preview:panel", "preview:navigate", "preview:webview", "preview:tests"],
-  preserve: ["preview:host", "preview:panel", "preview:navigate", "preview:tests"]
+  preserve: ["preview:host", "preview:panel", "preview:navigate", "preview:tests"],
+  // Contrast renders agent runs, not a graph. The nodes exist only so the
+  // shared view shape stays valid when the panel has nothing to show yet.
+  contrast: []
 };
 
 const timeline: TimelineEvent[] = [
@@ -123,7 +126,8 @@ export function createPreviewView(mode: ViewMode, depth: GraphDepth = "file"): G
     trace: "A readable left-to-right path from service request to source evidence.",
     observe: "Only explicit returned, selected, opened, and edited events are shown.",
     compare: "One modified UI node and one added test are shown against stable positions.",
-    preserve: "A grounded source-navigation lens with reviewable drift."
+    preserve: "A grounded source-navigation lens with reviewable drift.",
+    contrast: "Ask a question to run it twice: once with the agent's own tools, once through Argus."
   };
   return {
     viewId: `preview-${mode}-${depth}`,

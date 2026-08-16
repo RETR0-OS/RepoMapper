@@ -14,11 +14,11 @@ import { Footer } from "@/sections/Footer"
 import { views } from "@/content/views"
 import { agentCommands, mcpScopes, mcpTools } from "@/content/tools"
 import { faq } from "@/content/faq"
-import { docsIntro, gettingStarted, security, statusLabels } from "@/content/docs"
+import { contrastView, docsIntro, gettingStarted, security, statusLabels } from "@/content/docs"
 
 const tocSections = [
   { id: "getting-started", label: "Getting started" },
-  { id: "views", label: "The six views" },
+  { id: "views", label: "The seven views" },
   { id: "agents", label: "Connecting agents" },
   { id: "security", label: "Security & privacy" },
   { id: "status", label: "Status labels" },
@@ -103,7 +103,7 @@ export function DocsApp() {
               </ol>
             </DocSection>
 
-            <DocSection id="views" title="The six views">
+            <DocSection id="views" title="The seven views">
               <div className="space-y-5">
                 {views.map((view) => (
                   <div key={view.id} className="rounded-xl border border-border bg-panel p-5">
@@ -119,6 +119,24 @@ export function DocsApp() {
                     </p>
                   </div>
                 ))}
+
+                <div className="rounded-xl border border-border bg-panel p-5">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <h3 className="font-medium text-foreground">{contrastView.name}</h3>
+                    <span className="font-mono text-[10px] tracking-widest text-lime uppercase">
+                      {contrastView.verb}
+                    </span>
+                  </div>
+                  <p className="mt-1.5 text-sm text-muted-foreground">{contrastView.description}</p>
+                  <p className="mt-2 text-sm text-muted-foreground">{contrastView.measured}</p>
+                  <ul className="mt-3 space-y-1.5">
+                    {contrastView.caveats.map((caveat) => (
+                      <li key={caveat} className="font-mono text-xs leading-relaxed text-muted-foreground">
+                        {caveat}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               </div>
             </DocSection>
 

@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { agentEnvironment, requireManagedMcpUrl } from "./agentSetup.js";
+import type { AgentRunTrace, AgentUsage, ContrastSide } from "./types.js";
 
 /**
  * Runs one coding agent twice over the same question: once with only its own
@@ -10,40 +11,6 @@ import { agentEnvironment, requireManagedMcpUrl } from "./agentSetup.js";
  * against a recorded transcript without starting a process.
  */
 
-export type ContrastSide = "base" | "argus";
-
-/** A tool name plus a bounded, content-free hint of what it was pointed at. */
-export interface AgentToolCall {
-  name: string;
-  detail: string;
-}
-
-export interface AgentUsage {
-  inputTokens: number;
-  outputTokens: number;
-  cacheReadTokens: number;
-  cacheCreationTokens: number;
-  thinkingTokens: number;
-}
-
-export type AgentRunStatus = "starting" | "running" | "completed" | "failed" | "cancelled";
-
-export interface AgentRunTrace {
-  side: ContrastSide;
-  status: AgentRunStatus;
-  model?: string;
-  toolsAvailable: string[];
-  mcpServers: string[];
-  toolCalls: AgentToolCall[];
-  filesRead: string[];
-  turns: number;
-  usage?: AgentUsage;
-  costUsd?: number;
-  durationMs?: number;
-  answer?: string;
-  error?: string;
-}
-
 // A single stream line is JSON for one event. A transcript that exceeds these
 // bounds is a runaway, not a run, and is stopped instead of being buffered.
 const MAX_LINE_BYTES = 1_000_000;
@@ -53,7 +20,6 @@ const MAX_DETAIL_CHARS = 120;
 const MAX_ANSWER_CHARS = 4_000;
 
 const DENIED_ON_BOTH_SIDES = ["Write", "Edit", "NotebookEdit"];
-const BUILT_IN_SEARCH_TOOLS = ["Grep", "Glob", "Read", "Bash", "Task", "WebSearch", "WebFetch"];
 
 export function emptyTrace(side: ContrastSide): AgentRunTrace {
   return { side, status: "starting", toolsAvailable: [], mcpServers: [], toolCalls: [], filesRead: [], turns: 0 };
@@ -210,11 +176,6 @@ export interface AgentRunOptions {
   /** The loopback `/mcp` endpoint. Required for the Argus side only. */
   mcpUrl?: string;
   model?: string;
-  /**
-   * Denies the agent's own search tools on the Argus side, so the run measures
-   * retrieval rather than tool choice. Visible in the panel, never implied.
-   */
-  restrictBuiltInTools?: boolean;
   timeoutMs?: number;
 }
 
@@ -223,20 +184,29 @@ export interface AgentRunOptions {
  * without spawning anything.
  */
 export function buildAgentArgs(options: AgentRunOptions): string[] {
+  // The name must match the "repository-map" name used by the one-time OAuth
+  // registration in agentSetup.ts (`claude mcp add ... repository-map <url>`).
+  // The CLI caches its OAuth login by server name; a run cannot complete a
+  // fresh login on its own, so a name it has not logged in under is dropped
+  // with no error, leaving this side with no Argus tools at all.
   const servers = options.side === "argus"
-    ? { argus: { type: "http", url: requireManagedMcpUrl(options.mcpUrl ?? "") } }
+    ? { "repository-map": { type: "http", url: requireManagedMcpUrl(options.mcpUrl ?? "") } }
     : {};
+  // Both sides keep every tool the harness normally gives them. The Argus side
+  // differs by addition only: it also has the Argus tools. Taking the agent's
+  // own search tools away would measure a crippled harness, not an augmented
+  // one. Writes stay denied on both sides so neither run can change the repo.
   const denied = [...DENIED_ON_BOTH_SIDES];
-  if (options.side === "argus" && options.restrictBuiltInTools !== false) {
-    denied.push(...BUILT_IN_SEARCH_TOOLS);
-  }
   const args = [
     "-p", options.question,
     "--output-format", "stream-json",
     "--verbose",
     "--strict-mcp-config",
     "--mcp-config", JSON.stringify({ mcpServers: servers }),
-    "--permission-mode", "dontAsk",
+    // "dontAsk" denies every MCP tool outright, which leaves the Argus side
+    // unable to call the very tools being measured. "auto" runs the same
+    // read-only tools without a prompt no headless run could answer.
+    "--permission-mode", "auto",
     "--disallowedTools", denied.join(" ")
   ];
   if (options.model) args.push("--model", options.model);
