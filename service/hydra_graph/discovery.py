@@ -203,17 +203,12 @@ def discover_files(
         raise ValueError("max_file_bytes must be positive")
 
     git_visibility = _git_visible_paths(repository_root)
-    # Git resolves every nested ignore source when it owns this workspace. A
-    # non-Git folder still gets root .gitignore and .hydraignore behavior.
-    ignore_names = (
-        (".hydraignore",)
-        if git_visibility is not None
-        else (
-            ".gitignore",
-            ".hydraignore",
-        )
-    )
-    ignore_lines = _read_ignore_lines(repository_root, ignore_names)
+    # Git resolves every nested ignore source when it owns this workspace, but a
+    # tracked file stays visible to Git even when the root .gitignore names it,
+    # and a folder inside a larger repository has no Git answer of its own. The
+    # root .gitignore and .hydraignore are therefore always applied on top, so
+    # one root gives one map wherever it sits.
+    ignore_lines = _read_ignore_lines(repository_root, (".gitignore", ".hydraignore"))
     ignore_lines.extend(str(pattern) for pattern in deny_globs)
     spec = pathspec.PathSpec.from_lines("gitwildmatch", ignore_lines)
 

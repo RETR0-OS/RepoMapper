@@ -329,7 +329,9 @@ def test_real_card_logical_identifiers_resolve_to_compact_graph_node_ids() -> No
 
 def test_context_text_budget_does_not_remove_graph_grounding_metadata() -> None:
     views, transport = service()
-    transport.response["data"]["chunks"][0]["chunk_content"] = "x" * 8_000
+    # One chunk alone goes past the query context character budget, so the
+    # budget has to drop chunk text while the graph slice stays whole.
+    transport.response["data"]["chunks"][0]["chunk_content"] = "x" * 120_000
 
     view = views.load(ViewRequest(mode=ViewMode.TRACE, question="authorization flow"))
 

@@ -1,0 +1,4 @@
+# A Graph IR node carries the hash of its source bytes, so a checkout that
+# rewrites line endings would give the same file a different identity on every
+# platform. Every text file is therefore stored and checked out with LF.
+* text=auto eol=lf

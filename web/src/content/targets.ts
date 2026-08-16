@@ -7,8 +7,9 @@ export interface ReleaseTarget {
 }
 
 export const releaseTargets: ReleaseTarget[] = [
+  // Windows on ARM64 has no package of its own and runs this one under
+  // emulation, because the managed service cannot be built for that platform.
   { vscodeTarget: "win32-x64", os: "Windows", arch: "x64", artifact: "argus-win32-x64.vsix", platformKey: "windows" },
-  { vscodeTarget: "win32-arm64", os: "Windows", arch: "ARM64", artifact: "argus-win32-arm64.vsix", platformKey: "windows" },
   { vscodeTarget: "darwin-x64", os: "macOS", arch: "Intel x64", artifact: "argus-darwin-x64.vsix", platformKey: "mac" },
   { vscodeTarget: "darwin-arm64", os: "macOS", arch: "Apple silicon", artifact: "argus-darwin-arm64.vsix", platformKey: "mac" },
   { vscodeTarget: "linux-x64", os: "Linux", arch: "x64", artifact: "argus-linux-x64.vsix", platformKey: "linux" },

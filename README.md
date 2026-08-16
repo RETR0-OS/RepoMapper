@@ -61,7 +61,7 @@ All managed REST routes require a short-lived token bound to one canonical root 
 
 ## Supported release targets
 
-- Windows x64 and ARM64
+- Windows x64 (ARM64 runs this package under emulation)
 - macOS x64 and ARM64
 - Linux x64 and ARM64
 

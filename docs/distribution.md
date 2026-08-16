@@ -1,19 +1,23 @@
 # Packaging and distribution
 
-Argus is released as six platform-specific VSIX packages. Each package includes the TypeScript extension and a native one-directory Python service build.
+Argus is released as five platform-specific VSIX packages. Each package includes the TypeScript extension and a native one-directory Python service build.
 
 ## Release targets
 
 | VS Code target | Operating system | Architecture |
 | --- | --- | --- |
 | `win32-x64` | Windows | x64 |
-| `win32-arm64` | Windows | ARM64 |
 | `darwin-x64` | macOS | Intel x64 |
 | `darwin-arm64` | macOS | Apple silicon |
 | `linux-x64` | Linux | x64 |
 | `linux-arm64` | Linux | ARM64 |
 
 These are desktop packages. Do not mark them compatible with web, Codespaces, Remote SSH, WSL-hosted extension processes, Alpine, or ARMHF.
+
+Windows on ARM64 has no package of its own. The managed service needs the
+`cryptography` package, PyPI publishes no `win_arm64` wheel for it, and the ARM
+runner cannot build one from source. Windows on ARM64 installs the `win32-x64`
+package and runs it under emulation.
 
 ## Development setup
 

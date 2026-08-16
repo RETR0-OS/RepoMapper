@@ -75,12 +75,17 @@ def _function_signature(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
 
 
 def _body_fingerprint(node: ast.AST) -> str:
-    """Hash structure while excluding declaration names and line positions."""
+    """Hash structure while excluding declaration names and line positions.
+
+    The normalized source text is hashed instead of `ast.dump`, because the dump
+    format changes between CPython releases and would give one structure a
+    different fingerprint on every interpreter that analyzes the repository.
+    """
 
     clone = ast.parse(ast.unparse(node)).body[0]
     if isinstance(clone, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
         clone.name = "__symbol__"
-    return content_hash(ast.dump(clone, annotate_fields=True, include_attributes=False))
+    return content_hash(ast.unparse(clone))
 
 
 def _qualified_expression(node: ast.AST) -> str | None:

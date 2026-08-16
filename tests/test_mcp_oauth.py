@@ -188,11 +188,15 @@ def test_mcp_oauth_requires_pkce_consent_and_uses_secret_storage(tmp_path: Path)
     assert bad.status_code == 400
     assert bad.json()["error"] == "invalid_grant"
     assert initialized.status_code == 200
+    # Only a drive-lettered root folds case, so a POSIX temporary folder that
+    # holds an upper-case segment keeps that segment in the fingerprint.
+    canonical = str(tmp_path.resolve())
+    fingerprint_input = canonical.lower() if Path(canonical).drive else canonical
     assert channel.consent_requests[0]["projects"] == [
         {
             "repository_id": "git:example:0123456789abcdefabcd",
             "project_name": tmp_path.name,
-            "root_fingerprint": hashlib.sha256(str(tmp_path).lower().encode()).hexdigest(),
+            "root_fingerprint": hashlib.sha256(fingerprint_input.encode()).hexdigest(),
         }
     ]
     assert set(channel.consent_requests[0]["scopes"]) == {

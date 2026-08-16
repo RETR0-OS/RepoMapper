@@ -17,11 +17,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # win32-arm64 has no target here: the managed service needs
+          # cryptography, PyPI publishes no win_arm64 wheel for it, and the ARM
+          # runner has no OpenSSL to build one from source. Windows on ARM runs
+          # the win32-x64 build under emulation.
           - target: win32-x64
             runner: windows-latest
-            executable: hydra-graph.exe
-          - target: win32-arm64
-            runner: windows-11-arm
             executable: hydra-graph.exe
           - target: darwin-x64
             runner: macos-15-intel
@@ -53,11 +54,13 @@ jobs:
         working-directory: extension
         run: npm ci
       - name: Verify Python
+        shell: bash
         run: |
           python -m ruff check service evaluation demo tests packaging
           python -m pytest -q
       - name: Verify extension
         working-directory: extension
+        shell: bash
         run: |
           npm run check
           npm test

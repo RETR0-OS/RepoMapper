@@ -19,7 +19,7 @@
       "parser_version": "1",
       "is_generated": false,
       "attributes": {
-        "body_fingerprint": "d2b71524866084d60a69bbbaefc91c24d0ecef3cc2dd4d483c9f0a412c695f23",
+        "body_fingerprint": "4b8fcb4cf8e9f64c9c8275222cc5125def70c8f17a5dbe8ae0a7ccdd09da7d5d",
         "docstring": null,
         "is_test": false
       }
@@ -40,7 +40,7 @@
       "parser_version": "1",
       "is_generated": false,
       "attributes": {
-        "body_fingerprint": "6bf8e03764ad655f0c8f35fe1bc9859b6e2e8c27f246791e7e9f9702e36799c7",
+        "body_fingerprint": "a23184dd9286630726f0e217f027604a455be52881b18e11ec14d306dff39a63",
         "docstring": null,
         "is_test": true
       }
@@ -61,7 +61,7 @@
       "parser_version": "1",
       "is_generated": false,
       "attributes": {
-        "body_fingerprint": "f1e0a5c27ebed72f04bc95d677cfd9f3f1a047c917d4b84825da5a100e796dd8",
+        "body_fingerprint": "f9b3dc77b9889cee42ca3dee7be242e08682d1d8bd41685fbe3c4643f4922a17",
         "docstring": null,
         "is_test": false
       }
@@ -82,7 +82,7 @@
       "parser_version": "1",
       "is_generated": false,
       "attributes": {
-        "body_fingerprint": "7e30c8da1915d708c18f8bc74cb667638034166b0d6c4dd353abd91be7578489",
+        "body_fingerprint": "e4c404c4cdbfb5b28aa1dd3a8f00d188c817fb672eacee209f55c0184fb5dc9e",
         "docstring": null,
         "is_test": false
       }
