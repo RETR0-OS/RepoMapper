@@ -1,6 +1,6 @@
-# Hydra Repository Map documentation
+# Hydra Argus documentation
 
-Hydra Repository Map is a VS Code observability application for understanding repository structure, seeing the HydraDB context returned to coding agents, and reviewing structural change over time.
+Hydra Argus is a VS Code observability application for understanding repository structure, seeing the HydraDB context returned to coding agents, and reviewing structural change over time.
 
 The product has one strict truth boundary: repository retrieval comes from HydraDB. Local analysis prepares deterministic source cards and relations for indexing, but there is **no local retrieval fallback** when HydraDB is unavailable.
 
@@ -10,7 +10,7 @@ If you want to run the application:
 
 1. Follow [Getting started](getting-started.md).
 2. Learn [what each view shows](views.md).
-3. Work through the practical [Repository Map workflows](workflows.md).
+3. Work through the practical [Argus workflows](workflows.md).
 4. Keep [Troubleshooting](troubleshooting.md) nearby for service, indexing, MCP, and revision errors.
 
 If you first want the product mental model, read [Core concepts](concepts.md) and [Graph IR and source evidence](graph-and-evidence.md).
@@ -23,7 +23,7 @@ flowchart LR
     Analyzer --> Cards["Source cards and exact BYOG relations"]
     Cards --> HydraDB["HydraDB Knowledge"]
     HydraDB --> Service["Loopback Python service and MCP"]
-    Service --> Views["VS Code Repository Map"]
+    Service --> Views["VS Code Argus"]
     Service --> Agents["Codex and Claude Code"]
     Views --> Events["Explicit Observe events"]
     Agents --> Events
@@ -58,7 +58,7 @@ The application provides:
 ### Use the application
 
 - [Getting started](getting-started.md) — install, configure, preview, index, open the views, and optionally connect agents.
-- [Repository Map views](views.md) — what every mode, control, status, badge, and inspector field means.
+- [Argus views](views.md) — what every mode, control, status, badge, and inspector field means.
 - [Workflows](workflows.md) — indexing, orientation, questions, editor focus, comparisons, lenses, and agent following.
 - [Observe](observe.md) — event types, item states, pause, replay, cursor safety, and edit overlays.
 - [Compare and Preserve](compare-and-preserve.md) — checkpoints, deterministic deltas, System Lenses, drift, and acceptance.

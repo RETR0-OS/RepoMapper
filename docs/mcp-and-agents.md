@@ -1,10 +1,10 @@
 # MCP and coding agents
 
-Repository Map exposes one Streamable HTTP MCP endpoint inside the managed service. It is not a second process and it is available only while VS Code is running.
+Argus exposes one Streamable HTTP MCP endpoint inside the managed service. It is not a second process and it is available only while VS Code is running.
 
 ## Configure an agent
 
-Run **Repository Map: Configure Agents**. The extension:
+Run **Argus: Configure Agents**. The extension:
 
 1. starts or attaches to the managed service;
 2. detects `codex` and `claude` without changing configuration;

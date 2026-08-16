@@ -4,7 +4,7 @@
 [Graph and evidence](graph-and-evidence.md) ·
 [Compare and Preserve](compare-and-preserve.md)
 
-Hydra Repository Map helps a developer understand a changing codebase without
+Hydra Argus helps a developer understand a changing codebase without
 pretending that static analysis can see everything that happens at runtime. It
 combines deterministic repository facts with HydraDB retrieval, then presents a
 small, inspectable graph to a person or coding agent.

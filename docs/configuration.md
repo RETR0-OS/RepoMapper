@@ -1,6 +1,6 @@
 # Configuration
 
-Normal users configure Repository Map in VS Code. Marketplace use has no required environment variables or service URL.
+Normal users configure Argus in VS Code. Marketplace use has no required environment variables or service URL.
 
 ## Secret account profiles
 
@@ -38,7 +38,7 @@ whole upload, because the upload is now a background job in the service. It
 bounds the two calls the extension actually waits for: local repository analysis
 and each single job-status request.
 
-The normal service URL is managed automatically. If port 8765 belongs to an unrelated process, Repository Map chooses a stable alternate loopback port and later agent registrations use that port.
+The normal service URL is managed automatically. If port 8765 belongs to an unrelated process, Argus chooses a stable alternate loopback port and later agent registrations use that port.
 
 ## Service indexing limits
 

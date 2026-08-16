@@ -234,7 +234,7 @@ The response body is a job record, not the finished result:
   "error": null,
   "result": null,
   "durable": false,
-  "message": "This index job record lives in the running Repository Map service process. It is not saved to disk: if the service stops, the record and the run are lost and indexing must be started again."
+  "message": "This index job record lives in the running Argus service process. It is not saved to disk: if the service stops, the record and the run are lost and indexing must be started again."
 }
 ```
 

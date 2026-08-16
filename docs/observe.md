@@ -1,6 +1,6 @@
 # Observe explicit repository activity
 
-Observe follows repository activity that the product can prove happened. It shows explicit tool events, HydraDB-returned views and paths, selections, source evidence opened through Repository Map, and matching workspace edits. It does not expose an agent's private reasoning or HydraDB's internal search process.
+Observe follows repository activity that the product can prove happened. It shows explicit tool events, HydraDB-returned views and paths, selections, source evidence opened through Argus, and matching workspace edits. It does not expose an agent's private reasoning or HydraDB's internal search process.
 
 For general graph controls, see [Views](views.md). For a short end-to-end recipe, see [Workflows](workflows.md#follow-explicit-agent-activity). Keyboard and motion behavior are in [Accessibility](accessibility.md).
 
@@ -131,6 +131,6 @@ A same-session event for a different revision is also an integrity failure. The 
 - The timeline is a bounded record, not an audit archive.
 - Pause buffering is UI-only and bounded to 200 events.
 - Event metadata is display-safe and bounded; it is not a channel for hidden chain-of-thought.
-- Only source opened through Repository Map is recorded as evidence opened.
+- Only source opened through Argus is recorded as evidence opened.
 - Only currently visible source-backed nodes can receive the workspace edit overlay.
 - Observe reports explicit product events. Activity outside the instrumented product surface may not appear.

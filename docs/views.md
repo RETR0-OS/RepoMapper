@@ -1,12 +1,12 @@
-# Repository Map views
+# Argus views
 
-Repository Map is a HydraDB-backed VS Code view for answering focused questions about a repository. It renders bounded graph results rather than a full-repository hairball. Source files remain authoritative; the graph is an explanation and navigation surface.
+Argus is a HydraDB-backed VS Code view for answering focused questions about a repository. It renders bounded graph results rather than a full-repository hairball. Source files remain authoritative; the graph is an explanation and navigation surface.
 
 For task-based instructions, see [Workflows](workflows.md). Observe has its own [detailed guide](observe.md). Keyboard, motion, and narrow-panel behavior are covered in [Accessibility](accessibility.md).
 
 ## The VS Code shell
 
-Open **Repository Map** from the Activity Bar, the Command Palette, the status bar, a source editor's context menu, or the `View repository graph` CodeLens at the top of a file.
+Open **Argus** from the Activity Bar, the Command Palette, the status bar, a source editor's context menu, or the `View repository graph` CodeLens at the top of a file.
 
 The Activity Bar container has six native sidebar sections:
 

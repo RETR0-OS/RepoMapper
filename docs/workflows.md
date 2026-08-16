@@ -1,17 +1,17 @@
-# Repository Map workflows
+# Argus workflows
 
 These recipes cover the extension's write, query, editor, Compare, and Preserve flows. For individual controls, see [Views](views.md). For live event following, see [Observe](observe.md). For keyboard and responsive use, see [Accessibility](accessibility.md).
 
 ## Before you start
 
-Repository Map bundles and manages a loopback service. The extension host keeps service access, SecretStorage, and filesystem selection out of the webview. The first window owns the process and other windows attach with project-bound tokens.
+Argus bundles and manages a loopback service. The extension host keeps service access, SecretStorage, and filesystem selection out of the webview. The first window owns the process and other windows attach with project-bound tokens.
 
 The active editor's workspace folder wins. A single folder is automatic; an ambiguous multi-root workspace uses a native picker. The canonical opened folder remains the scan boundary.
 
 ## Index a repository safely
 
 1. Open the repository as a VS Code workspace.
-2. Run **Repository Map: Index Workspace with HydraDB**, or select **Index this workspace** in the HydraDB Index Status sidebar.
+2. Run **Argus: Index Workspace with HydraDB**, or select **Index this workspace** in the HydraDB Index Status sidebar.
 3. Wait while the service derives a clean Git SHA or analyzed-content revision and builds the local preview. No upload occurs.
 4. Review the modal. It shows the selected root, stable repository ID, revision, discovered and ignored files, graph node and relation counts, generated source cards, a bounded source list, and diagnostics.
 5. Select **Upload to HydraDB** only if the root, revision, and scope are correct. Canceling performs no upload.
@@ -23,7 +23,7 @@ The validated workspace scope is authoritative. The extension never turns the pr
 
 ## Orient to a repository
 
-1. Open **Repository Map** from the Activity Bar or Command Palette.
+1. Open **Argus** from the Activity Bar or Command Palette.
 2. Confirm that the header says `HydraDB · revision … ready` and names the expected revision.
 3. Start at **Packages** or **Files** depth.
 4. Use relation chips to keep only the predicates relevant to your question.
@@ -49,13 +49,13 @@ The editor context menu provides:
 
 | Command | Opens | Request semantics |
 |---|---|---|
-| **Show in Repository Map** | Repository | Focus bounded structure on the active workspace file and selected line. |
+| **Show in Argus** | Repository | Focus bounded structure on the active workspace file and selected line. |
 | **Show Callers and Callees** | Explore | Request a bounded caller/callee neighborhood. |
 | **Trace Flow from Here** | Trace | Request a HydraDB-backed flow starting from this source location. |
 | **Find Tests for This Symbol** | Explore | Request exact, evidence-backed test relations. |
 | **Ask HydraDB About This Code** | Trace | Prompt for a separate concrete question. |
 
-`View repository graph`, shown as a CodeLens at the top of a file, runs **Show in Repository Map**.
+`View repository graph`, shown as a CodeLens at the top of a file, runs **Show in Argus**.
 
 Focused commands send only a workspace-relative file path and the one-based selected line. They do not claim that a cursor line identifies an exact symbol. If returned evidence resolves a symbol, the result may focus it; otherwise the service should remain at file-level evidence.
 

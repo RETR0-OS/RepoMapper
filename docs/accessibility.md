@@ -1,6 +1,6 @@
 # Accessibility and responsive behavior
 
-Repository Map provides a keyboard-operable graph, a textual equivalent for visible relations, explicit state labels, reduced-motion behavior, and VS Code theme integration. This page describes the current controls and limits.
+Argus provides a keyboard-operable graph, a textual equivalent for visible relations, explicit state labels, reduced-motion behavior, and VS Code theme integration. This page describes the current controls and limits.
 
 For the six modes and common controls, see [Views](views.md). For task recipes, see [Workflows](workflows.md). Observe-specific event semantics are in [Observe](observe.md).
 
@@ -36,7 +36,7 @@ Visual node names may be shortened to 21 characters on the canvas. The accessibl
 
 ## State is not color alone
 
-Repository Map combines color with text and shape:
+Argus combines color with text and shape:
 
 - inferred edges are dashed and include an `inferred` label;
 - returned, selected, opened, and edited nodes have `RETURNED`, `SELECTED`, `OPENED`, and `EDITED` badges;
@@ -49,7 +49,7 @@ Do not use color alone when reviewing a view. Confirm the badge, relation qualit
 
 ## Reduced motion
 
-Repository Map honors `prefers-reduced-motion: reduce`.
+Argus honors `prefers-reduced-motion: reduce`.
 
 When reduced motion is enabled:
 

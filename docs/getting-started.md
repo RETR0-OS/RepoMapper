@@ -15,7 +15,7 @@ You do not need Python, pip, uv, Node.js, npm, or an MCP process.
 
 ## 1. Install and open a project
 
-Install the platform-specific Repository Map package, then open the project folder in VS Code. Repository Map selects the project in this order:
+Install the platform-specific Argus package, then open the project folder in VS Code. Argus selects the project in this order:
 
 1. the workspace folder containing the active editor;
 2. the only open workspace folder;
@@ -25,7 +25,7 @@ Only local `file:` folders are supported. The selected folder is resolved to its
 
 ## 2. Complete first-run setup
 
-The extension offers setup automatically. You can reopen it with **Repository Map: Set Up Repository Map**.
+The extension offers setup automatically. You can reopen it with **Argus: Set Up Argus**.
 
 1. Confirm the selected project shown by VS Code.
 2. Select an existing HydraDB account profile or create one.
@@ -50,11 +50,11 @@ The preview is local analysis only. It shows:
 
 A clean Git project uses the full commit SHA as its revision. A dirty or non-Git project uses a deterministic digest of the analyzed content. The confirmation token is single-use and expires after ten minutes. If files change after preview, confirmation is rejected and a new preview is required.
 
-Select **Upload to HydraDB** only after the scope looks right. Repository Map waits for HydraDB to confirm every changed source and deletion. Partial results are shown as failed or indeterminate; they are never relabeled ready.
+Select **Upload to HydraDB** only after the scope looks right. Argus waits for HydraDB to confirm every changed source and deletion. Partial results are shown as failed or indeterminate; they are never relabeled ready.
 
-## 4. Open Repository Map
+## 4. Open Argus
 
-Open the Repository Map activity item or run **Repository Map: Open Repository Map**. Start with:
+Open the Argus activity item or run **Argus: Open Argus**. Start with:
 
 - [Repository](views.md#repository) for orientation;
 - [Explore](views.md#explore) around a selected entity;
@@ -67,7 +67,7 @@ Selecting a concrete node opens its file and line. Selecting an exact edge opens
 
 ## 5. Optionally configure agents
 
-Run **Repository Map: Configure Agents**. The extension detects installed Codex and Claude Code clients, lets you choose them, and previews the exact registration commands. It does not edit their configuration files directly.
+Run **Argus: Configure Agents**. The extension detects installed Codex and Claude Code clients, lets you choose them, and previews the exact registration commands. It does not edit their configuration files directly.
 
 The stored registration is only the current loopback `/mcp` URL. On first access:
 
@@ -77,7 +77,7 @@ The stored registration is only the current loopback `/mcp` URL. On first access
 4. you select a registered project if more than one is open;
 5. you approve the client name and read-only scopes.
 
-Repository Map must remain open while agents use MCP. See [MCP and agents](mcp-and-agents.md).
+Argus must remain open while agents use MCP. See [MCP and agents](mcp-and-agents.md).
 
 ## Everyday use
 

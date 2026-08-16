@@ -1,6 +1,6 @@
 # Trust and safety
 
-Repository Map handles repository source, a HydraDB API key, a project database binding, and coding-agent authorization. Its security model separates ordinary extension state, OS-backed secret storage, private local IPC, authenticated loopback APIs, and HydraDB HTTPS.
+Argus handles repository source, a HydraDB API key, a project database binding, and coding-agent authorization. Its security model separates ordinary extension state, OS-backed secret storage, private local IPC, authenticated loopback APIs, and HydraDB HTTPS.
 
 ## SecretStorage boundary
 

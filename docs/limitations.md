@@ -81,7 +81,7 @@ Do not make a “better” or percentage claim unless all questions, all three c
 
 The service binds to loopback only and still authenticates managed REST and MCP calls. It is not designed to be exposed directly to a network.
 
-Indexed identity migration is deliberately conservative. HydraDB v2 does not currently give this product a proven exhaustive metadata-delete operation for both current and evolution sources. Repository Map therefore migrates an unindexed local identity, but preserves an indexed legacy identity rather than silently orphaning records.
+Indexed identity migration is deliberately conservative. HydraDB v2 does not currently give this product a proven exhaustive metadata-delete operation for both current and evolution sources. Argus therefore migrates an unindexed local identity, but preserves an indexed legacy identity rather than silently orphaning records.
 
 The packaged release supports local VS Code desktop on Windows, macOS, and Linux x64/ARM64. Web, Codespaces, Remote SSH, WSL-hosted extension processes, Alpine, and ARMHF are not supported.
 

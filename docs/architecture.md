@@ -4,7 +4,7 @@
 [Graph and evidence](graph-and-evidence.md) ·
 [Compare and Preserve](compare-and-preserve.md)
 
-Hydra Repository Map has one production knowledge and retrieval substrate:
+Hydra Argus has one production knowledge and retrieval substrate:
 HydraDB. Local analysis creates upload material and deterministic diff inputs;
 it does not become a second repository query engine.
 

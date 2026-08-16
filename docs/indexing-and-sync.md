@@ -149,14 +149,14 @@ a fresh preview of the complete repository snapshot, and explicitly index it
 again. Confirm `ready` before relying on current queries.
 
 Each source's HydraDB `additional_metadata` is capped at 1,024 serialized bytes.
-Repository Map removes duplicated display/evidence bookkeeping before upload
+Argus removes duplicated display/evidence bookkeeping before upload
 and drops an optional long signature only when needed. Required path, identity,
 span, parser, and content-hash fields are never silently truncated. An
 unavoidable overflow fails locally before any batch is sent.
 
 ## Index from VS Code
 
-Run **Repository Map: Index Workspace with HydraDB**. The extension calls the
+Run **Argus: Index Workspace with HydraDB**. The extension calls the
 authenticated preview endpoint, shows the selected root, automatic revision,
 and upload scope, then writes only after confirmation. The preview body is
 empty; confirmation contains only the opaque preview token. Confirmation starts

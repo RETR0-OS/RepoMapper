@@ -66,13 +66,13 @@ only; killing the service loses the job record, and the script then fails the
 stage instead of waiting.
 
 To trace HydraDB requests inside VS Code instead, start VS Code with
-`HYDRA_DEBUG_HTTP=1` and open **Output: Repository Map Service**. That variable adds
+`HYDRA_DEBUG_HTTP=1` and open **Output: Argus Service**. That variable adds
 the local failure text of each attempt. The method, address, attempt, duration, and
 outcome are always recorded, with or without it.
 
 ## Read the query funnel
 
-Every query writes one line to **Output: Repository Map Service**. The line names
+Every query writes one line to **Output: Argus Service**. The line names
 the time of each stage and the count at each stage. It holds no repository content
 and no credential.
 
@@ -120,13 +120,13 @@ with Ctrl+C. Set `CODE_LOG_ROOT` for VS Code Insiders or a portable install.
 
 ## Setup did not appear
 
-Run **Repository Map: Set Up Repository Map**. Make sure a local folder is open. Remote workspaces, WSL extension hosts, Codespaces, and web VS Code are not supported in this release.
+Run **Argus: Set Up Argus**. Make sure a local folder is open. Remote workspaces, WSL extension hosts, Codespaces, and web VS Code are not supported in this release.
 
 In a multi-root workspace, open a file in the intended folder or select it from the native picker.
 
 ## Read access test failed
 
-Repository Map does not show the stored key or database. Check the values outside the extension, then:
+Argus does not show the stored key or database. Check the values outside the extension, then:
 
 - run **Replace HydraDB API Key** to enter a replacement key;
 - run **Remove Project Database Binding**, then setup, to enter the database again;
@@ -145,12 +145,12 @@ duration, and outcome.
 
 ## Managed service is unavailable
 
-Try **Repository Map: Refresh Repository Map**. An expired or invalid project
+Try **Argus: Refresh Argus**. An expired or invalid project
 grant is reattached automatically after HTTP 401. A timeout or dropped
 connection keeps the managed session intact, so the next request can retry
 without killing a healthy service or an active index job.
 
-Open **Output: Repository Map Service** for bounded diagnostics. The service sends
+Open **Output: Argus Service** for bounded diagnostics. The service sends
 each log line, including the HTTP access log, to that channel. Do not paste secrets
 into issue reports.
 
@@ -160,7 +160,7 @@ If the bundled service hash or protocol is wrong, reinstall the exact platform p
 
 ## Port 8765 is occupied
 
-The extension chooses a stable alternate loopback port automatically. Run **Configure Agents** again if an existing Codex or Claude Code registration still points to an old port. Repository Map never edits agent configuration silently.
+The extension chooses a stable alternate loopback port automatically. Run **Configure Agents** again if an existing Codex or Claude Code registration still points to an old port. Argus never edits agent configuration silently.
 
 ## Index preview changed or expired
 
@@ -193,11 +193,11 @@ local manifest is not updated.
 
 Do not treat the last revision label as proof that all old content remains visible. Retry only after HydraDB is available and review the full new preview. A successful full sync restores a verified manifest.
 
-If a legacy manifest had a database field, Repository Map removes it. A mismatched secure binding leaves the project unverified until a new confirmed index succeeds.
+If a legacy manifest had a database field, Argus removes it. A mismatched secure binding leaves the project unverified until a new confirmed index succeeds.
 
 ## Git identity changed
 
-Run **Review Repository Identity**. Repository Map keeps the existing ID unless it can prove that migration will not orphan indexed current or evolution sources. An unindexed local identity can migrate with its SecretStorage binding. An indexed identity requires an explicit data reset/migration outside this release.
+Run **Review Repository Identity**. Argus keeps the existing ID unless it can prove that migration will not orphan indexed current or evolution sources. An unindexed local identity can migrate with its SecretStorage binding. An indexed identity requires an explicit data reset/migration outside this release.
 
 Raw remote URLs are never shown because they may contain credentials.
 

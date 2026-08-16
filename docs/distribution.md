@@ -1,6 +1,6 @@
 # Packaging and distribution
 
-Repository Map is released as six platform-specific VSIX packages. Each package includes the TypeScript extension and a native one-directory Python service build.
+Argus is released as six platform-specific VSIX packages. Each package includes the TypeScript extension and a native one-directory Python service build.
 
 ## Release targets
 
@@ -132,7 +132,7 @@ code --install-extension ".\artifacts\repository-map-$target.vsix" --force
 code .
 ```
 
-In VS Code, run **Developer: Reload Window**, then run **Repository Map: Setup**
+In VS Code, run **Developer: Reload Window**, then run **Argus: Setup**
 from the Command Palette. Complete the masked HydraDB setup, review the index
 preview, cancel once to prove cancellation is safe, then confirm a fresh
 preview. Exercise Repository, Explore, Trace, Observe, Compare, and Preserve.
