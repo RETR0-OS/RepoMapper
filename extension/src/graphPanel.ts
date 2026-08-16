@@ -118,7 +118,7 @@ export class GraphPanel implements vscode.Disposable {
     if (!this.panel) {
       this.panel = vscode.window.createWebviewPanel(
         "hydra.repositoryMap",
-        "Repository Map",
+        "Argus",
         vscode.ViewColumn.Active,
         {
           enableScripts: true,
@@ -175,7 +175,7 @@ export class GraphPanel implements vscode.Disposable {
 
   private client(forWrite = false): RepositoryServiceClient {
     if (!this.repositoryScope) {
-      throw new ServiceError("Open a local workspace folder to use Repository Map.");
+      throw new ServiceError("Open a local workspace folder to use Argus.");
     }
     return this.clientFactory(forWrite);
   }
@@ -399,7 +399,7 @@ export class GraphPanel implements vscode.Disposable {
     this.post({ type: "loading", mode: "observe", message: "Starting bounded observable-event follow…" });
     const cwd = this.repositoryScope?.repositoryRoot;
     if (cwd && !await isAgentInstalled(cwd)) {
-      this.post({ type: "agentGate", message: "Agent Traversal requires a configured coding agent (Codex or Claude Code). Install one and register it with Repository Map." });
+      this.post({ type: "agentGate", message: "Agent Traversal requires a configured coding agent (Codex or Claude Code). Install one and register it with Argus." });
       return;
     }
     let client: RepositoryServiceClient | undefined;
@@ -720,7 +720,7 @@ export class GraphPanel implements vscode.Disposable {
     const roots = vscode.workspace.workspaceFolders?.map((folder) => folder.uri.fsPath) ?? [];
     const validated = validateSourceRange(source, roots);
     if (!validated) {
-      void vscode.window.showWarningMessage("Repository Map blocked a source path outside the active workspace.");
+      void vscode.window.showWarningMessage("Argus blocked a source path outside the active workspace.");
       return;
     }
     const uri = vscode.Uri.file(validated.absolutePath);
@@ -767,7 +767,7 @@ export class GraphPanel implements vscode.Disposable {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}'; font-src ${webview.cspSource};">
   <link rel="stylesheet" href="${styles}">
-  <title>Repository Map</title>
+  <title>Argus</title>
 </head>
 <body>
   <div id="app"></div>

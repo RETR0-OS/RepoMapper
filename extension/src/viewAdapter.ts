@@ -162,7 +162,7 @@ export function normalizeGraphView(value: unknown, fallbackMode: ViewMode): Grap
   const view = record(value);
   const schema = textValue(view.view_schema);
   if (schema && !["hack-hydra.product-view.v1", "hack-hydra.product-view.v2"].includes(schema)) {
-    throw new Error("Repository Map view schema is not supported by this extension.");
+    throw new Error("Argus view schema is not supported by this extension.");
   }
   const revision = textValue(view.revision_id ?? view.revision, "unknown");
   const rawNodes = Array.isArray(view.nodes) ? view.nodes : [];

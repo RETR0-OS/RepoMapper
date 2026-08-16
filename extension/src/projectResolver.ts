@@ -42,7 +42,7 @@ export async function selectCurrentProjectFolder(): Promise<vscode.WorkspaceFold
   const folders = (vscode.workspace.workspaceFolders ?? []).filter((folder) => folder.uri.scheme === "file");
   if (folders.length === 1) return folders[0];
   if (folders.length === 0) return undefined;
-  return vscode.window.showWorkspaceFolderPick({ placeHolder: "Select the project Repository Map should use" });
+  return vscode.window.showWorkspaceFolderPick({ placeHolder: "Select the project Argus should use" });
 }
 
 export async function resolveCurrentProject(): Promise<ResolvedProject | undefined> {

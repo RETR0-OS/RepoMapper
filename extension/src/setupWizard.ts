@@ -98,7 +98,7 @@ export async function removeProjectCredentials(vault: CredentialVault, project: 
   }
   const confirmed = await vscode.window.showWarningMessage(
     `Remove the stored HydraDB database binding for ${project.projectName}?`,
-    { modal: true, detail: "This does not delete HydraDB data. Repository Map becomes unavailable until setup is run again." },
+    { modal: true, detail: "This does not delete HydraDB data. Argus becomes unavailable until setup is run again." },
     "Remove binding"
   );
   if (confirmed !== "Remove binding") return;

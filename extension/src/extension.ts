@@ -50,7 +50,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     project = await resolveCurrentProject();
   } catch (error) {
     void vscode.window.showErrorMessage(
-      `Repository Map could not resolve the current project. ${error instanceof Error ? error.message : "Unknown project error."}`
+      `Argus could not resolve the current project. ${error instanceof Error ? error.message : "Unknown project error."}`
     );
   }
   const repositoryScope = project;
@@ -64,8 +64,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
   activeRuntime = runtime;
   const repositoryStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 90);
-  repositoryStatus.name = "Repository Map";
-  repositoryStatus.text = "$(type-hierarchy) Repository Map";
+  repositoryStatus.name = "Argus";
+  repositoryStatus.text = "$(type-hierarchy) Argus";
   repositoryStatus.tooltip = "Open the repository observability map";
   repositoryStatus.command = "hydra.openRepositoryMap";
   repositoryStatus.show();
@@ -101,13 +101,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const configuredClient = () => {
     if (!runtime) {
-      throw new Error("Open a local workspace folder to use Repository Map.");
+      throw new Error("Open a local workspace folder to use Argus.");
     }
     const configuration = vscode.workspace.getConfiguration("hydra");
     return runtime.client(configuration.get<number>("indexTimeoutMs", 300000));
   };
   const panel = new GraphPanel(context, updateHealth, repositoryScope, (forWrite) => {
-    if (!runtime) throw new Error("Open a local workspace folder to use Repository Map.");
+    if (!runtime) throw new Error("Open a local workspace folder to use Argus.");
     const configuration = vscode.workspace.getConfiguration("hydra");
     return runtime.client(forWrite
       ? configuration.get<number>("indexTimeoutMs", 300000)
@@ -284,7 +284,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const show = (mode: ViewMode) => panel.show(mode);
   const setupProject = async (): Promise<void> => {
     if (!project) {
-      void vscode.window.showWarningMessage("Open a local project folder before configuring Repository Map.");
+      void vscode.window.showWarningMessage("Open a local project folder before configuring Argus.");
       return;
     }
     const configured = await runCredentialSetup(credentialVault, project);
@@ -309,7 +309,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     );
     if (next === "Preview initial index") await vscode.commands.executeCommand("hydra.indexRepository");
     const agents = await vscode.window.showInformationMessage(
-      "Optionally connect Repository Map to installed coding agents through read-only OAuth.",
+      "Optionally connect Argus to installed coding agents through read-only OAuth.",
       "Configure agents",
       "Later"
     );
@@ -341,7 +341,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           picked: true
         })),
         {
-          title: "Configure Repository Map agents",
+          title: "Configure Argus agents",
           placeHolder: "Choose the installed clients to configure",
           canPickMany: true,
           ignoreFocusOut: true
@@ -350,7 +350,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!selected?.length) return;
       const commands = selected.map((item) => formatRegistration(item.registration)).join("\n");
       const confirm = await vscode.window.showInformationMessage(
-        `Register Repository Map with ${selected.map((item) => item.label).join(" and ")}?`,
+        `Register Argus with ${selected.map((item) => item.label).join(" and ")}?`,
         {
           modal: true,
           detail: `The extension will run exactly:\n${commands}\n\nOnly the loopback MCP URL is stored. Each client must complete read-only OAuth while VS Code is open.`
@@ -360,13 +360,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (confirm !== "Run registration") return;
       await vscode.window.withProgress({
         location: vscode.ProgressLocation.Notification,
-        title: "Registering Repository Map with coding agents…",
+        title: "Registering Argus with coding agents…",
         cancellable: false
       }, async () => {
         for (const item of selected) await registerAgent(item.registration, project.repositoryRoot);
       });
       void vscode.window.showInformationMessage(
-        "Repository Map was registered. Approve the native read-only consent prompt when an agent first connects."
+        "Argus was registered. Approve the native read-only consent prompt when an agent first connects."
       );
     } catch (error) {
       void vscode.window.showErrorMessage(
@@ -379,7 +379,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const decisionKey = `hydra.identity.keep.${project.candidateIdentity.repository_id}`;
     if (!prompt && context.workspaceState.get<boolean>(decisionKey, false)) return;
     const choice = await vscode.window.showInformationMessage(
-      `${project.projectName} now has a canonical Git identity. Review it before changing the existing Repository Map identity.`,
+      `${project.projectName} now has a canonical Git identity. Review it before changing the existing Argus identity.`,
       "Review migration",
       "Keep existing identity"
     );
@@ -549,7 +549,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
   if (project && !credentialVault.hasProjectBinding(project.repositoryId)) {
     const action = await vscode.window.showInformationMessage(
-      `Set up Repository Map for ${project.projectName} without using the terminal.`,
+      `Set up Argus for ${project.projectName} without using the terminal.`,
       "Start setup"
     );
     if (action === "Start setup") await vscode.commands.executeCommand("hydra.setup");

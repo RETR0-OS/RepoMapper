@@ -1,6 +1,6 @@
-# Repository Map
+# Argus
 
-Repository Map is a desktop VS Code extension for understanding a codebase, inspecting the HydraDB context returned to coding agents, and reviewing structural change over time.
+Argus is a desktop VS Code extension for understanding a codebase, inspecting the HydraDB context returned to coding agents, and reviewing structural change over time.
 
 The Marketplace build is plug-and-play: install the extension, open a local project, and follow the setup prompts. It bundles and manages its Python service. Users do not install Python, Node.js, packages, or a separate MCP server.
 
@@ -8,14 +8,14 @@ The central truth rule remains strict: production retrieval comes from HydraDB. 
 
 ## Use it
 
-1. Install the platform-specific Repository Map VSIX or Marketplace package.
+1. Install the platform-specific Argus VSIX or Marketplace package.
 2. Open a local folder in VS Code.
-3. Run **Repository Map: Set Up Repository Map** if the walkthrough does not open automatically.
+3. Run **Argus: Set Up Argus** if the walkthrough does not open automatically.
 4. Create or select a HydraDB account profile.
 5. Enter the API key and this project's database name in masked fields.
 6. Let the extension test read access, preview the index, and ask before uploading.
-7. Open the Repository Map activity item.
-8. Optionally run **Repository Map: Configure Agents** for Codex or Claude Code.
+7. Open the Argus activity item.
+8. Optionally run **Argus: Configure Agents** for Codex or Claude Code.
 
 API keys, project database names, installation keys, and OAuth grant records live in VS Code SecretStorage. They are not placed in settings, project files, environment variables, command arguments, MCP configuration, webview messages, or logs.
 
@@ -31,7 +31,7 @@ API keys, project database names, installation keys, and OAuth grant records liv
 
 ```mermaid
 flowchart LR
-    Project["Opened VS Code project"] --> Extension["Repository Map extension"]
+    Project["Opened VS Code project"] --> Extension["Argus extension"]
     Extension --> Analyzer["Bundled Python analyzer"]
     Analyzer --> HydraDB["HydraDB Knowledge"]
     HydraDB --> Views["Six repository views"]
@@ -45,13 +45,13 @@ The active editor's workspace folder is the current project. A single open folde
 
 New Git projects use a credential-free fingerprint of the normalized `origin` remote. HTTPS and SSH clones of the same remote receive the same identity. Opened subprojects also receive a stable Git-relative suffix. Non-Git projects receive a random local identity stored in `.hydra-graph/identity.json`.
 
-Existing identities are preserved. If Git is added later, Repository Map previews the candidate identity. It migrates automatically only when no indexed source can be orphaned; otherwise it keeps the old identity and explains why.
+Existing identities are preserved. If Git is added later, Argus previews the candidate identity. It migrates automatically only when no indexed source can be orphaned; otherwise it keeps the old identity and explains why.
 
 ## Managed service and MCP
 
 The first VS Code window starts the bundled service on loopback. Other windows authenticate, attach, and register their own project. A stale window session is discarded after a network or authentication failure so another window can take ownership. An occupied default port causes a stable alternate loopback port to be selected.
 
-**Repository Map: Configure Agents** detects installed Codex and Claude Code clients, shows the exact supported CLI commands, and runs only the selected registrations after confirmation. Agent configuration contains only the current loopback `/mcp` URL. First access uses OAuth 2.1 dynamic registration, PKCE S256, short-lived access tokens, rotating refresh tokens, revocation, and a native project/scope consent dialog.
+**Argus: Configure Agents** detects installed Codex and Claude Code clients, shows the exact supported CLI commands, and runs only the selected registrations after confirmation. Agent configuration contains only the current loopback `/mcp` URL. First access uses OAuth 2.1 dynamic registration, PKCE S256, short-lived access tokens, rotating refresh tokens, revocation, and a native project/scope consent dialog.
 
 ## Security boundary
 

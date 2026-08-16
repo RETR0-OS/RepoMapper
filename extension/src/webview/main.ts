@@ -48,7 +48,7 @@ const PRIMARY_LABELS: Record<ViewMode, string> = {
 
 const app = document.querySelector<HTMLElement>("#app");
 if (!app) {
-  throw new Error("Repository Map requires an #app element.");
+  throw new Error("Argus requires an #app element.");
 }
 
 const vscode = window.acquireVsCodeApi?.() ?? createBrowserApi();
@@ -82,14 +82,14 @@ app.innerHTML = `
     <header class="topbar">
       <div class="identity">
         <span class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-        <div><strong>Repository Map</strong><span>See your code like your agent</span></div>
+        <div><strong>Argus</strong><span>See your code like your agent</span></div>
       </div>
       <div class="status-cluster">
         <span id="service-status" class="status-pill"></span>
         <span id="revision-status" class="meta-pill"></span>
       </div>
     </header>
-    <nav id="mode-tabs" class="mode-tabs" aria-label="Repository Map modes"></nav>
+    <nav id="mode-tabs" class="mode-tabs" aria-label="Argus modes"></nav>
     <section class="querybar" aria-label="Repository question and view controls">
       <form id="query-form" class="query-form">
         <label class="sr-only" for="query-input">Ask about the repository</label>

@@ -81,7 +81,7 @@ class SummaryProvider implements vscode.TreeDataProvider<SummaryItem> {
       ];
     }
     const copy: Record<Exclude<Section, "current" | "status">, [string, string, string, string]> = {
-      entrypoints: ["Open repository map", health.state === "ready" ? "Load verified entrypoints" : "Requires a verified revision", "symbol-event", "repository"],
+      entrypoints: ["Open Argus", health.state === "ready" ? "Load verified entrypoints" : "Requires a verified revision", "symbol-event", "repository"],
       lenses: ["No loaded lenses", health.state === "ready" ? "Open Preserve to review" : "Requires HydraDB Memory", "bookmark", "preserve"],
       changes: ["Review graph changes", health.state === "ready" ? "Compare verified revisions" : "Requires repository service", "diff", "compare"],
       activity: ["Observe agent activity", health.state === "ready" ? "Follow explicit tool events" : "Requires repository service", "pulse", "observe"]

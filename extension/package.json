@@ -1,13 +1,13 @@
 {
   "name": "hydra-repository-observability",
-  "displayName": "Repository Map",
+  "displayName": "Argus",
   "description": "HydraDB-backed repository observability for agentic coding.",
   "version": "0.1.0",
   "publisher": "hack-hydra",
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
     "type": "git",
-    "url": "https://github.com/RETR0-OS/RepoMapper.git"
+    "url": "https://github.com/RETR0-OS/Argus.git"
   },
   "engines": {
     "vscode": "^1.96.0"
@@ -36,89 +36,89 @@
     "commands": [
       {
         "command": "hydra.openRepositoryMap",
-        "title": "Open Repository Map",
-        "category": "Repository Map"
+        "title": "Open Argus",
+        "category": "Argus"
       },
       {
         "command": "hydra.showInRepositoryMap",
-        "title": "Show in Repository Map",
-        "category": "Repository Map"
+        "title": "Show in Argus",
+        "category": "Argus"
       },
       {
         "command": "hydra.showCallersAndCallees",
         "title": "Show Callers and Callees",
-        "category": "Repository Map"
+        "category": "Argus"
       },
       {
         "command": "hydra.traceFlowFromHere",
         "title": "Trace Flow from Here",
-        "category": "Repository Map"
+        "category": "Argus"
       },
       {
         "command": "hydra.findTests",
         "title": "Find Tests for This Symbol",
-        "category": "Repository Map"
+        "category": "Argus"
       },
       {
         "command": "hydra.askAboutCode",
         "title": "Ask HydraDB About This Code",
-        "category": "Repository Map"
+        "category": "Argus"
       },
       {
         "command": "hydra.compareGraph",
         "title": "Start or Finish Comparison",
-        "category": "Repository Map"
+        "category": "Argus"
       },
       {
         "command": "hydra.saveSystemLens",
         "title": "Save as System Lens",
-        "category": "Repository Map"
+        "category": "Argus"
       },
       {
         "command": "hydra.followAgent",
         "title": "Follow Agent",
-        "category": "Repository Map"
+        "category": "Argus"
       },
       {
         "command": "hydra.refresh",
-        "title": "Refresh Repository Map",
-        "category": "Repository Map",
+        "title": "Refresh Argus",
+        "category": "Argus",
         "icon": "$(refresh)"
       },
       {
         "command": "hydra.configureService",
-        "title": "Configure Repository Map",
-        "category": "Repository Map"
+        "title": "Configure Argus",
+        "category": "Argus"
       },
       {
         "command": "hydra.setup",
-        "title": "Set Up Repository Map",
-        "category": "Repository Map"
+        "title": "Set Up Argus",
+        "category": "Argus"
       },
       {
         "command": "hydra.configureAgents",
         "title": "Configure Agents",
-        "category": "Repository Map"
+        "category": "Argus"
       },
       {
         "command": "hydra.reviewIdentity",
         "title": "Review Repository Identity",
-        "category": "Repository Map"
+        "category": "Argus"
       },
       {
         "command": "hydra.replaceApiKey",
         "title": "Replace HydraDB API Key",
-        "category": "Repository Map"
+        "category": "Argus"
       },
       {
         "command": "hydra.removeProjectBinding",
         "title": "Remove Project Database Binding",
-        "category": "Repository Map"
+        "category": "Argus"
       },
       {
         "command": "hydra.indexRepository",
         "title": "Index Workspace with HydraDB",
-        "category": "Repository Map",
+        "category": "Argus",
         "icon": "$(cloud-upload)"
       }
     ],
@@ -162,7 +162,7 @@
       "activitybar": [
         {
           "id": "hydra.repositoryMap",
-          "title": "Repository Map",
+          "title": "Argus",
           "icon": "media/repository-map.svg"
         }
       ]
@@ -196,7 +196,7 @@
       ]
     },
     "configuration": {
-      "title": "Repository Map",
+      "title": "Argus",
       "properties": {
         "hydra.developerMode": {
           "type": "boolean",
@@ -206,7 +206,7 @@
         "hydra.developerServiceUrl": {
           "type": "string",
           "default": "http://127.0.0.1:8765",
-          "description": "Loopback service URL used only when Repository Map developer mode is enabled."
+          "description": "Loopback service URL used only when Argus developer mode is enabled."
         },
         "hydra.requestTimeoutMs": {
           "type": "number",

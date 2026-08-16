@@ -29,7 +29,7 @@ export function previewIdentityMigration(
     canMigrateWithoutOrphans,
     explanation: canMigrateWithoutOrphans
       ? "No indexed current sources exist, so the local identity and secure database binding can move without orphaning HydraDB data."
-      : "Repository Map will keep the existing identity because it cannot prove exhaustive deletion of current and evolution sources. Reset or migrate the HydraDB data explicitly before changing this identity."
+      : "Argus will keep the existing identity because it cannot prove exhaustive deletion of current and evolution sources. Reset or migrate the HydraDB data explicitly before changing this identity."
   };
 }
 

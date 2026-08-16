@@ -102,7 +102,7 @@ function requireManagedMcpUrl(value: string): string {
   }
   if (parsed.protocol !== "http:" || parsed.hostname !== "127.0.0.1" || !parsed.port
     || parsed.username || parsed.password || parsed.search || parsed.hash || parsed.pathname !== "/mcp") {
-    throw new Error("Managed MCP URL must be the loopback Repository Map endpoint.");
+    throw new Error("Managed MCP URL must be the loopback Argus endpoint.");
   }
   return parsed.toString().replace(/\/$/, "");
 }

@@ -51,7 +51,7 @@ export class ManagedRuntime implements vscode.Disposable, vscode.UriHandler {
     resolve: (repositoryId?: string) => void;
     timer: NodeJS.Timeout;
   }>();
-  private readonly output = vscode.window.createOutputChannel("Repository Map Service", { log: true });
+  private readonly output = vscode.window.createOutputChannel("Argus Service", { log: true });
 
   public constructor(
     private readonly context: vscode.ExtensionContext,
@@ -105,7 +105,7 @@ export class ManagedRuntime implements vscode.Disposable, vscode.UriHandler {
           project
         })),
         {
-          title: `${message.client_name} Repository Map access`,
+          title: `${message.client_name} Argus access`,
           placeHolder: "Select the project this agent may read",
           ignoreFocusOut: true
         }
@@ -115,7 +115,7 @@ export class ManagedRuntime implements vscode.Disposable, vscode.UriHandler {
       return;
     }
     const approved = await vscode.window.showInformationMessage(
-      `${message.client_name} wants read-only Repository Map access to ${selected.project_name}.`,
+      `${message.client_name} wants read-only Argus access to ${selected.project_name}.`,
       {
         modal: true,
         detail: `Requested scopes: ${message.scopes.join(", ")}. This does not reveal HydraDB credentials or allow indexing writes.`
@@ -126,7 +126,7 @@ export class ManagedRuntime implements vscode.Disposable, vscode.UriHandler {
   }
 
   public async ensureReady(): Promise<ManagedSession> {
-    if (this.disposed) throw new Error("Repository Map service runtime is closed.");
+    if (this.disposed) throw new Error("Argus service runtime is closed.");
     const now = Math.floor(Date.now() / 1_000);
     if (this.session && this.session.expiresAt > now + 30) return this.session;
     if (!this.starting) {
@@ -168,7 +168,7 @@ export class ManagedRuntime implements vscode.Disposable, vscode.UriHandler {
         if (candidate) return candidate;
       }
       if (!await this.acquireOwnerLock(preferred, true)) {
-        throw new Error("Another VS Code window owns the Repository Map service but it did not become ready.");
+        throw new Error("Another VS Code window owns the Argus service but it did not become ready.");
       }
     }
 
@@ -177,7 +177,7 @@ export class ManagedRuntime implements vscode.Disposable, vscode.UriHandler {
     await this.writeOwnerRecord(port);
     await this.startOwnedService(port, secrets.control_key);
     const session = await this.tryAttach(port, secrets.control_key);
-    if (!session) throw new Error("Managed Repository Map service started but authentication failed.");
+    if (!session) throw new Error("Managed Argus service started but authentication failed.");
     return session;
   }
 
@@ -245,7 +245,7 @@ export class ManagedRuntime implements vscode.Disposable, vscode.UriHandler {
         // is the only way the user can reach the real reason from a notification.
         throw new Error(
           `Managed service exited with code ${child.exitCode} during startup. `
-          + "Open the \"Repository Map Service\" output channel for the reason."
+          + "Open the \"Argus Service\" output channel for the reason."
         );
       }
       return await this.probeVersion(port);
@@ -369,7 +369,7 @@ export class ManagedRuntime implements vscode.Disposable, vscode.UriHandler {
       const candidate = stableStart + offset;
       if (await portIsFree(candidate)) return candidate;
     }
-    throw new Error("Repository Map could not find an available loopback port.");
+    throw new Error("Argus could not find an available loopback port.");
   }
 
   private async acquireOwnerLock(preferredPort: number, replaceStale = false): Promise<boolean> {
@@ -428,7 +428,7 @@ export class ManagedRuntime implements vscode.Disposable, vscode.UriHandler {
       return { executable, args: ["serve", "--managed", "--port", String(port)], cwd: path.dirname(executable) };
     } catch (error) {
       if (this.context.extensionMode !== vscode.ExtensionMode.Development) {
-        throw new Error(`Bundled Repository Map service is unavailable. ${error instanceof Error ? error.message : ""}`.trim());
+        throw new Error(`Bundled Argus service is unavailable. ${error instanceof Error ? error.message : ""}`.trim());
       }
       const repositoryRoot = path.resolve(this.context.extensionPath, "..");
       return {
@@ -483,7 +483,7 @@ async function waitFor(probe: () => Promise<boolean>, timeoutMs: number): Promis
     if (await probe()) return;
     await delay(100);
   }
-  throw new Error("Managed Repository Map service did not become ready in time.");
+  throw new Error("Managed Argus service did not become ready in time.");
 }
 
 function delay(milliseconds: number): Promise<void> {
