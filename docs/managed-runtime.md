@@ -21,7 +21,13 @@ The executable receives no HydraDB credential in argv or environment. The packag
 
 Other VS Code windows use the installation key to sign their own canonical project challenges. The service creates an isolated container per `(canonical root, repository ID)` and issues a token bound to that pair.
 
-If the owner closes, its child stops and its lock is released. An attached window invalidates its stale session after a connection or 401 failure. Its next operation can acquire ownership, restart the service, and register its project again. A crashed owner's stale lock is replaced only after the recorded process is proven absent.
+If the owner closes, its child stops and its lock is released. HTTP 401
+invalidates the attached project grant, reattaches through a new signed
+challenge, and retries once. A timeout or dropped connection keeps the session
+so it cannot kill a healthy long-running index job. If the service really
+stopped, the next operation can acquire ownership, restart it, and register its
+project again. A crashed owner's stale lock is replaced only after the recorded
+process is proven absent.
 
 ## Port selection
 
@@ -42,4 +48,7 @@ Release builds include a platform manifest with the service executable SHA-256. 
 
 ## Shutdown and logs
 
-The owning extension host terminates the service when it is disposed. The service output channel receives bounded printable diagnostics only. Public HydraDB failures are generic so a remote error message cannot echo a key or database into UI, logs, events, or MCP output.
+The owning extension host terminates the service when it is disposed. The
+service output channel receives bounded printable diagnostics only. A failed
+index job carries HydraDB's bounded HTTP status, error code, and message so the
+failure can be acted on; credentials and response bodies are never logged.
