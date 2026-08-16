@@ -1,6 +1,6 @@
 import "./styles.css";
 import { createPreviewView } from "../previewData.js";
-import { deriveViewStatus } from "../statusState.js";
+import { deriveViewStatus, emptyGraphMessage } from "../statusState.js";
 import type {
   GraphDepth,
   GraphEdge,
@@ -32,7 +32,7 @@ const MODES: Array<{ id: ViewMode; label: string; hint: string }> = [
   { id: "repository", label: "Repository", hint: "Orient to concrete packages, files, and symbols" },
   { id: "explore", label: "Explore", hint: "Inspect a bounded neighborhood" },
   { id: "trace", label: "Trace", hint: "Follow a returned system path" },
-  { id: "observe", label: "Observe", hint: "See explicit agent repository activity" },
+  { id: "observe", label: "Observe", hint: "Watch agent navigate the graph" },
   { id: "compare", label: "Compare", hint: "Review verified structural change" },
   { id: "preserve", label: "Preserve", hint: "Maintain grounded System Lenses" }
 ];
@@ -41,7 +41,7 @@ const PRIMARY_LABELS: Record<ViewMode, string> = {
   repository: "Open local graph",
   explore: "Expand graph",
   trace: "Replay path",
-  observe: "Pause follow",
+  observe: "Pause traversal",
   compare: "Review changes",
   preserve: "Accept drift"
 };
@@ -65,10 +65,17 @@ let observeBufferedCount = 0;
 let observeActive = false;
 let reviewIndex = -1;
 let toastTimer: number | undefined;
+// A press becomes a drag only after this much motion. The value is in client
+// pixels, so it does not change with the zoom level or the panel width.
+const DRAG_THRESHOLD_PX = 3;
 let dragState:
-  | { type: "node"; id: string; offset: Point; moved: boolean }
-  | { type: "pan"; start: Point; origin: Point }
+  | { type: "node"; id: string; pointerId: number; press: Point; offset: Point; moved: boolean; captured: boolean }
+  | { type: "pan"; pointerId: number; press: Point; origin: Point; moved: boolean; captured: boolean }
   | undefined;
+/** True after a drag, to keep the trailing click from selecting or opening source. */
+let suppressClick = false;
+/** True after the user selects an item, to keep Observe from moving the selection. */
+let selectionIsUserChosen = false;
 
 app.innerHTML = `
   <main class="shell">
@@ -206,6 +213,8 @@ window.addEventListener("message", (event: MessageEvent<HostToWebviewMessage>) =
     observeBufferedCount = message.bufferedCount;
     renderHeader();
     if (message.message) showToast(message.message);
+  } else if (message.type === "agentGate") {
+    renderAgentGate(message.message);
   } else if (message.type === "actionResult") {
     showToast(message.message);
     if (message.view) {
@@ -252,17 +261,48 @@ function bindEvents(): void {
 }
 
 function applyView(nextView: GraphView, nextHealth: ServiceHealth): void {
+  // Observe posts a full view for each recorded event, and an action result posts
+  // one too. A reset on each message would throw away the card positions the user
+  // arranged and the item the user selected, so the same view updates in place.
+  const incremental = view.viewId === nextView.viewId && view.depth === nextView.depth;
+  const previousSelectedId = selectedId;
+  const previousSelectedKind = selectedKind;
   view = nextView;
   health = nextHealth;
-  positions = computeLayout(view.nodes, view.mode);
-  transform = { ...DEFAULT_TRANSFORM };
-  const latestEvent = view.mode === "observe" ? view.timeline[view.timeline.length - 1] : undefined;
-  const followedNode = latestEvent?.nodeIds?.find((id) => view.nodes.some((node) => node.id === id));
-  const followedEdge = latestEvent?.edgeIds?.find((id) => view.edges.some((edge) => edge.id === id));
-  selectedId = followedNode ?? followedEdge ?? view.nodes[0]?.id;
-  selectedKind = followedNode || !followedEdge ? "node" : "edge";
-  relationKinds = new Set(view.edges.map((edge) => edge.predicate));
-  showInferred = false;
+  if (incremental) {
+    const fresh = computeLayout(view.nodes, view.mode);
+    const merged: NodePositions = {};
+    for (const node of view.nodes) {
+      const kept = positions[node.id];
+      const placed = kept ?? fresh[node.id];
+      if (placed) merged[node.id] = placed;
+    }
+    positions = merged;
+    for (const edge of view.edges) {
+      if (!relationKinds.has(edge.predicate)) relationKinds.add(edge.predicate);
+    }
+  } else {
+    positions = computeLayout(view.nodes, view.mode);
+    transform = { ...DEFAULT_TRANSFORM };
+    relationKinds = new Set(view.edges.map((edge) => edge.predicate));
+    showInferred = false;
+    selectionIsUserChosen = false;
+  }
+  const keptSelection = incremental && previousSelectedId !== undefined && (previousSelectedKind === "node"
+    ? view.nodes.some((node) => node.id === previousSelectedId)
+    : view.edges.some((edge) => edge.id === previousSelectedId));
+  if (keptSelection && (selectionIsUserChosen || view.mode !== "observe")) {
+    selectedId = previousSelectedId;
+    selectedKind = previousSelectedKind;
+  } else {
+    const latestEvent = view.mode === "observe" ? view.timeline[view.timeline.length - 1] : undefined;
+    const followedNode = latestEvent?.nodeIds?.find((id) => view.nodes.some((node) => node.id === id));
+    const followedEdge = latestEvent?.edgeIds?.find((id) => view.edges.some((edge) => edge.id === id));
+    const fallbackId = keptSelection ? previousSelectedId : view.nodes[0]?.id;
+    const fallbackKind = keptSelection ? previousSelectedKind : "node";
+    selectedId = followedNode ?? followedEdge ?? fallbackId;
+    selectedKind = followedNode ? "node" : followedEdge ? "edge" : fallbackKind;
+  }
   reviewIndex = -1;
   if (nextView.mode !== "observe") {
     observePaused = false;
@@ -335,7 +375,7 @@ function renderHeader(): void {
   elements.primaryAction.textContent = view.mode === "observe" && !observeActive
     ? "Restart follow"
     : view.mode === "observe" && observePaused
-      ? `Resume follow${observeBufferedCount ? ` (${observeBufferedCount})` : ""}`
+      ? `Resume traversal${observeBufferedCount ? ` (${observeBufferedCount})` : ""}`
       : PRIMARY_LABELS[view.mode];
 }
 
@@ -381,15 +421,39 @@ function renderGraph(): void {
   elements.viewport.setAttribute("transform", `translate(${transform.x} ${transform.y}) scale(${transform.scale})`);
   elements.zoomLevel.textContent = `${Math.round(transform.scale * 100)}%`;
   const edges = visibleEdges(view, relationKinds, showInferred);
-  elements.edgeLayer.replaceChildren(...edges.map(renderEdge));
+  const labelY = edgeLabelPositions(edges);
+  elements.edgeLayer.replaceChildren(...edges.map((edge) => renderEdge(edge, labelY[edge.id])));
   elements.nodeLayer.replaceChildren(...view.nodes.map(renderNode));
   elements.emptyState.hidden = view.nodes.length > 0;
-  elements.emptyState.textContent = view.nodes.length === 0
-    ? "No bounded graph slice was returned. Try a narrower question or literal symbol search."
-    : "";
+  elements.emptyState.textContent = view.nodes.length === 0 ? emptyGraphMessage(view) : "";
 }
 
-function renderEdge(edge: GraphEdge): SVGGElement {
+/**
+ * Place each edge label so that it does not overprint another.
+ *
+ * Two relations can share a midpoint, and their labels then interleave into
+ * unreadable text such as "ins tests tes". Each later label steps down until the
+ * space beside it is clear.
+ */
+function edgeLabelPositions(edges: readonly GraphEdge[]): Record<string, number> {
+  const placed: Array<{ x: number; y: number }> = [];
+  const result: Record<string, number> = {};
+  for (const edge of edges) {
+    const source = positions[edge.sourceId];
+    const target = positions[edge.targetId];
+    if (!source || !target) continue;
+    const x = (source.x + target.x) / 2;
+    let y = (source.y + target.y) / 2 + 18;
+    while (placed.some((point) => Math.abs(point.x - x) < 78 && Math.abs(point.y - y) < 13)) {
+      y += 13;
+    }
+    placed.push({ x, y });
+    result[edge.id] = y;
+  }
+  return result;
+}
+
+function renderEdge(edge: GraphEdge, labelY?: number): SVGGElement {
   const source = positions[edge.sourceId];
   const target = positions[edge.targetId];
   const group = svg("g");
@@ -413,14 +477,17 @@ function renderEdge(edge: GraphEdge): SVGGElement {
   label.classList.add("edge-label");
   label.dataset.edgeLabel = edge.id;
   label.setAttribute("x", String((source.x + target.x) / 2));
-  label.setAttribute("y", String((source.y + target.y) / 2 + 18));
+  label.setAttribute("y", String(labelY ?? (source.y + target.y) / 2 + 18));
   label.textContent = `${edge.predicate.replaceAll("_", " ")}${edge.quality === "inferred" ? " · inferred" : ""}`;
   if (selectedKind === "edge" && selectedId === edge.id) {
     group.classList.add("is-selected");
   }
   group.append(path, hit, label);
   const select = () => selectEdge(edge, true);
-  group.addEventListener("click", select);
+  group.addEventListener("click", () => {
+    if (consumeSuppressedClick()) return;
+    select();
+  });
   group.addEventListener("keydown", (event) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
@@ -428,6 +495,15 @@ function renderEdge(edge: GraphEdge): SVGGElement {
     }
   });
   return group;
+}
+
+/** Return the file and line this node was proved from, for the card and the label. */
+function nodeLocation(node: GraphNode): string {
+  if (!node.source?.path) {
+    return "location not returned";
+  }
+  const fileName = node.source.path.replace(/\\/g, "/").split("/").pop() ?? node.source.path;
+  return node.source.startLine > 0 ? `${fileName}:${node.source.startLine}` : fileName;
 }
 
 function renderNode(node: GraphNode): SVGGElement {
@@ -438,25 +514,32 @@ function renderNode(node: GraphNode): SVGGElement {
   group.setAttribute("transform", `translate(${point.x} ${point.y})`);
   group.setAttribute("role", "button");
   group.setAttribute("tabindex", selectedId === node.id && selectedKind === "node" ? "0" : "-1");
-  group.setAttribute("aria-label", `${node.kind.toLowerCase()} ${node.displayName}. ${node.reason}`);
+  group.setAttribute(
+    "aria-label",
+    `${node.kind.toLowerCase()} ${node.qualifiedName ?? node.displayName} at ${nodeLocation(node)}. ${node.reason}`
+  );
   if (selectedKind === "node" && selectedId === node.id) {
     group.classList.add("is-selected");
   }
   const rect = svg("rect");
-  rect.setAttribute("x", "-80"); rect.setAttribute("y", "0"); rect.setAttribute("width", "160"); rect.setAttribute("height", "58"); rect.setAttribute("rx", "12");
+  rect.setAttribute("x", "-80"); rect.setAttribute("y", "0"); rect.setAttribute("width", "160"); rect.setAttribute("height", "74"); rect.setAttribute("rx", "12");
   const kind = svg("text");
   kind.classList.add("node-kind"); kind.setAttribute("x", "-65"); kind.setAttribute("y", "20"); kind.textContent = node.kind;
   const name = svg("text");
   name.classList.add("node-name"); name.setAttribute("x", "-65"); name.setAttribute("y", "42"); name.textContent = truncate(node.displayName, 21);
+  // A name alone does not say where the entity lives, so the flow cannot be read
+  // from the graph. The file and line come from the same card that proved the node.
+  const location = svg("text");
+  location.classList.add("node-path"); location.setAttribute("x", "-65"); location.setAttribute("y", "61");
+  location.textContent = truncate(nodeLocation(node), 26);
   const badge = svg("text");
   badge.classList.add("node-badge"); badge.setAttribute("x", "65"); badge.setAttribute("y", "20"); badge.setAttribute("text-anchor", "end");
   badge.textContent = stateBadge(node.state);
-  group.append(rect, kind, name, badge);
+  group.append(rect, kind, name, location, badge);
   group.addEventListener("pointerdown", (event) => beginNodeDrag(event, node.id));
   group.addEventListener("click", () => {
-    if (dragState?.type !== "node" || !dragState.moved) {
-      selectNode(node, true);
-    }
+    if (consumeSuppressedClick()) return;
+    selectNode(node, true);
   });
   group.addEventListener("keydown", (event) => {
     if (event.key === "Enter" || event.key === " ") {
@@ -591,6 +674,7 @@ function selectNode(node: GraphNode, openSource: boolean, reportSelection = open
   selectedId = node.id; selectedKind = "node";
   renderGraph(); renderInspector();
   if (reportSelection) {
+    selectionIsUserChosen = true;
     vscode.postMessage({ type: "selectItem", itemId: node.id, itemKind: "node" });
   }
   if (openSource && node.source) {
@@ -602,6 +686,7 @@ function selectEdge(edge: GraphEdge, openSource: boolean, reportSelection = open
   selectedId = edge.id; selectedKind = "edge";
   renderGraph(); renderInspector();
   if (reportSelection) {
+    selectionIsUserChosen = true;
     vscode.postMessage({ type: "selectItem", itemId: edge.id, itemKind: "edge" });
   }
   const evidence = edge.evidence[0];
@@ -654,34 +739,72 @@ function replayPath(): void {
   showToast(view.preview ? "Replaying the interaction-preview path." : "Replaying the HydraDB returned path.");
 }
 
+/**
+ * Report whether this click closes a drag, and clear the flag.
+ *
+ * Some hosts send the click after a drag to the pointer-capture element, and some
+ * send it to the card. This flag keeps the result the same on both.
+ */
+function consumeSuppressedClick(): boolean {
+  if (!suppressClick) return false;
+  suppressClick = false;
+  return true;
+}
+
 function beginNodeDrag(event: PointerEvent, id: string): void {
   if (event.button !== 0) return;
   event.stopPropagation();
+  suppressClick = false;
   const graphPoint = clientToGraph(event.clientX, event.clientY);
   const current = positions[id] ?? { x: 0, y: 0 };
-  dragState = { type: "node", id, offset: { x: graphPoint.x - current.x, y: graphPoint.y - current.y }, moved: false };
-  elements.graph.setPointerCapture(event.pointerId);
+  dragState = {
+    type: "node",
+    id,
+    pointerId: event.pointerId,
+    press: { x: event.clientX, y: event.clientY },
+    offset: { x: graphPoint.x - current.x, y: graphPoint.y - current.y },
+    moved: false,
+    captured: false
+  };
 }
 
 function onPointerDown(event: PointerEvent): void {
   if (event.button !== 0 || (event.target as Element).closest(".graph-node")) return;
-  dragState = { type: "pan", start: { x: event.clientX, y: event.clientY }, origin: { x: transform.x, y: transform.y } };
-  elements.graph.setPointerCapture(event.pointerId);
-  elements.graph.classList.add("is-panning");
+  suppressClick = false;
+  dragState = {
+    type: "pan",
+    pointerId: event.pointerId,
+    press: { x: event.clientX, y: event.clientY },
+    origin: { x: transform.x, y: transform.y },
+    moved: false,
+    captured: false
+  };
 }
 
+/**
+ * Take the pointer capture only when the press becomes a drag.
+ *
+ * A capture set on press moves the following click event to the capture element,
+ * so a still click never reaches the node card and never selects it.
+ */
 function onPointerMove(event: PointerEvent): void {
   if (!dragState) return;
+  if (!dragState.moved) {
+    const distance = Math.hypot(event.clientX - dragState.press.x, event.clientY - dragState.press.y);
+    if (distance < DRAG_THRESHOLD_PX) return;
+    dragState.moved = true;
+    elements.graph.setPointerCapture(dragState.pointerId);
+    dragState.captured = true;
+    if (dragState.type === "pan") elements.graph.classList.add("is-panning");
+  }
   if (dragState.type === "pan") {
-    transform.x = dragState.origin.x + event.clientX - dragState.start.x;
-    transform.y = dragState.origin.y + event.clientY - dragState.start.y;
+    transform.x = dragState.origin.x + event.clientX - dragState.press.x;
+    transform.y = dragState.origin.y + event.clientY - dragState.press.y;
     updateViewport();
     return;
   }
   const graphPoint = clientToGraph(event.clientX, event.clientY);
   const next = { x: graphPoint.x - dragState.offset.x, y: graphPoint.y - dragState.offset.y };
-  const previous = positions[dragState.id];
-  if (previous && Math.hypot(next.x - previous.x, next.y - previous.y) > 1) dragState.moved = true;
   positions[dragState.id] = next;
   const node = elements.nodeLayer.querySelector<SVGGElement>(`[data-node-id="${CSS.escape(dragState.id)}"]`);
   node?.setAttribute("transform", `translate(${next.x} ${next.y})`);
@@ -690,12 +813,19 @@ function onPointerMove(event: PointerEvent): void {
 
 function onPointerUp(event: PointerEvent): void {
   if (!dragState) return;
-  if (dragState.type === "node" && dragState.moved) {
-    selectedId = dragState.id; selectedKind = "node"; renderInspector(); persistDisplayState();
-  }
+  const finished = dragState;
   dragState = undefined;
   elements.graph.classList.remove("is-panning");
-  if (elements.graph.hasPointerCapture(event.pointerId)) elements.graph.releasePointerCapture(event.pointerId);
+  if (finished.captured && elements.graph.hasPointerCapture(event.pointerId)) {
+    elements.graph.releasePointerCapture(event.pointerId);
+  }
+  if (!finished.moved) return;
+  suppressClick = true;
+  if (finished.type === "node") {
+    const node = view.nodes.find((candidate) => candidate.id === finished.id);
+    if (node) selectNode(node, false, true);
+    persistDisplayState();
+  }
 }
 
 function updateEdgeGeometry(nodeId: string): void {
@@ -779,6 +909,26 @@ function showToast(message: string, kind: "info" | "error" = "info"): void {
   elements.toast.className = `toast ${kind === "error" ? "is-error" : ""}`;
   elements.toast.hidden = false;
   toastTimer = window.setTimeout(() => { elements.toast.hidden = true; }, 4200);
+}
+
+function renderAgentGate(message: string): void {
+  elements.emptyState.hidden = false;
+  elements.emptyState.innerHTML = "";
+  elements.emptyState.className = "empty-state agent-gate";
+  const icon = document.createElement("div");
+  icon.className = "gate-icon";
+  icon.textContent = "⚠";
+  const text = document.createElement("p");
+  text.className = "gate-message";
+  text.textContent = message;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "button button-primary";
+  button.textContent = "Configure agents";
+  button.addEventListener("click", () => vscode.postMessage({ type: "configureAgents" }));
+  elements.emptyState.append(icon, text, button);
+  elements.edgeLayer.replaceChildren();
+  elements.nodeLayer.replaceChildren();
 }
 
 function stateBadge(state: GraphNode["state"]): string {

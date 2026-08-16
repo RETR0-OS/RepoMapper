@@ -27,7 +27,7 @@ describe("Observe webview interaction", () => {
     }));
 
     const primary = document.querySelector<HTMLButtonElement>("#primary-action")!;
-    expect(primary.textContent).toBe("Pause follow");
+    expect(primary.textContent).toBe("Pause traversal");
     expect(document.querySelector(`[data-node-id="${view.nodes[0]!.id}"]`)?.classList.contains("state-edited")).toBe(true);
     primary.click();
     expect(messages.at(-1)).toEqual({ type: "setObservePaused", paused: true });
@@ -35,11 +35,11 @@ describe("Observe webview interaction", () => {
     window.dispatchEvent(new MessageEvent<HostToWebviewMessage>("message", {
       data: { type: "observeStatus", active: true, paused: true, bufferedCount: 3, sessionId: "session-1" }
     }));
-    expect(primary.textContent).toBe("Resume follow (3)");
+    expect(primary.textContent).toBe("Resume traversal (3)");
     window.dispatchEvent(new MessageEvent<HostToWebviewMessage>("message", {
       data: { type: "view", view, health: { state: "unavailable", message: "Preview only." } }
     }));
-    expect(primary.textContent).toBe("Resume follow (3)");
+    expect(primary.textContent).toBe("Resume traversal (3)");
     primary.click();
     expect(messages.at(-1)).toEqual({ type: "setObservePaused", paused: false });
 

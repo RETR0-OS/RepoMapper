@@ -31,6 +31,7 @@ describe("graph layout", () => {
 
     expect(afterSourceMove).not.toBe(before);
     expect(afterTargetMove).not.toBe(before);
-    expect(afterSourceMove).toContain("240 168");
+    // An edge attaches at the vertical middle of the node card, which is 74 tall.
+    expect(afterSourceMove).toContain("240 177");
   });
 });

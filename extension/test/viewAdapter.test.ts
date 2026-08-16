@@ -47,6 +47,34 @@ describe("product view normalization", () => {
     });
   });
 
+  it("carries service diagnostics without inventing counters", () => {
+    const view = normalizeGraphView({
+      view_id: "view-1",
+      revision_id: "rev-a1",
+      mode: "trace",
+      nodes: [],
+      edges: [],
+      warnings: [],
+      diagnostics: {
+        outcome: "all_groups_ungrounded",
+        reason: "returned revisions: rev-a1",
+        stage_ms: { hydradb_query: 1_204.5, total: 1_260.2 },
+        funnel: { raw_chunks: 3, kept_paths: 0, broken: "not a number" }
+      }
+    }, "trace");
+
+    expect(view.diagnostics?.outcome).toBe("all_groups_ungrounded");
+    expect(view.diagnostics?.stageMs).toEqual({ hydradb_query: 1_204.5, total: 1_260.2 });
+    // A non-numeric counter is dropped rather than shown as a false measurement.
+    expect(view.diagnostics?.funnel).toEqual({ raw_chunks: 3, kept_paths: 0 });
+
+    // An older service sends no diagnostics, and none may be invented for it.
+    const legacy = normalizeGraphView({
+      view_id: "view-2", revision_id: "rev-a1", mode: "trace", nodes: [], edges: [], warnings: []
+    }, "trace");
+    expect(legacy.diagnostics).toBeUndefined();
+  });
+
   it("keeps preview data explicitly separate from HydraDB result metadata", () => {
     const preview = createPreviewView("trace");
 

@@ -8,6 +8,7 @@ import type {
   ServiceHealth,
   SourceRange,
   TimelineEvent,
+  ViewDiagnostics,
   ViewMode
 } from "./types.js";
 
@@ -135,6 +136,28 @@ function normalizeHydra(value: unknown): HydraMetadata | undefined {
   };
 }
 
+function numberRecord(value: unknown): Record<string, number> | undefined {
+  const source = record(value);
+  const entries = Object.entries(source).filter(
+    (entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1])
+  );
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function normalizeDiagnostics(value: unknown): ViewDiagnostics | undefined {
+  const diagnostics = record(value);
+  const outcome = textValue(diagnostics.outcome);
+  if (!outcome) {
+    return undefined;
+  }
+  return {
+    outcome,
+    reason: textValue(diagnostics.reason) || undefined,
+    stageMs: numberRecord(diagnostics.stage_ms ?? diagnostics.stageMs),
+    funnel: numberRecord(diagnostics.funnel)
+  };
+}
+
 export function normalizeGraphView(value: unknown, fallbackMode: ViewMode): GraphView {
   const view = record(value);
   const schema = textValue(view.view_schema);
@@ -156,6 +179,7 @@ export function normalizeGraphView(value: unknown, fallbackMode: ViewMode): Grap
     timeline: normalizeTimeline(view.timeline ?? view.events),
     warnings: stringArray(view.warnings),
     hydradb: normalizeHydra(view.hydradb),
+    diagnostics: normalizeDiagnostics(view.diagnostics),
     budget: {
       requestedNodes: numberValue(rawBudget.requested_nodes ?? rawBudget.requestedNodes, rawNodes.length),
       returnedNodes: numberValue(rawBudget.returned_nodes ?? rawBudget.returnedNodes, rawNodes.length),

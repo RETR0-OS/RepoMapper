@@ -3,10 +3,13 @@ import * as vscode from "vscode";
 import { createPreviewView } from "./previewData.js";
 import { formatLens, lensPreviewMatches, lensWriteIsReady, previewThenConfirm } from "./evolution.js";
 import { parseWebviewMessage } from "./messageValidation.js";
+import { isAgentInstalled } from "./agentSetup.js";
 import {
   applyObserveEvents,
   BoundedPoller,
   createObserveWaitingView,
+  createTraversalWaitingView,
+  deriveTraversalState,
   latestObserveViewReference,
   ObserveEventIntegrityError,
   ObserveEventLog,
@@ -219,6 +222,10 @@ export class GraphPanel implements vscode.Disposable {
       case "retry":
         await this.loadView();
         break;
+      case "configureAgents":
+        await vscode.commands.executeCommand("hydra.configureAgents");
+        if (this.mode === "observe") await this.loadView();
+        break;
       case "persistDisplayState":
         if (safeDisplayStateKey(message.key) && JSON.stringify(message.value).length < 50_000) {
           await this.context.workspaceState.update(`hydra.display.${message.key}`, message.value);
@@ -390,6 +397,11 @@ export class GraphPanel implements vscode.Disposable {
 
   private async beginObserveFollowing(generation: number): Promise<void> {
     this.post({ type: "loading", mode: "observe", message: "Starting bounded observable-event follow…" });
+    const cwd = this.repositoryScope?.repositoryRoot;
+    if (cwd && !await isAgentInstalled(cwd)) {
+      this.post({ type: "agentGate", message: "Agent Traversal requires a configured coding agent (Codex or Claude Code). Install one and register it with Repository Map." });
+      return;
+    }
     let client: RepositoryServiceClient | undefined;
     let startedSessionId: string | undefined;
     try {
@@ -519,8 +531,18 @@ export class GraphPanel implements vscode.Disposable {
     const session = this.observeSession;
     const log = this.observeEventLog;
     if (!session || !log) return;
+    const events = log.visibleEvents();
+    const traversal = deriveTraversalState(events);
+    if (traversal.tracks.length > 0) {
+      const base = this.observeBaseView ?? createTraversalWaitingView(session.sessionId, session.revisionId);
+      const rendered = applyObserveEvents(base, events);
+      rendered.summary = `Agent traversal: ${traversal.tracks.length} track${traversal.tracks.length === 1 ? "" : "s"}, active track ${traversal.activeTrackIndex + 1}.`;
+      this.currentView = this.observeBaseView ? rendered : undefined;
+      this.post({ type: "view", view: rendered, health: this.health });
+      return;
+    }
     const base = this.observeBaseView ?? createObserveWaitingView(session.sessionId, session.revisionId);
-    const rendered = applyObserveEvents(base, log.visibleEvents());
+    const rendered = applyObserveEvents(base, events);
     this.currentView = this.observeBaseView ? rendered : undefined;
     this.post({ type: "view", view: rendered, health: this.health });
   }
