@@ -7,7 +7,7 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
   attestations: write
 
@@ -133,3 +133,24 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         with:
           subject-path: artifacts/repository-map-${{ matrix.target }}.vsix
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: all-artifacts
+          pattern: repository-map-*
+          merge-multiple: false
+      - name: Collect VSIX files
+        shell: bash
+        run: |
+          mkdir release
+          find all-artifacts -name "*.vsix" -exec cp {} release/ \;
+          ls -la release/
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" release/*.vsix --repo "${{ github.repository }}" --generate-notes
