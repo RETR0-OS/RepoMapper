@@ -138,6 +138,21 @@
       "title": "authorization_notes"
     }
   ],
+  "diagnostics": {
+    "funnel": {
+      "assembled_paths": 0,
+      "dropped_paths": 0,
+      "dropped_relations": 0,
+      "hops": 2,
+      "kept_paths": 1,
+      "kept_relations": 1,
+      "raw_chunks": 3,
+      "raw_paths": 1,
+      "raw_relations": 1,
+      "sources": 2
+    },
+    "outcome": "ok"
+  },
   "hydradb": {
     "available": true,
     "collections": [
@@ -240,20 +255,83 @@
   "session_id": "session-golden",
   "sources": [
     {
+      "chunk_ids": [
+        "chunk-authorize"
+      ],
+      "content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "entity_kind": "FUNCTION",
+      "is_generated": false,
+      "language": "python",
+      "logical_id": "payments.auth.authorize_user",
+      "node_id": "node-authorize",
+      "parser": "python-ast",
+      "parser_version": "3.13",
       "path": "src/payments/auth.py",
+      "qualified_name": "payments.auth.authorize_user",
+      "relation_quality": "exact",
       "repository_id": "hack-hydra",
       "revision": "rev-abc",
+      "signature": null,
+      "span": {
+        "end_column": 20,
+        "end_line": 18,
+        "start_column": 0,
+        "start_line": 10
+      },
       "source_id": "source-authorize",
       "source_type": "code_symbol",
       "title": "authorize_user"
     },
     {
+      "chunk_ids": [
+        "chunk-store"
+      ],
+      "content_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "entity_kind": "METHOD",
+      "is_generated": false,
+      "language": "python",
+      "logical_id": "payments.store.TokenStore.resolve",
+      "node_id": "node-store",
+      "parser": "python-ast",
+      "parser_version": "3.13",
       "path": "src/payments/store.py",
+      "qualified_name": "payments.store.TokenStore.resolve",
+      "relation_quality": "exact",
       "repository_id": "hack-hydra",
       "revision": "rev-abc",
+      "signature": null,
+      "span": {
+        "end_column": 24,
+        "end_line": 29,
+        "start_column": 4,
+        "start_line": 22
+      },
       "source_id": "source-store",
       "source_type": "code_symbol",
       "title": "TokenStore.resolve"
+    },
+    {
+      "chunk_ids": [
+        "chunk-decoy"
+      ],
+      "content_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "entity_kind": "FILE",
+      "is_generated": false,
+      "language": "markdown",
+      "logical_id": "docs.authorization",
+      "node_id": "node-decoy",
+      "parser": "markdown",
+      "parser_version": "1",
+      "path": "docs/authorization.md",
+      "qualified_name": "docs.authorization",
+      "relation_quality": "unknown",
+      "repository_id": "hack-hydra",
+      "revision": "rev-abc",
+      "signature": null,
+      "span": null,
+      "source_id": "source-decoy",
+      "source_type": "code_symbol",
+      "title": "authorization_notes"
     }
   ],
   "status": "ready",

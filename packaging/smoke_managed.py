@@ -90,6 +90,7 @@ def main() -> int:
             if metadata.get("code_challenge_methods_supported") != ["S256"]:
                 raise RuntimeError("frozen OAuth metadata does not require PKCE S256")
             _require_unauthorized_mcp(port)
+            _require_quiet_ipc(process)
         finally:
             process.terminate()
             try:
@@ -123,6 +124,32 @@ def _read_json_line(
     if not isinstance(value, dict):
         raise RuntimeError("managed service IPC returned a non-object")
     return value
+
+
+def _require_quiet_ipc(process: subprocess.Popen[str]) -> None:
+    """Fail when served HTTP traffic wrote anything but IPC frames to stdout.
+
+    VS Code parses every stdout line as a protocol frame, so an access log or a
+    stray print there breaks the extension after the first request.
+    """
+
+    assert process.stdout is not None
+    output: queue.Queue[str] = queue.Queue(maxsize=1)
+    thread = threading.Thread(target=lambda: output.put(process.stdout.readline()), daemon=True)  # type: ignore[union-attr]
+    thread.start()
+    try:
+        line = output.get(timeout=2)
+    except queue.Empty:
+        return
+    if not line.strip():
+        return
+    sample = line.strip()[:200]
+    try:
+        frame = json.loads(line)
+    except json.JSONDecodeError:
+        raise RuntimeError(f"managed stdout carried non-IPC output: {sample!r}") from None
+    if not isinstance(frame, dict) or frame.get("protocol") != IPC_PROTOCOL:
+        raise RuntimeError(f"managed stdout carried a foreign frame: {sample!r}")
 
 
 def _get_json(url: str, *, timeout: float) -> dict[str, object]:

@@ -27,3 +27,4 @@ dist/
 build/
 .hydra-graph/
 artifacts/
+bash.exe.stackdump

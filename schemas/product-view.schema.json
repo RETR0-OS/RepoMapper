@@ -46,6 +46,18 @@
       "additionalProperties": false
     },
     "warnings": { "type": "array", "items": { "type": "string" } },
+    "diagnostics": {
+      "type": "object",
+      "description": "Bounded, content-free counters that name the stage where a query lost time or lost its graph.",
+      "required": ["outcome"],
+      "properties": {
+        "outcome": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "reason": { "type": "string", "maxLength": 400 },
+        "stage_ms": { "type": "object", "additionalProperties": { "type": "number", "minimum": 0 } },
+        "funnel": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } }
+      },
+      "additionalProperties": false
+    },
     "budget": {
       "type": "object",
       "required": ["requested_nodes", "returned_nodes", "requested_edges", "returned_edges", "truncated"],
