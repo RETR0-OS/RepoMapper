@@ -80,6 +80,11 @@ characters. Bounds fail visibly; records are not sliced or silently truncated.
 An empty delta still produces an explicit zero-change summary without a fake
 self-relation.
 
+The complete machine record is stored after the `Record JSON:` marker in each
+card's content. It is not duplicated into HydraDB `additional_metadata`, which
+has a 1,024-byte serialized limit. Retrieval accepts older cards that still
+carry `record_json` in metadata and validates current cards from their content.
+
 Publication is preview-only until explicitly confirmed. After HydraDB confirms
 all source IDs and indexing completes, the service clears the local checkpoints.
 Partial acknowledgement, failure, or timeout produces an unavailable or
@@ -127,9 +132,10 @@ The current bounds are 25 entities, 24 hops, and 10 anchors. A disconnected,
 mixed-revision, automatic, inferred, client-fabricated, or stale view fails
 closed.
 
-The stored lens card contains the structured baseline as Knowledge but has an
-empty BYOG graph. Re-emitting the baseline relations from the lens would create
-a second canonical owner, so the implementation deliberately does not do that.
+The stored lens card contains the structured baseline as Knowledge but is
+omitted from `graph_payload`. Re-emitting the baseline relations from the lens
+would create a second canonical owner, so the implementation deliberately does
+not do that.
 
 ## Refresh and drift
 

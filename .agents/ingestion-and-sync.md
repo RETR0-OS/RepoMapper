@@ -41,9 +41,17 @@ Discover
 → publish ready revision
 ```
 
+Before upload, project each SourceCard's rich local metadata into HydraDB's
+1,024-byte `additional_metadata` limit. Keep path, stable identity, span, parser,
+hash, and product-record routing fields. Omit duplicated evidence/display fields
+and the evolution `record_json`; the complete evolution record remains in the
+card content. Hash the actual wire projection so a projection change causes a
+replacement on the next sync.
+
 ## Discovery
 
-- Respect `.gitignore` by default.
+- Respect Git's complete visible-file set by default, including nested
+  `.gitignore`, negation, local excludes, global excludes, and tracked files.
 - Support a product-specific ignore file for generated, vendor, secret, or large paths.
 - Never follow symlink loops.
 - Detect binary and oversized files before reading.
@@ -108,7 +116,7 @@ For each symbol or logical block:
 2. Generate a concise source card.
 3. Add schema-backed metadata and display metadata.
 4. Collect canonically owned relations.
-5. Build a BYOG graph containing the focal entity plus referenced target entities.
+5. For a source with exact owned relations, build a BYOG graph containing the focal entity plus referenced target entities. Keep a relation-free source in `app_knowledge` but omit it from `graph_payload`.
 6. Add plain relation context with path and line evidence.
 7. Upload through the HydraDB v2 adapter.
 
@@ -122,13 +130,13 @@ On a file change:
 2. Reparse it.
 3. Re-resolve direct dependents when the language resolver requires it.
 4. Compare new and prior source manifests.
-5. Replace changed HydraDB sources with full new BYOG payloads.
+5. Replace changed HydraDB sources with full new BYOG payloads. If a source previously carried BYOG and is now relation-free, delete it first so HydraDB cannot reapply its stored old graph.
 6. Add new sources.
 7. Delete removed sources.
 8. Wait until all operations reach a verified terminal state.
 9. Publish the new revision.
 
-BYOG replacement is per source, not per edge. A changed source must send its complete current relation set.
+BYOG replacement is per source, not per edge. A changed relation-bearing source must send its complete current relation set. HydraDB rejects a keyed source with no relations, so relation-free cards are not keyed in `graph_payload`.
 
 ## Bookkeeping
 
@@ -136,6 +144,7 @@ A local sync manifest may contain:
 
 - Source ID.
 - Content hash.
+- Whether the last verified source carried a BYOG graph.
 - Path and symbol locator.
 - Last attempted revision.
 - Last verified HydraDB revision.

@@ -120,6 +120,11 @@ The ProductView response has this stable top-level shape:
 ```
 
 Nodes, edges, and aggregates are populated only from normalized HydraDB data.
+`max_context_chars` bounds chunk and additional-context text. Source-card
+identity metadata from the same HydraDB response is retained separately so
+context truncation does not erase otherwise grounded graph paths; it adds no
+extra source text to the returned context budget. Hops whose endpoint source
+metadata was not returned are omitted with a warning.
 An unavailable query still returns HTTP `200`, but has
 `hydradb.available: false`, empty graph arrays, and a warning. This makes a
 retrieval failure explicit without inventing a local result.
@@ -200,15 +205,87 @@ made.
 
 ### `POST /api/index`
 
-Uses the single-use preview token returned by the preview:
+Uses the single-use preview token returned by the preview. It starts a
+background job and returns immediately with HTTP `202`; it does not wait for the
+upload:
 
 ```powershell
 $confirm = @{ preview_token = $preview.preview_token } | ConvertTo-Json
-Invoke-RestMethod "$baseUrl/api/index" `
+$job = Invoke-RestMethod "$baseUrl/api/index" `
     -Method Post -ContentType "application/json" -Body $confirm
 ```
 
-The response contains the same `preview` plus `sync`. Abridged example:
+The response body is a job record, not the finished result:
+
+```json
+{
+  "job_id": "job_opaque",
+  "repository_id": "my-repository",
+  "revision_id": "abc123",
+  "state": "running",
+  "phase": "analyzing",
+  "total_batches": 249,
+  "uploaded_batches": 0,
+  "total_sources": 6210,
+  "verified_sources": 0,
+  "failed": {},
+  "started_at": 1770000000.0,
+  "updated_at": 1770000000.0,
+  "error": null,
+  "result": null,
+  "durable": false,
+  "message": "This index job record lives in the running Repository Map service process. It is not saved to disk: if the service stops, the record and the run are lost and indexing must be started again."
+}
+```
+
+This endpoint does not have a `confirm` field. Safety comes from calling the
+separate preview endpoint first.
+
+Two different conflicts both return `409`; read `detail` to tell them apart:
+
+- the preview token is stale, already used, or its analyzed scope changed; or
+- an index job for this project is already running.
+
+### `GET /api/index/jobs/{job_id}`
+
+Returns the current job record. Poll it about once a second while `state` is
+`running`.
+
+```powershell
+Invoke-RestMethod "$baseUrl/api/index/jobs/$($job.job_id)"
+```
+
+| Field | Meaning |
+| --- | --- |
+| `job_id` | Opaque job identifier returned by `POST /api/index`. |
+| `repository_id` | Project the job belongs to. |
+| `revision_id` | Candidate revision the job is publishing. |
+| `state` | `running`, `completed`, `failed`, or `cancelled`. |
+| `phase` | `analyzing`, `clearing_stale_graphs`, `uploading`, `verifying`, `deleting`, or `done`. |
+| `total_batches`, `uploaded_batches` | Ingest batch progress. |
+| `total_sources`, `verified_sources` | Source-card progress reported by status polling. |
+| `failed` | Failures recorded so far, as source ID to reason. |
+| `started_at`, `updated_at` | Epoch seconds. |
+| `error` | Failure reason when `state` is `failed`, otherwise `null`. |
+| `result` | `null` while running; `{preview, sync}` when the job ends. |
+| `durable` | Always `false`. See the warning below. |
+| `message` | Fixed sentence that states the job record is not saved to disk. It is not a phase description. |
+
+`completed` means the final sync result is `ready`. An `unavailable` or other
+unready sync result makes the job `failed`; the full result remains available
+and `error` carries the bounded warning.
+
+Only a small number of finished jobs is kept. An unknown, evicted, or lost job
+ID returns `404`.
+
+The job lives in the running service process only. It is never written to disk.
+If the service stops, restarts, or crashes, the job record is lost and cannot be
+polled again — the HydraDB writes that already happened are not undone, so the
+current collection can hold part of the candidate revision. Treat a lost job the
+same as an interrupted one: run a fresh preview and index again.
+
+When the job ends, `result` holds exactly the object the old blocking endpoint
+returned:
 
 ```json
 {
@@ -228,10 +305,20 @@ The response contains the same `preview` plus `sync`. Abridged example:
 }
 ```
 
-This endpoint does not have a `confirm` field. Safety comes from calling the
-separate preview endpoint first. A non-ready sync can still be returned as HTTP
-`200`; callers must inspect `sync.status`, `pending`, `failed`, and
-`current_state_indeterminate`.
+`state: completed` alone is not a readiness claim. Callers must inspect
+`result.sync.status`, `pending`, `failed`, and `current_state_indeterminate`.
+
+### `POST /api/index/jobs/{job_id}/cancel`
+
+Asks the running job to stop and returns the job record.
+
+```powershell
+Invoke-RestMethod "$baseUrl/api/index/jobs/$($job.job_id)/cancel" -Method Post
+```
+
+Cancellation is not a rollback. Batches already uploaded stay in the current
+collection. See
+[Indexing and sync](indexing-and-sync.md#cancel-a-running-job).
 
 ## Evolution and shared lenses
 
@@ -428,9 +515,9 @@ Claude Code, tools, and session correlation.
 
 | Status | Meaning |
 | --- | --- |
-| `404` | Observe session, stored HydraDB view, or shown item was not found or expired. Removed raw service routes also return `404`. |
+| `404` | Index job, Observe session, stored HydraDB view, or shown item was not found or expired. Removed raw service routes also return `404`. |
 | `405` | The path exists but the method is unsupported, such as `POST /api/events`. |
-| `409` | Current state conflicts with the operation: unverified Observe start, inactive/mismatched session, event-history gap, or refused checkpoint/evolution/lens domain operation. |
+| `409` | Current state conflicts with the operation: stale/used index preview token, an index job already running, unverified Observe start, inactive/mismatched session, event-history gap, or refused checkpoint/evolution/lens domain operation. |
 | `422` | JSON has extra/missing fields, invalid enum values, violates a budget/string bound, or supplies an invalid/unshown workspace path or evidence action. |
 | `429` | The bounded active Observe-session limit was reached. |
 | `503` | The optional evolution service is not configured in the service container. |

@@ -178,6 +178,13 @@ Flexible display and bookkeeping fields belong in `additional_metadata`:
 - `git_commit`
 - `graph_ir_version`
 
+HydraDB limits each source's serialized `additional_metadata` object to 1,024
+bytes. Keep the richer local SourceCard, but project only retrieval-critical
+fields onto the wire. The source title/content and exact relation evidence carry
+duplicated display and evidence details. Evolution cards keep their complete
+machine record after the `Record JSON:` marker in source content instead of
+duplicating it into bounded wire metadata.
+
 Declare hot metadata fields when creating the HydraDB database. Undeclared top-level filter keys may not behave as expected.
 
 ## Forceful relations
@@ -204,8 +211,11 @@ Other important behavior:
 
 - BYOG replaces automatic graph extraction for that source; it does not augment it.
 - BYOG is bulk and per-source. Per-triple add, update, and delete are not currently available.
+- Every source keyed in `graph_payload` must contain at least one entity and one relation. A request may key only the relation-bearing subset of its `app_knowledge` sources.
 - Relation-to-chunk linking is permissive and may link weakly related chunks.
 - Re-ingesting a BYOG source with a new payload replaces its stored graph.
+- Re-ingesting an existing BYOG source without a new payload entry reapplies the stored graph; delete before a relation-bearing to relation-free transition.
+- Serialized `additional_metadata` is limited to 1,024 bytes per source.
 - Query graph fields may legitimately be empty.
 - Context-graph traversal improves relational retrieval but adds payload and latency.
 

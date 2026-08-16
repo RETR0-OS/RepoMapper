@@ -144,15 +144,28 @@ context must fit HydraDB's 2,000-character limit. Only the duplicate human
 summary may be shortened; evidence is never truncated to make it fit. If the
 envelope cannot fit, card construction fails.
 
+A relation-free card remains searchable Knowledge but is omitted from
+`graph_payload`, because HydraDB rejects a keyed graph with no relations. The
+product does not invent a self-edge or assign the same exact edge to another
+owner. Any HydraDB-extracted relation from that unkeyed card remains non-exact.
+
 Graph IR can retain multiple evidence records on an edge. The current ordinary
 repository BYOG relation envelope transports the first canonical evidence
 record. Evolution records preserve the complete before/after relation evidence
 inside their structured Knowledge records.
 
 HydraDB-returned relations are not trusted only because they have an exact-looking
-predicate. Product views require BYOG origin and a valid evidence envelope before
-rendering exact source evidence. Malformed or automatic relations are omitted or
-downgraded rather than upgraded.
+predicate. Product views require proven BYOG ownership and a valid evidence
+envelope before rendering exact source evidence. HydraDB may return the origin
+directly; when API v2 omits it, the current relation chunk must belong to a BYOG
+source in the verified sync manifest. Malformed or automatic relations are
+omitted or downgraded rather than upgraded.
+
+The query text budget applies to returned chunk content, not source-card
+identity metadata. Metadata-only source records can ground a returned path even
+when lower-ranked text is removed. If HydraDB does not return metadata for a
+relation endpoint, the view omits that hop instead of constructing a node from
+an entity label.
 
 ## Repository projections
 

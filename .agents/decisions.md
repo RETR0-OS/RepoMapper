@@ -312,3 +312,174 @@ source-card scope. Confirmation re-analyzes and refuses changed snapshots.
 Compare uses the verified before and after revisions automatically through
 Start comparison and Finish comparison. All indexing and evolution writes keep
 preview and explicit confirmation.
+
+## D-037 — Cancellable background indexing jobs
+
+Status: accepted.
+
+Repository indexing runs as an in-process background job after preview and
+confirmation. The service exposes bounded progress and cancellation endpoints,
+keeps one active job per repository scope, and reports `completed` only when the
+sync result is `ready`. Failed and unavailable sync results end the job as
+`failed`; cancellation after a remote mutation remains indeterminate because
+accepted HydraDB batches cannot be rolled back. Cancellation observed before
+the first remote mutation preserves the prior verified state.
+
+Job records are deliberately not durable. A service restart loses the record
+and requires a new preview and index run, while any already accepted HydraDB
+writes remain visible as an explicitly unverified state. A separate, minimal
+`sync-in-progress.json` safety marker is durable: create it before the first
+remote mutation and clear it only after the verified manifest is saved. It is
+not resumable job progress. Its only purpose is to prevent a restart from
+presenting the old manifest as proof that a partially replaced collection is
+safe.
+
+## D-038 — Relation-free sources stay outside BYOG
+
+Status: accepted.
+
+Every source keyed in a HydraDB BYOG payload contains at least one deterministic
+entity and one exact relation. A code symbol or product record with no exact
+relations remains in `app_knowledge` but is omitted from `graph_payload`. Do not
+invent a self-relation, duplicate an exact relation under another owner, or
+treat HydraDB's automatic extraction for an unkeyed source as exact repository
+structure. Exact views still require proven BYOG ownership plus the valid
+relation evidence envelope from D-027. Ownership may be HydraDB's returned
+`origin: "byog"` marker or the verified current manifest's record that the
+relation's source carried a BYOG payload.
+
+## D-039 — Bound HydraDB wire metadata separately from local cards
+
+Status: accepted.
+
+Keep complete deterministic evidence and product records in local SourceCards,
+but send a separate retrieval-critical `additional_metadata` projection that is
+at most 1,024 serialized bytes. Omit display/evidence duplicates and the full
+evolution `record_json`; the title, source content, and exact BYOG evidence
+already carry that information. Evolution retrieval validates the canonical
+record embedded after the card's `Record JSON:` marker.
+
+Hash the actual app-knowledge and BYOG wire projection for synchronization so a
+projection change triggers replacement even when the richer local card has not
+changed. Refuse a source locally if required fields still cannot fit; do not
+silently truncate paths, stable IDs, hashes, or product routing fields.
+
+## D-040 — Keep graph grounding outside the text-content budget
+
+Status: accepted.
+
+Apply `max_context_chars` only to HydraDB-returned chunk and additional-context
+text. Normalize the same response's source records into metadata-only graph
+grounding, including stable node identity, path, span, parser, revision, and
+content hash. This metadata does not add model context text and remains
+available when lower-ranked chunk content is removed by the budget.
+
+HydraDB API v2 does not currently echo a relation-origin field in live query
+results. For the verified current revision, restore `origin: "byog"` only when
+the relation chunk belongs to a source listed in the verified sync manifest's
+`byog_sources` and its context carries the exact evidence-envelope marker. The
+ProductView layer still performs full envelope and evidence validation. A
+relation whose endpoint metadata was not returned remains omitted; do not
+fabricate a repository node from an entity name.
+
+## D-041 — Test code is retrieved separately and ordered last
+
+Status: accepted.
+
+HydraDB ranks one query and cannot be asked to rank a metadata value last. A
+repository question therefore issues two filtered queries: `is_test = false` at
+the full budget, then `is_test = true` in fast mode at a quarter budget. The
+answers are concatenated, implementation first.
+
+Ranking inside each half remains entirely HydraDB's. Only the join order is this
+service's, and it is a fixed rule rather than a local relevance score, so the
+result stays reproducible. This does not reintroduce local reranking under D-019.
+
+A failed second query drops the test tail with a warning; it never fails the
+answer. The `tests` policy accepts `last`, `mixed`, and `only`, so a question
+about the tests can still reach them.
+
+## D-042 — Entry points are proven by manifests, in any language
+
+Status: accepted.
+
+A graph that never names where execution starts cannot explain a system. Entry
+points are detected at index time from evidence a manifest states: Python main
+guards and `__main__.py`, `pyproject.toml` console scripts, `package.json`
+`bin`/`main`/`scripts.start`, Dockerfile `ENTRYPOINT`/`CMD`, and `Procfile`
+lines. A token that does not resolve to a discovered repository file proves
+nothing and is dropped.
+
+Detection sets `is_entry_point` and `entry_reasons` node attributes and one
+filterable card metadata field. It never changes a node's kind or qualified
+name, so stable IDs do not churn. `NodeKind.ENTRYPOINT` stays unused here
+because it requires a source span that a file-level entry does not have.
+
+A non-Python file becomes a `FILE` node only when a manifest proves it starts
+the system, and it never enters the Python import-resolution map: `import
+web.index` must not resolve onto `web/index.js` and claim an unproven exact edge.
+
+## D-043 — Complete the answer window before grounding the graph
+
+Status: accepted.
+
+A relation is shown only when every chunk it cites came back in the same answer.
+The code that connects two matched symbols is rarely a word match for the
+question, so it stays outside the window and every relation through it is dropped
+as ungrounded. That is why a correct graph arrives as disconnected pairs.
+
+Two directions are missing and they need different seeds. A relation the answer
+already holds names the code it reaches, so its endpoints find the callees. But
+nothing in the answer names the callers, because a card's BYOG graph holds only
+the relations that card owns. Every card does list its incoming relations by
+name in its content, so searching for the matched qualified names finds the code
+that calls them.
+
+The completion read therefore seeds from both, interleaved so neither direction
+starves the other, and it excludes test sources because a test that calls the
+same symbol matches equally well while connecting nothing. It repeats for at most
+`COMPLETION_ROUNDS` rounds and stops as soon as a round adds nothing: an entry
+point usually sits several calls above the matched code, so a single round
+reaches the caller and stops one step short of where execution starts.
+
+Each round is bounded by `HYDRA_DB_COMPLETION_SOURCES` (0 disables completion). A
+returned card that does not carry the requested revision is discarded rather than
+mixed in. The cost is a small number of fast queries plus cached relation reads.
+
+## D-044 — Ordered flow paths are presentation order over proven hops
+
+Status: accepted.
+
+Disconnected pairs do not explain a system; ordered steps do. After grounding,
+the service assembles the already-returned, already-proven relations into paths
+that run from an entry point to the code that matched the question, and places
+them ahead of HydraDB's own path ranking.
+
+Assembly may only order and select. It must never invent a hop, a node, or a
+transitive edge that was not returned. Anchors prefer proven entry points, then
+zero in-degree non-test entities; targets prefer top-ranked non-test chunks.
+Preferring implementation code is never a refusal to answer, so an all-test
+slice still yields a path. An entity with no returned chunk may be walked
+through but can never be an anchor or a target, because nothing proves what it
+is. A path shorter than two hops is not a flow and is not emitted.
+
+An assembled path replaces the group it was built from, so one chain is never
+shown or budgeted twice. This is the same category as D-023 aggregation:
+presentation compression, not a new semantic claim.
+
+## D-045 — Mode intent travels as filters, never as query prose
+
+Status: accepted.
+
+Sending "Return the concrete repository structure at file depth and its exact
+relations." to semantic retrieval matches cards whose text resembles that
+sentence, so it returns whatever code discusses structure rather than the
+structure. Every mode was doing this, which is why every tab returned unusable
+results.
+
+Intent that a filter can carry travels as a filter: entity kinds, revision,
+test policy, and entry-point selection. `query_by` and `mode` carry the rest.
+The query text is reserved for the user's own words and for real symbol names.
+The same rule binds MCP tools: `focus_symbol` searches for the symbol and path
+only, and applies direction and relation choices by selecting among returned
+proven hops, exactly as a predicate chip does in the panel.

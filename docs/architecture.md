@@ -46,8 +46,10 @@ Compare and Preserve queries
 
 ## Local analysis
 
-The Python discovery layer walks one validated repository scope at a time. It respects
-`.gitignore`, `.hydraignore`, explicit deny globs, common secret filenames and
+The Python discovery layer walks one validated repository scope at a time. In a
+Git workspace it uses Git's own visible-file set, so nested `.gitignore`, local
+and global excludes, negations, and tracked-file behavior stay exact. It also respects
+`.hydraignore`, explicit deny globs, common secret filenames and
 content signatures, binary detection, file-size limits, and symlink exclusion.
 It returns both eligible files and reasons for ignored paths.
 
@@ -68,14 +70,18 @@ Each relation has one canonical owning source. Only exact owned relations enter
 the source's BYOG graph. Inferred relations can remain in Graph IR for an
 explicit opt-in view, but they are not uploaded as exact BYOG facts.
 
-If an entity owns no exact relation, its BYOG graph is empty. The implementation
-does not invent a self-edge merely to keep an entity connected, and the empty
-payload prevents automatic extraction from manufacturing repository structure
-for that source.
+If an entity owns no exact relation, its source card remains in
+`app_knowledge` but has no entry in `graph_payload`. HydraDB rejects keyed BYOG
+items without both an entity and a relation. The implementation does not invent
+a self-edge or duplicate another source's exact edge. Automatic relations from
+an unkeyed card stay non-exact because product views require BYOG origin and the
+deterministic evidence envelope.
 
 The sync service batches additions and full-source replacements, waits for
 indexing status, and confirms deletions before publishing a revision as ready.
-Its durable manifest stores source IDs and card hashes only. It contains no
+Its durable manifest stores source IDs, card hashes, and the IDs that most
+recently carried BYOG. The last field lets a later relation-free replacement
+delete a persistent old BYOG graph before re-ingest. The manifest contains no
 searchable graph content.
 
 ## Query and view flow
@@ -100,7 +106,21 @@ Normalized chunks, sources, paths, relations, and warnings
 The query service assigns session and view IDs, applies budgets, and normalizes
 HydraDB's response into the versioned product response. It may reject unsafe or
 mixed-revision data, deduplicate it, and truncate it to an explicit budget. It
-does not rerank HydraDB results or substitute local results.
+does not score or reorder results inside a HydraDB answer, and it never
+substitutes local results.
+
+A repository question is answered by two filtered HydraDB queries: implementation
+code first, then a small, fast test-code tail. HydraDB ranks each half; only the
+join between them is a fixed service rule. The service then reads the stored
+graph of the returned sources, fetches the connecting records those relations
+name but the answer did not return, and assembles the proven hops into ordered
+paths that start at a detected entry point. Assembly orders and selects hops that
+HydraDB already returned and proved; it never invents one.
+
+Each mode carries its intent as metadata filters, `query_by`, and `mode`, not as
+instruction prose inside the query text. A sentence sent to semantic retrieval
+matches cards whose text resembles it, which returns code that discusses a
+subject instead of the subject itself.
 
 The view service turns only that normalized HydraDB result into Repository,
 Explore, Trace, Observe, Compare, or Preserve view data. Its in-process view

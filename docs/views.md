@@ -156,7 +156,7 @@ See [Save and maintain a System Lens](workflows.md#save-and-maintain-a-system-le
 ## Empty and degraded states
 
 - **No verified index:** use **Index this workspace** from the sidebar, view title, or Command Palette.
-- **No bounded graph slice:** narrow the question or use a literal file or symbol name.
+- **Empty graph:** the panel names the stage that emptied it. Narrow the question only when it reports that HydraDB matched no repository source. A dropped relation group or a hop without node grounding calls for indexing again, and a timeout or a refusal names the HydraDB reason instead. See [Read the query funnel](troubleshooting.md#read-the-query-funnel).
 - **No Compare pair or Preserve lens:** run the corresponding workflow; the extension does not invent IDs.
 - **Indexing:** wait for the candidate to become ready. The last verified revision is labeled separately.
 - **Service unavailable:** configure or retry the loopback service. The interaction preview remains usable for learning the controls but is never labeled as HydraDB data.

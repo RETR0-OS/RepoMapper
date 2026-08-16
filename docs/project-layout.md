@@ -89,8 +89,12 @@ Important paths under `extension/src/`:
 
 - the opaque persistent repository identity;
 - the last verified synchronization manifest;
+- a minimal interrupted-sync safety marker while a remote mutation may be incomplete;
 - at most one `before` and one `after` checkpoint for deterministic comparison.
 
 The application never searches those files to answer repository questions. Production retrieval comes from HydraDB.
 
 Generated builds, evaluation artifacts, virtual environments, coverage output, and runtime state are ignored by Git.
+The extension and sync service create `.hydra-graph/.gitignore` without
+changing the project's root ignore rules, so runtime identity, manifests, and
+checkpoints do not appear as untracked project files.
