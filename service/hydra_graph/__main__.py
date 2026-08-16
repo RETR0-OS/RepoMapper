@@ -8,6 +8,24 @@ import sys
 from collections.abc import Sequence
 
 
+def _managed_log_config() -> dict[str, object]:
+    """Return uvicorn's logging with every handler moved off stdout.
+
+    The managed IPC channel is stdout, so uvicorn's access log must go to stderr;
+    VS Code shows that stream in the Repository Map Service output channel.
+    """
+
+    from copy import deepcopy
+
+    from uvicorn.config import LOGGING_CONFIG
+
+    config = deepcopy(LOGGING_CONFIG)
+    for handler in config.get("handlers", {}).values():
+        if handler.get("stream") == "ext://sys.stdout":
+            handler["stream"] = "ext://sys.stderr"
+    return config
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Hack Hydra repository service")
     subparsers = parser.add_subparsers(dest="command")
@@ -111,7 +129,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         from .mcp_oauth import ManagedOAuthProvider
         from .security import ManagedSecurity
 
-        channel, start = ManagedIpc.bootstrap(sys.stdin, sys.stdout)
+        # Managed IPC owns the real stdout. Point sys.stdout at stderr first so a
+        # stray print() from any bundled library cannot corrupt the protocol stream.
+        ipc_writer = sys.stdout
+        sys.stdout = sys.stderr
+        channel, start = ManagedIpc.bootstrap(sys.stdin, ipc_writer)
         config = HydraDBConfig(
             api_key=None,
             database="",
@@ -149,6 +171,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             managed_app,
             host="127.0.0.1",
             port=port,
+            log_config=_managed_log_config(),
         )
         return 0
 
