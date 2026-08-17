@@ -1,4 +1,5 @@
 import { Waypoints } from "lucide-react"
+import { withBase } from "@/lib/utils"
 
 const productLinks = [
   { name: "Product", link: "/#views" },
@@ -7,14 +8,14 @@ const productLinks = [
   { name: "Docs", link: "/docs.html" },
   { name: "Download", link: "/#download" },
   { name: "FAQ", link: "/#faq" },
-]
+].map((item) => ({ ...item, link: withBase(item.link) }))
 
 export function Footer() {
   return (
     <footer className="border-t border-border py-12">
       <div className="mx-auto grid max-w-6xl grid-cols-1 gap-8 px-6 md:grid-cols-3">
         <div>
-          <a href="/" className="flex items-center gap-2">
+          <a href={withBase("/")} className="flex items-center gap-2">
             <span className="flex h-7 w-7 items-center justify-center rounded-md border border-lime/40 bg-lime-soft text-lime">
               <Waypoints className="h-4 w-4" strokeWidth={2} />
             </span>

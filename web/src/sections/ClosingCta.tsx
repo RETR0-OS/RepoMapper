@@ -1,6 +1,7 @@
 import { ArrowRight, Download } from "lucide-react"
 import { Reveal } from "@/components/motion/Reveal"
 import { Button } from "@/components/ui/button"
+import { withBase } from "@/lib/utils"
 import { closingCta } from "@/content/copy"
 
 /**
@@ -38,7 +39,7 @@ export function ClosingCta() {
               </a>
             </Button>
             <Button asChild size="lg" variant="outline" className="h-11 px-5">
-              <a href="/docs.html">
+              <a href={withBase("/docs.html")}>
                 {closingCta.secondaryCta}
                 <ArrowRight className="size-4" />
               </a>

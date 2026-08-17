@@ -6,6 +6,7 @@ import { BorderBeam } from "@/components/ui/border-beam"
 import { DottedGlowBackground } from "@/components/ui/dotted-glow-background"
 import { GraphMock } from "@/components/product/GraphMock"
 import { EASE_OUT_EXPO } from "@/components/motion/Reveal"
+import { withBase } from "@/lib/utils"
 import { hero } from "@/content/copy"
 
 export function Hero() {
@@ -83,7 +84,7 @@ export function Hero() {
             </a>
           </Button>
           <Button asChild size="lg" variant="outline" className="h-11 px-5">
-            <a href="/docs.html">
+            <a href={withBase("/docs.html")}>
               {hero.secondaryCta}
               <ArrowRight className="size-4" />
             </a>
